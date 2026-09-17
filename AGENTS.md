@@ -12,6 +12,8 @@
 - For shell commands, prefer `lean-ctx -c "<command>"` or `ctx_shell`. For file exploration, prefer `ctx_read`/`ctx_search` over broad dumps.
 - Use `task` or `signatures` reads for orientation, `anchored` reads before edits, and `diff` reads after edits. Keep context local and recover omitted details with targeted searches or `ctx_expand` when available.
 - Use `ctx_patch` when the lean-ctx profile exposes it. Otherwise use the workspace editor/apply-patch tooling. If lean-ctx is unavailable, continue with the narrowest native VS Code or PowerShell tool rather than blocking.
+- The lean-ctx tool profile is set to `power` (full tool registry). Prefer `ctx_*` tools over native search/read/terminal equivalents whenever both are available.
+- All network traffic goes through the local proxy `http://127.0.0.1:3001` (VS Code `http.proxy`, integrated-terminal `HTTP_PROXY`/`HTTPS_PROXY`, repo-local git config, lean-ctx MCP env). Do not bypass it or disable TLS verification.
 - Before a change, identify the code path that directly controls the behavior and one cheap executable check that can disconfirm the hypothesis. After the first edit, run that focused check before broadening the work.
 
 ## Run and verify
