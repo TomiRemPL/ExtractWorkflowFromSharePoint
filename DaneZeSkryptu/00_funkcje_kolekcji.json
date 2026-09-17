@@ -1,0 +1,146 @@
+[
+ {
+  "DefinitionId": "0c8a9a47-22a9-4798-82f1-00e62a96006e",
+  "DisplayName": "DocumentRoutingResources"
+ },
+ {
+  "DefinitionId": "068bc832-4951-11dc-8314-0800200c9a66",
+  "DisplayName": "EnhancedTheming"
+ },
+ {
+  "DefinitionId": "915c240e-a6cc-49b8-8b2c-0bff8b553ed3",
+  "DisplayName": "Ratings"
+ },
+ {
+  "DefinitionId": "2ed1c45e-a73b-4779-ae81-1524e4de467a",
+  "DisplayName": "WebPartAdderGroups"
+ },
+ {
+  "DefinitionId": "0561d315-d5db-4736-929e-26da142812c5",
+  "DisplayName": "NintexWorkflow"
+ },
+ {
+  "DefinitionId": "695b6570-a48b-4a8e-8ea5-26ea7fc1d162",
+  "DisplayName": "CTypes"
+ },
+ {
+  "DefinitionId": "c4773de6-ba70-4583-b751-2a7b1dc67e3a",
+  "DisplayName": "SignaturesWorkflowSPD"
+ },
+ {
+  "DefinitionId": "4326e7fc-f35a-4b0f-927c-36264b0a4cf0",
+  "DisplayName": "SocialSite"
+ },
+ {
+  "DefinitionId": "a42f749f-8633-48b7-9b22-403b40190409",
+  "DisplayName": "SignaturesWorkflowSPD1033"
+ },
+ {
+  "DefinitionId": "a42f749f-8633-48b7-9b22-403b40190415",
+  "DisplayName": "SignaturesWorkflowSPD1045"
+ },
+ {
+  "DefinitionId": "c85e5759-f323-4efb-b548-443d2216efb5",
+  "DisplayName": "ExpirationWorkflow"
+ },
+ {
+  "DefinitionId": "39d18bbf-6e0f-4321-8f16-4e3b51212393",
+  "DisplayName": "ItemFormRecommendations"
+ },
+ {
+  "DefinitionId": "ca7bd552-10b1-4563-85b9-5ed1d39c962a",
+  "DisplayName": "Fields"
+ },
+ {
+  "DefinitionId": "5b79b49a-2da6-4161-95bd-7375c1995ef9",
+  "DisplayName": "MediaWebPart"
+ },
+ {
+  "DefinitionId": "c9c9515d-e4e2-4001-9050-74f980f93160",
+  "DisplayName": "OffWFCommon"
+ },
+ {
+  "DefinitionId": "b21b090c-c796-4b0f-ac0f-7ef1659c20ae",
+  "DisplayName": "BaseSite"
+ },
+ {
+  "DefinitionId": "5f3b0127-2f1d-4cfd-8dd2-85ad1fb00bfc",
+  "DisplayName": "PortalLayouts"
+ },
+ {
+  "DefinitionId": "0af5989a-3aea-4519-8ab0-85d91abe39ff",
+  "DisplayName": "Workflows"
+ },
+ {
+  "DefinitionId": "fde5d850-671e-4143-950a-87b473922dc7",
+  "DisplayName": "IssueTrackingWorkflow"
+ },
+ {
+  "DefinitionId": "b5934f65-a844-4e67-82e5-92f66aafe912",
+  "DisplayName": "ReviewWorkflowsSPD"
+ },
+ {
+  "DefinitionId": "3bc0c1e1-b7d5-4e82-afd7-9f7e59b60409",
+  "DisplayName": "ReviewWorkflowsSPD1033"
+ },
+ {
+  "DefinitionId": "3bc0c1e1-b7d5-4e82-afd7-9f7e59b60415",
+  "DisplayName": "ReviewWorkflowsSPD1045"
+ },
+ {
+  "DefinitionId": "eaf6a128-0482-4f71-9a2f-b1c650680e77",
+  "DisplayName": "SearchWebParts"
+ },
+ {
+  "DefinitionId": "063c26fa-3ccc-4180-8a84-b6f98e991df3",
+  "DisplayName": "LocationBasedPolicy"
+ },
+ {
+  "DefinitionId": "5bccb9a4-b903-4fd1-8620-b795fa33c9ba",
+  "DisplayName": "RecordResources"
+ },
+ {
+  "DefinitionId": "00bfea71-1c5e-4a24-b310-ba51c3eb7a57",
+  "DisplayName": "BasicWebParts"
+ },
+ {
+  "DefinitionId": "6e1e5426-2ebd-4871-8027-c5ca86371ead",
+  "DisplayName": "VideoAndRichMedia"
+ },
+ {
+  "DefinitionId": "86c83d16-605d-41b4-bfdd-c75947899ac7",
+  "DisplayName": "NintexWorkflowContentTypeUpgrade"
+ },
+ {
+  "DefinitionId": "14aafd3a-fcb9-4bb7-9ad7-d8e36b663bbd",
+  "DisplayName": "LocalSiteDirectoryControl"
+ },
+ {
+  "DefinitionId": "4bcccd62-dcaf-46dc-a7d4-e38277ef33f4",
+  "DisplayName": "AssetLibrary"
+ },
+ {
+  "DefinitionId": "ff77ac56-88d0-4147-b865-e84f5f03fc42",
+  "DisplayName": "SitePageResources"
+ },
+ {
+  "DefinitionId": "73ef14b1-13a9-416b-a9b5-ececa2b0604c",
+  "DisplayName": "TaxonomyFieldAdded"
+ },
+ {
+  "DefinitionId": "c6561405-ea03-40a9-a57f-f25472942a22",
+  "DisplayName": "TranslationWorkflow"
+ },
+ {
+  "DefinitionId": "8b2c6bcb-c47f-4f17-8127-f8eae47a44dd",
+  "DisplayName": "SearchTemplatesandResources"
+ },
+ {
+  "DefinitionId": "3bae86a2-776d-499d-9db8-fa4cdc7884f8",
+  "DisplayName": "DocumentSet"
+ },
+ {
+  "DefinitionId": "7094bd89-2cfe-490a-8c7e-fbace37b4a34",
+  "DisplayName": "Reporting"
+ }
+]

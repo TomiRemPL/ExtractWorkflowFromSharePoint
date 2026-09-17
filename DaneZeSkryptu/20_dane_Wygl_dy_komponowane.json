@@ -1,0 +1,599 @@
+[
+ {
+  "FileSystemObjectType": 0,
+  "Id": 1,
+  "ServerRedirectedEmbedUri": null,
+  "ServerRedirectedEmbedUrl": "",
+  "ID": 1,
+  "ContentTypeId": "0x00D01116286B6B2D4D9A68BCB7BC9FF634",
+  "Title": "Bieżący",
+  "Modified": "2024-10-04T13:28:06Z",
+  "Created": "2024-10-04T13:28:06Z",
+  "AuthorId": 16,
+  "EditorId": 16,
+  "OData__UIVersionString": "1.0",
+  "Attachments": false,
+  "GUID": "6da7b146-712f-4e1a-9e45-466772c74776",
+  "FileRef": "/team/BiuroIT/dora/_catalogs/design/1_.000",
+  "FileDirRef": "/team/BiuroIT/dora/_catalogs/design",
+  "ComplianceAssetId": null,
+  "Name": "Bieżący",
+  "MasterPageUrl": null,
+  "ThemeUrl": null,
+  "ImageUrl": null,
+  "FontSchemeUrl": null,
+  "DisplayOrder": 0
+ },
+ {
+  "FileSystemObjectType": 0,
+  "Id": 2,
+  "ServerRedirectedEmbedUri": null,
+  "ServerRedirectedEmbedUrl": "",
+  "ID": 2,
+  "ContentTypeId": "0x00D01116286B6B2D4D9A68BCB7BC9FF634",
+  "Title": "Pomarańczowy",
+  "Modified": "2024-10-04T13:28:06Z",
+  "Created": "2024-10-04T13:28:06Z",
+  "AuthorId": 16,
+  "EditorId": 16,
+  "OData__UIVersionString": "1.0",
+  "Attachments": false,
+  "GUID": "437ba919-de91-46e7-ba87-fd3090ec7090",
+  "FileRef": "/team/BiuroIT/dora/_catalogs/design/2_.000",
+  "FileDirRef": "/team/BiuroIT/dora/_catalogs/design",
+  "ComplianceAssetId": null,
+  "Name": "Pomarańczowy",
+  "MasterPageUrl": {
+   "Description": "/team/BiuroIT/dora/_catalogs/masterpage/seattle.master",
+   "Url": "https://teams.sp.creditagricole/team/BiuroIT/dora/_catalogs/masterpage/seattle.master"
+  },
+  "ThemeUrl": {
+   "Description": "/team/BiuroIT/_catalogs/theme/15/palette015.spcolor",
+   "Url": "https://teams.sp.creditagricole/team/BiuroIT/_catalogs/theme/15/palette015.spcolor"
+  },
+  "ImageUrl": null,
+  "FontSchemeUrl": null,
+  "DisplayOrder": 10
+ },
+ {
+  "FileSystemObjectType": 0,
+  "Id": 3,
+  "ServerRedirectedEmbedUri": null,
+  "ServerRedirectedEmbedUrl": "",
+  "ID": 3,
+  "ContentTypeId": "0x00D01116286B6B2D4D9A68BCB7BC9FF634",
+  "Title": "Potwór morski",
+  "Modified": "2024-10-04T13:28:06Z",
+  "Created": "2024-10-04T13:28:06Z",
+  "AuthorId": 16,
+  "EditorId": 16,
+  "OData__UIVersionString": "1.0",
+  "Attachments": false,
+  "GUID": "f1ad50ab-16d5-4e39-97f4-e329ab70a84b",
+  "FileRef": "/team/BiuroIT/dora/_catalogs/design/3_.000",
+  "FileDirRef": "/team/BiuroIT/dora/_catalogs/design",
+  "ComplianceAssetId": null,
+  "Name": "Potwór morski",
+  "MasterPageUrl": {
+   "Description": "/team/BiuroIT/dora/_catalogs/masterpage/oslo.master",
+   "Url": "https://teams.sp.creditagricole/team/BiuroIT/dora/_catalogs/masterpage/oslo.master"
+  },
+  "ThemeUrl": {
+   "Description": "/team/BiuroIT/_catalogs/theme/15/palette005.spcolor",
+   "Url": "https://teams.sp.creditagricole/team/BiuroIT/_catalogs/theme/15/palette005.spcolor"
+  },
+  "ImageUrl": {
+   "Description": "/_layouts/15/images/image_bg005.jpg",
+   "Url": "https://teams.sp.creditagricole/_layouts/15/images/image_bg005.jpg"
+  },
+  "FontSchemeUrl": {
+   "Description": "/team/BiuroIT/_catalogs/theme/15/fontscheme003.spfont",
+   "Url": "https://teams.sp.creditagricole/team/BiuroIT/_catalogs/theme/15/fontscheme003.spfont"
+  },
+  "DisplayOrder": 20
+ },
+ {
+  "FileSystemObjectType": 0,
+  "Id": 4,
+  "ServerRedirectedEmbedUri": null,
+  "ServerRedirectedEmbedUrl": "",
+  "ID": 4,
+  "ContentTypeId": "0x00D01116286B6B2D4D9A68BCB7BC9FF634",
+  "Title": "Zielony",
+  "Modified": "2024-10-04T13:28:06Z",
+  "Created": "2024-10-04T13:28:06Z",
+  "AuthorId": 16,
+  "EditorId": 16,
+  "OData__UIVersionString": "1.0",
+  "Attachments": false,
+  "GUID": "973d5ed2-7fc8-4497-899a-b152a1cf7c61",
+  "FileRef": "/team/BiuroIT/dora/_catalogs/design/4_.000",
+  "FileDirRef": "/team/BiuroIT/dora/_catalogs/design",
+  "ComplianceAssetId": null,
+  "Name": "Zielony",
+  "MasterPageUrl": {
+   "Description": "/team/BiuroIT/dora/_catalogs/masterpage/seattle.master",
+   "Url": "https://teams.sp.creditagricole/team/BiuroIT/dora/_catalogs/masterpage/seattle.master"
+  },
+  "ThemeUrl": {
+   "Description": "/team/BiuroIT/_catalogs/theme/15/palette013.spcolor",
+   "Url": "https://teams.sp.creditagricole/team/BiuroIT/_catalogs/theme/15/palette013.spcolor"
+  },
+  "ImageUrl": null,
+  "FontSchemeUrl": null,
+  "DisplayOrder": 30
+ },
+ {
+  "FileSystemObjectType": 0,
+  "Id": 5,
+  "ServerRedirectedEmbedUri": null,
+  "ServerRedirectedEmbedUrl": "",
+  "ID": 5,
+  "ContentTypeId": "0x00D01116286B6B2D4D9A68BCB7BC9FF634",
+  "Title": "Limonowy",
+  "Modified": "2024-10-04T13:28:06Z",
+  "Created": "2024-10-04T13:28:06Z",
+  "AuthorId": 16,
+  "EditorId": 16,
+  "OData__UIVersionString": "1.0",
+  "Attachments": false,
+  "GUID": "4cd4dc37-7f64-47d6-91af-3cca02ce0822",
+  "FileRef": "/team/BiuroIT/dora/_catalogs/design/5_.000",
+  "FileDirRef": "/team/BiuroIT/dora/_catalogs/design",
+  "ComplianceAssetId": null,
+  "Name": "Limonowy",
+  "MasterPageUrl": {
+   "Description": "/team/BiuroIT/dora/_catalogs/masterpage/seattle.master",
+   "Url": "https://teams.sp.creditagricole/team/BiuroIT/dora/_catalogs/masterpage/seattle.master"
+  },
+  "ThemeUrl": {
+   "Description": "/team/BiuroIT/_catalogs/theme/15/palette026.spcolor",
+   "Url": "https://teams.sp.creditagricole/team/BiuroIT/_catalogs/theme/15/palette026.spcolor"
+  },
+  "ImageUrl": null,
+  "FontSchemeUrl": null,
+  "DisplayOrder": 40
+ },
+ {
+  "FileSystemObjectType": 0,
+  "Id": 6,
+  "ServerRedirectedEmbedUri": null,
+  "ServerRedirectedEmbedUrl": "",
+  "ID": 6,
+  "ContentTypeId": "0x00D01116286B6B2D4D9A68BCB7BC9FF634",
+  "Title": "Natura",
+  "Modified": "2024-10-04T13:28:06Z",
+  "Created": "2024-10-04T13:28:06Z",
+  "AuthorId": 16,
+  "EditorId": 16,
+  "OData__UIVersionString": "1.0",
+  "Attachments": false,
+  "GUID": "9247428b-592d-4e47-b5f5-8bf5340cec3d",
+  "FileRef": "/team/BiuroIT/dora/_catalogs/design/6_.000",
+  "FileDirRef": "/team/BiuroIT/dora/_catalogs/design",
+  "ComplianceAssetId": null,
+  "Name": "Natura",
+  "MasterPageUrl": {
+   "Description": "/team/BiuroIT/dora/_catalogs/masterpage/seattle.master",
+   "Url": "https://teams.sp.creditagricole/team/BiuroIT/dora/_catalogs/masterpage/seattle.master"
+  },
+  "ThemeUrl": {
+   "Description": "/team/BiuroIT/_catalogs/theme/15/palette006.spcolor",
+   "Url": "https://teams.sp.creditagricole/team/BiuroIT/_catalogs/theme/15/palette006.spcolor"
+  },
+  "ImageUrl": {
+   "Description": "/_layouts/15/images/image_bg006.jpg",
+   "Url": "https://teams.sp.creditagricole/_layouts/15/images/image_bg006.jpg"
+  },
+  "FontSchemeUrl": {
+   "Description": "/team/BiuroIT/_catalogs/theme/15/fontscheme001.spfont",
+   "Url": "https://teams.sp.creditagricole/team/BiuroIT/_catalogs/theme/15/fontscheme001.spfont"
+  },
+  "DisplayOrder": 50
+ },
+ {
+  "FileSystemObjectType": 0,
+  "Id": 7,
+  "ServerRedirectedEmbedUri": null,
+  "ServerRedirectedEmbedUrl": "",
+  "ID": 7,
+  "ContentTypeId": "0x00D01116286B6B2D4D9A68BCB7BC9FF634",
+  "Title": "Kwiat",
+  "Modified": "2024-10-04T13:28:06Z",
+  "Created": "2024-10-04T13:28:06Z",
+  "AuthorId": 16,
+  "EditorId": 16,
+  "OData__UIVersionString": "1.0",
+  "Attachments": false,
+  "GUID": "2ae5fe4a-e7ce-4875-9bef-55639e8dbe1e",
+  "FileRef": "/team/BiuroIT/dora/_catalogs/design/7_.000",
+  "FileDirRef": "/team/BiuroIT/dora/_catalogs/design",
+  "ComplianceAssetId": null,
+  "Name": "Kwiat",
+  "MasterPageUrl": {
+   "Description": "/team/BiuroIT/dora/_catalogs/masterpage/seattle.master",
+   "Url": "https://teams.sp.creditagricole/team/BiuroIT/dora/_catalogs/masterpage/seattle.master"
+  },
+  "ThemeUrl": {
+   "Description": "/team/BiuroIT/_catalogs/theme/15/palette002.spcolor",
+   "Url": "https://teams.sp.creditagricole/team/BiuroIT/_catalogs/theme/15/palette002.spcolor"
+  },
+  "ImageUrl": {
+   "Description": "/_layouts/15/images/image_bg002.jpg",
+   "Url": "https://teams.sp.creditagricole/_layouts/15/images/image_bg002.jpg"
+  },
+  "FontSchemeUrl": null,
+  "DisplayOrder": 60
+ },
+ {
+  "FileSystemObjectType": 0,
+  "Id": 8,
+  "ServerRedirectedEmbedUri": null,
+  "ServerRedirectedEmbedUrl": "",
+  "ID": 8,
+  "ContentTypeId": "0x00D01116286B6B2D4D9A68BCB7BC9FF634",
+  "Title": "Szkic",
+  "Modified": "2024-10-04T13:28:07Z",
+  "Created": "2024-10-04T13:28:07Z",
+  "AuthorId": 16,
+  "EditorId": 16,
+  "OData__UIVersionString": "1.0",
+  "Attachments": false,
+  "GUID": "888c7bec-f23c-470e-a8b7-3ee7ece2ffb0",
+  "FileRef": "/team/BiuroIT/dora/_catalogs/design/8_.000",
+  "FileDirRef": "/team/BiuroIT/dora/_catalogs/design",
+  "ComplianceAssetId": null,
+  "Name": "Szkic",
+  "MasterPageUrl": {
+   "Description": "/team/BiuroIT/dora/_catalogs/masterpage/oslo.master",
+   "Url": "https://teams.sp.creditagricole/team/BiuroIT/dora/_catalogs/masterpage/oslo.master"
+  },
+  "ThemeUrl": {
+   "Description": "/team/BiuroIT/_catalogs/theme/15/palette008.spcolor",
+   "Url": "https://teams.sp.creditagricole/team/BiuroIT/_catalogs/theme/15/palette008.spcolor"
+  },
+  "ImageUrl": {
+   "Description": "/_layouts/15/images/image_bg008.jpg",
+   "Url": "https://teams.sp.creditagricole/_layouts/15/images/image_bg008.jpg"
+  },
+  "FontSchemeUrl": {
+   "Description": "/team/BiuroIT/_catalogs/theme/15/fontscheme003.spfont",
+   "Url": "https://teams.sp.creditagricole/team/BiuroIT/_catalogs/theme/15/fontscheme003.spfont"
+  },
+  "DisplayOrder": 70
+ },
+ {
+  "FileSystemObjectType": 0,
+  "Id": 9,
+  "ServerRedirectedEmbedUri": null,
+  "ServerRedirectedEmbedUrl": "",
+  "ID": 9,
+  "ContentTypeId": "0x00D01116286B6B2D4D9A68BCB7BC9FF634",
+  "Title": "Miasto",
+  "Modified": "2024-10-04T13:28:07Z",
+  "Created": "2024-10-04T13:28:07Z",
+  "AuthorId": 16,
+  "EditorId": 16,
+  "OData__UIVersionString": "1.0",
+  "Attachments": false,
+  "GUID": "595d08b7-d26e-4ee6-99f8-a4428ab4821a",
+  "FileRef": "/team/BiuroIT/dora/_catalogs/design/9_.000",
+  "FileDirRef": "/team/BiuroIT/dora/_catalogs/design",
+  "ComplianceAssetId": null,
+  "Name": "Miasto",
+  "MasterPageUrl": {
+   "Description": "/team/BiuroIT/dora/_catalogs/masterpage/seattle.master",
+   "Url": "https://teams.sp.creditagricole/team/BiuroIT/dora/_catalogs/masterpage/seattle.master"
+  },
+  "ThemeUrl": {
+   "Description": "/team/BiuroIT/_catalogs/theme/15/palette004.spcolor",
+   "Url": "https://teams.sp.creditagricole/team/BiuroIT/_catalogs/theme/15/palette004.spcolor"
+  },
+  "ImageUrl": {
+   "Description": "/_layouts/15/images/image_bg004.jpg",
+   "Url": "https://teams.sp.creditagricole/_layouts/15/images/image_bg004.jpg"
+  },
+  "FontSchemeUrl": null,
+  "DisplayOrder": 80
+ },
+ {
+  "FileSystemObjectType": 0,
+  "Id": 10,
+  "ServerRedirectedEmbedUri": null,
+  "ServerRedirectedEmbedUrl": "",
+  "ID": 10,
+  "ContentTypeId": "0x00D01116286B6B2D4D9A68BCB7BC9FF634",
+  "Title": "Orbita",
+  "Modified": "2024-10-04T13:28:07Z",
+  "Created": "2024-10-04T13:28:07Z",
+  "AuthorId": 16,
+  "EditorId": 16,
+  "OData__UIVersionString": "1.0",
+  "Attachments": false,
+  "GUID": "a6c63e36-d863-449f-b498-cd37825b49c3",
+  "FileRef": "/team/BiuroIT/dora/_catalogs/design/10_.000",
+  "FileDirRef": "/team/BiuroIT/dora/_catalogs/design",
+  "ComplianceAssetId": null,
+  "Name": "Orbita",
+  "MasterPageUrl": {
+   "Description": "/team/BiuroIT/dora/_catalogs/masterpage/seattle.master",
+   "Url": "https://teams.sp.creditagricole/team/BiuroIT/dora/_catalogs/masterpage/seattle.master"
+  },
+  "ThemeUrl": {
+   "Description": "/team/BiuroIT/_catalogs/theme/15/palette009.spcolor",
+   "Url": "https://teams.sp.creditagricole/team/BiuroIT/_catalogs/theme/15/palette009.spcolor"
+  },
+  "ImageUrl": {
+   "Description": "/_layouts/15/images/image_bg009.jpg",
+   "Url": "https://teams.sp.creditagricole/_layouts/15/images/image_bg009.jpg"
+  },
+  "FontSchemeUrl": null,
+  "DisplayOrder": 90
+ },
+ {
+  "FileSystemObjectType": 0,
+  "Id": 11,
+  "ServerRedirectedEmbedUri": null,
+  "ServerRedirectedEmbedUrl": "",
+  "ID": 11,
+  "ContentTypeId": "0x00D01116286B6B2D4D9A68BCB7BC9FF634",
+  "Title": "Szary",
+  "Modified": "2024-10-04T13:28:07Z",
+  "Created": "2024-10-04T13:28:07Z",
+  "AuthorId": 16,
+  "EditorId": 16,
+  "OData__UIVersionString": "1.0",
+  "Attachments": false,
+  "GUID": "b77dbb54-f754-42f7-8757-29dd545f6de7",
+  "FileRef": "/team/BiuroIT/dora/_catalogs/design/11_.000",
+  "FileDirRef": "/team/BiuroIT/dora/_catalogs/design",
+  "ComplianceAssetId": null,
+  "Name": "Szary",
+  "MasterPageUrl": {
+   "Description": "/team/BiuroIT/dora/_catalogs/masterpage/seattle.master",
+   "Url": "https://teams.sp.creditagricole/team/BiuroIT/dora/_catalogs/masterpage/seattle.master"
+  },
+  "ThemeUrl": {
+   "Description": "/team/BiuroIT/_catalogs/theme/15/palette032.spcolor",
+   "Url": "https://teams.sp.creditagricole/team/BiuroIT/_catalogs/theme/15/palette032.spcolor"
+  },
+  "ImageUrl": null,
+  "FontSchemeUrl": null,
+  "DisplayOrder": 100
+ },
+ {
+  "FileSystemObjectType": 0,
+  "Id": 12,
+  "ServerRedirectedEmbedUri": null,
+  "ServerRedirectedEmbedUrl": "",
+  "ID": 12,
+  "ContentTypeId": "0x00D01116286B6B2D4D9A68BCB7BC9FF634",
+  "Title": "Znaki",
+  "Modified": "2024-10-04T13:28:07Z",
+  "Created": "2024-10-04T13:28:07Z",
+  "AuthorId": 16,
+  "EditorId": 16,
+  "OData__UIVersionString": "1.0",
+  "Attachments": false,
+  "GUID": "1dc725ce-1bbc-4421-aaec-884b984e433e",
+  "FileRef": "/team/BiuroIT/dora/_catalogs/design/12_.000",
+  "FileDirRef": "/team/BiuroIT/dora/_catalogs/design",
+  "ComplianceAssetId": null,
+  "Name": "Znaki",
+  "MasterPageUrl": {
+   "Description": "/team/BiuroIT/dora/_catalogs/masterpage/seattle.master",
+   "Url": "https://teams.sp.creditagricole/team/BiuroIT/dora/_catalogs/masterpage/seattle.master"
+  },
+  "ThemeUrl": {
+   "Description": "/team/BiuroIT/_catalogs/theme/15/palette007.spcolor",
+   "Url": "https://teams.sp.creditagricole/team/BiuroIT/_catalogs/theme/15/palette007.spcolor"
+  },
+  "ImageUrl": {
+   "Description": "/_layouts/15/images/image_bg007.jpg",
+   "Url": "https://teams.sp.creditagricole/_layouts/15/images/image_bg007.jpg"
+  },
+  "FontSchemeUrl": {
+   "Description": "/team/BiuroIT/_catalogs/theme/15/fontscheme002.spfont",
+   "Url": "https://teams.sp.creditagricole/team/BiuroIT/_catalogs/theme/15/fontscheme002.spfont"
+  },
+  "DisplayOrder": 110
+ },
+ {
+  "FileSystemObjectType": 0,
+  "Id": 13,
+  "ServerRedirectedEmbedUri": null,
+  "ServerRedirectedEmbedUrl": "",
+  "ID": 13,
+  "ContentTypeId": "0x00D01116286B6B2D4D9A68BCB7BC9FF634",
+  "Title": "Pakiet Office",
+  "Modified": "2024-10-04T13:28:07Z",
+  "Created": "2024-10-04T13:28:07Z",
+  "AuthorId": 16,
+  "EditorId": 16,
+  "OData__UIVersionString": "1.0",
+  "Attachments": false,
+  "GUID": "b2eaf20a-7953-4e85-94f4-835a165eba87",
+  "FileRef": "/team/BiuroIT/dora/_catalogs/design/13_.000",
+  "FileDirRef": "/team/BiuroIT/dora/_catalogs/design",
+  "ComplianceAssetId": null,
+  "Name": "Pakiet Office",
+  "MasterPageUrl": {
+   "Description": "/team/BiuroIT/dora/_catalogs/masterpage/seattle.master",
+   "Url": "https://teams.sp.creditagricole/team/BiuroIT/dora/_catalogs/masterpage/seattle.master"
+  },
+  "ThemeUrl": {
+   "Description": "/team/BiuroIT/_catalogs/theme/15/palette001.spcolor",
+   "Url": "https://teams.sp.creditagricole/team/BiuroIT/_catalogs/theme/15/palette001.spcolor"
+  },
+  "ImageUrl": null,
+  "FontSchemeUrl": null,
+  "DisplayOrder": 120
+ },
+ {
+  "FileSystemObjectType": 0,
+  "Id": 14,
+  "ServerRedirectedEmbedUri": null,
+  "ServerRedirectedEmbedUrl": "",
+  "ID": 14,
+  "ContentTypeId": "0x00D01116286B6B2D4D9A68BCB7BC9FF634",
+  "Title": "Bryza",
+  "Modified": "2024-10-04T13:28:07Z",
+  "Created": "2024-10-04T13:28:07Z",
+  "AuthorId": 16,
+  "EditorId": 16,
+  "OData__UIVersionString": "1.0",
+  "Attachments": false,
+  "GUID": "8320fc27-a49e-4f6d-ba9b-0a75b4daeb4a",
+  "FileRef": "/team/BiuroIT/dora/_catalogs/design/14_.000",
+  "FileDirRef": "/team/BiuroIT/dora/_catalogs/design",
+  "ComplianceAssetId": null,
+  "Name": "Bryza",
+  "MasterPageUrl": {
+   "Description": "/team/BiuroIT/dora/_catalogs/masterpage/seattle.master",
+   "Url": "https://teams.sp.creditagricole/team/BiuroIT/dora/_catalogs/masterpage/seattle.master"
+  },
+  "ThemeUrl": {
+   "Description": "/team/BiuroIT/_catalogs/theme/15/palette003.spcolor",
+   "Url": "https://teams.sp.creditagricole/team/BiuroIT/_catalogs/theme/15/palette003.spcolor"
+  },
+  "ImageUrl": {
+   "Description": "/_layouts/15/images/image_bg003.jpg",
+   "Url": "https://teams.sp.creditagricole/_layouts/15/images/image_bg003.jpg"
+  },
+  "FontSchemeUrl": null,
+  "DisplayOrder": 130
+ },
+ {
+  "FileSystemObjectType": 0,
+  "Id": 15,
+  "ServerRedirectedEmbedUri": null,
+  "ServerRedirectedEmbedUrl": "",
+  "ID": 15,
+  "ContentTypeId": "0x00D01116286B6B2D4D9A68BCB7BC9FF634",
+  "Title": "Zanurzenie",
+  "Modified": "2024-10-04T13:28:07Z",
+  "Created": "2024-10-04T13:28:07Z",
+  "AuthorId": 16,
+  "EditorId": 16,
+  "OData__UIVersionString": "1.0",
+  "Attachments": false,
+  "GUID": "5d229e04-413e-42b1-a420-ad32419c955a",
+  "FileRef": "/team/BiuroIT/dora/_catalogs/design/15_.000",
+  "FileDirRef": "/team/BiuroIT/dora/_catalogs/design",
+  "ComplianceAssetId": null,
+  "Name": "Zanurzenie",
+  "MasterPageUrl": {
+   "Description": "/team/BiuroIT/dora/_catalogs/masterpage/oslo.master",
+   "Url": "https://teams.sp.creditagricole/team/BiuroIT/dora/_catalogs/masterpage/oslo.master"
+  },
+  "ThemeUrl": {
+   "Description": "/team/BiuroIT/_catalogs/theme/15/palette010.spcolor",
+   "Url": "https://teams.sp.creditagricole/team/BiuroIT/_catalogs/theme/15/palette010.spcolor"
+  },
+  "ImageUrl": {
+   "Description": "/_layouts/15/images/image_bg010.jpg",
+   "Url": "https://teams.sp.creditagricole/_layouts/15/images/image_bg010.jpg"
+  },
+  "FontSchemeUrl": null,
+  "DisplayOrder": 140
+ },
+ {
+  "FileSystemObjectType": 0,
+  "Id": 16,
+  "ServerRedirectedEmbedUri": null,
+  "ServerRedirectedEmbedUrl": "",
+  "ID": 16,
+  "ContentTypeId": "0x00D01116286B6B2D4D9A68BCB7BC9FF634",
+  "Title": "Czerwony",
+  "Modified": "2024-10-04T13:28:07Z",
+  "Created": "2024-10-04T13:28:07Z",
+  "AuthorId": 16,
+  "EditorId": 16,
+  "OData__UIVersionString": "1.0",
+  "Attachments": false,
+  "GUID": "06b35520-6b94-49c3-b391-d430a80ab3f6",
+  "FileRef": "/team/BiuroIT/dora/_catalogs/design/16_.000",
+  "FileDirRef": "/team/BiuroIT/dora/_catalogs/design",
+  "ComplianceAssetId": null,
+  "Name": "Czerwony",
+  "MasterPageUrl": {
+   "Description": "/team/BiuroIT/dora/_catalogs/masterpage/seattle.master",
+   "Url": "https://teams.sp.creditagricole/team/BiuroIT/dora/_catalogs/masterpage/seattle.master"
+  },
+  "ThemeUrl": {
+   "Description": "/team/BiuroIT/_catalogs/theme/15/palette022.spcolor",
+   "Url": "https://teams.sp.creditagricole/team/BiuroIT/_catalogs/theme/15/palette022.spcolor"
+  },
+  "ImageUrl": null,
+  "FontSchemeUrl": null,
+  "DisplayOrder": 150
+ },
+ {
+  "FileSystemObjectType": 0,
+  "Id": 17,
+  "ServerRedirectedEmbedUri": null,
+  "ServerRedirectedEmbedUrl": "",
+  "ID": 17,
+  "ContentTypeId": "0x00D01116286B6B2D4D9A68BCB7BC9FF634",
+  "Title": "Purpurowy",
+  "Modified": "2024-10-04T13:28:07Z",
+  "Created": "2024-10-04T13:28:07Z",
+  "AuthorId": 16,
+  "EditorId": 16,
+  "OData__UIVersionString": "1.0",
+  "Attachments": false,
+  "GUID": "8dab5ccc-2bb5-49e0-9835-ab2bbd6fdf50",
+  "FileRef": "/team/BiuroIT/dora/_catalogs/design/17_.000",
+  "FileDirRef": "/team/BiuroIT/dora/_catalogs/design",
+  "ComplianceAssetId": null,
+  "Name": "Purpurowy",
+  "MasterPageUrl": {
+   "Description": "/team/BiuroIT/dora/_catalogs/masterpage/seattle.master",
+   "Url": "https://teams.sp.creditagricole/team/BiuroIT/dora/_catalogs/masterpage/seattle.master"
+  },
+  "ThemeUrl": {
+   "Description": "/team/BiuroIT/_catalogs/theme/15/palette031.spcolor",
+   "Url": "https://teams.sp.creditagricole/team/BiuroIT/_catalogs/theme/15/palette031.spcolor"
+  },
+  "ImageUrl": null,
+  "FontSchemeUrl": null,
+  "DisplayOrder": 160
+ },
+ {
+  "FileSystemObjectType": 0,
+  "Id": 18,
+  "ServerRedirectedEmbedUri": null,
+  "ServerRedirectedEmbedUrl": "",
+  "ID": 18,
+  "ContentTypeId": "0x00D01116286B6B2D4D9A68BCB7BC9FF634",
+  "Title": "Drewno",
+  "Modified": "2024-10-04T13:28:07Z",
+  "Created": "2024-10-04T13:28:07Z",
+  "AuthorId": 16,
+  "EditorId": 16,
+  "OData__UIVersionString": "1.0",
+  "Attachments": false,
+  "GUID": "ab58bb81-a16d-448f-a9ce-a0846119b07e",
+  "FileRef": "/team/BiuroIT/dora/_catalogs/design/18_.000",
+  "FileDirRef": "/team/BiuroIT/dora/_catalogs/design",
+  "ComplianceAssetId": null,
+  "Name": "Drewno",
+  "MasterPageUrl": {
+   "Description": "/team/BiuroIT/dora/_catalogs/masterpage/oslo.master",
+   "Url": "https://teams.sp.creditagricole/team/BiuroIT/dora/_catalogs/masterpage/oslo.master"
+  },
+  "ThemeUrl": {
+   "Description": "/team/BiuroIT/_catalogs/theme/15/palette011.spcolor",
+   "Url": "https://teams.sp.creditagricole/team/BiuroIT/_catalogs/theme/15/palette011.spcolor"
+  },
+  "ImageUrl": {
+   "Description": "/_layouts/15/images/image_bg011.jpg",
+   "Url": "https://teams.sp.creditagricole/_layouts/15/images/image_bg011.jpg"
+  },
+  "FontSchemeUrl": {
+   "Description": "/team/BiuroIT/_catalogs/theme/15/fontscheme002.spfont",
+   "Url": "https://teams.sp.creditagricole/team/BiuroIT/_catalogs/theme/15/fontscheme002.spfont"
+  },
+  "DisplayOrder": 170
+ }
+]

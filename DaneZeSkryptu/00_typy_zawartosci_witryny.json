@@ -1,0 +1,1810 @@
+[
+ {
+  "Fields": [
+   {
+    "InternalName": "ContentType",
+    "Required": false,
+    "Title": "Typ zawartości",
+    "TypeAsString": "Computed"
+   },
+   {
+    "InternalName": "Title",
+    "Required": false,
+    "Title": "Kod",
+    "TypeAsString": "Text"
+   },
+   {
+    "InternalName": "_x0030_040_x0020_Typ_x0020_usług_x0020_ICT",
+    "Required": false,
+    "Title": "Typ usług ICT (07.01.0040) old",
+    "TypeAsString": "Choice"
+   },
+   {
+    "InternalName": "_x0030_060_x0020_Powód",
+    "Required": false,
+    "Title": "Powód niezastępowalności (07.01.0060)",
+    "TypeAsString": "Choice"
+   },
+   {
+    "InternalName": "_x0030_080_x0020_Wdrożenie_x0020_planu_x0020_wyjścia",
+    "Required": false,
+    "Title": "Wdrożenie planu wyjścia (07.01.0080)",
+    "TypeAsString": "Boolean"
+   },
+   {
+    "InternalName": "_x0030_0100_x0020_Skutki_x0020_zaprzestania_x0020_świadczenia_x0020_usł.",
+    "Required": false,
+    "Title": "Skutki zaprzestania świadczenia usł. (07.01.00100)",
+    "TypeAsString": "Choice"
+   },
+   {
+    "InternalName": "_x0030_0120_x0020_Identyfikacja_x0020_alternatywnego_x0020_TPP",
+    "Required": false,
+    "Title": "Opis altern. dostawców (07.01.00120)",
+    "TypeAsString": "Note"
+   }
+  ],
+  "Description": "",
+  "Group": "DORA Typy zawartości",
+  "Id": {
+   "StringValue": "0x010013BD7431775F3D4F9D857EB81284753D"
+  },
+  "Name": "Um. - DORA (RT.07.01) (Usunąć)"
+ },
+ {
+  "Fields": [
+   {
+    "InternalName": "ContentType",
+    "Required": false,
+    "Title": "Typ zawartości",
+    "TypeAsString": "Computed"
+   },
+   {
+    "InternalName": "Title",
+    "Required": false,
+    "Title": "Kod",
+    "TypeAsString": "Text"
+   },
+   {
+    "InternalName": "Dostawca_x0020__x0028_DORA_x0029_",
+    "Required": false,
+    "Title": "Dostawca (DORA)",
+    "TypeAsString": "Lookup"
+   },
+   {
+    "InternalName": "Nr_x0020_CRK",
+    "Required": false,
+    "Title": "Nr CRK (02.01.0010)",
+    "TypeAsString": "Text"
+   },
+   {
+    "InternalName": "Id_x0020_CRK",
+    "Required": false,
+    "Title": "Id CRK",
+    "TypeAsString": "Number"
+   },
+   {
+    "InternalName": "Repozytorium",
+    "Required": false,
+    "Title": "Repozytorium",
+    "TypeAsString": "Choice"
+   },
+   {
+    "InternalName": "Link_x0020_do_x0020_dokumentu",
+    "Required": false,
+    "Title": "Link do dokumentu",
+    "TypeAsString": "URL"
+   },
+   {
+    "InternalName": "TAG",
+    "Required": false,
+    "Title": "TAG",
+    "TypeAsString": "Text"
+   },
+   {
+    "InternalName": "TAG_x0020_2",
+    "Required": false,
+    "Title": "TAG 2",
+    "TypeAsString": "Text"
+   },
+   {
+    "InternalName": "TAG_x0020_3",
+    "Required": false,
+    "Title": "TAG 3",
+    "TypeAsString": "Number"
+   }
+  ],
+  "Description": "",
+  "Group": "DORA Typy zawartości",
+  "Id": {
+   "StringValue": "0x01001C03D347E6604A429E9FDC9D133B4F82"
+  },
+  "Name": "@ RT.02.01 Umowy - Pozostałe pola"
+ },
+ {
+  "Fields": [
+   {
+    "InternalName": "Usługa_x0020_kwalifikowana_x0020__x0028_DT.01.01_x0029_",
+    "Required": false,
+    "Title": "Kwalifikacja Usług (DT.01.01)",
+    "TypeAsString": "Lookup"
+   },
+   {
+    "InternalName": "Title",
+    "Required": false,
+    "Title": "Kod",
+    "TypeAsString": "Text"
+   },
+   {
+    "InternalName": "Ustalenie_x0020_umowne_x0020__x0028_02.02.0010_x0029_",
+    "Required": false,
+    "Title": "Nr CRK (02.02.0010)",
+    "TypeAsString": "Lookup"
+   },
+   {
+    "InternalName": "Nr_x0020_LEI_x0020_podmiotu_x0020_korzyst._x0020_z_x0020_usług_x0020_ICT",
+    "Required": false,
+    "Title": "Nr LEI (02.02.0020)",
+    "TypeAsString": "Text"
+   },
+   {
+    "InternalName": "Symbol_x0020_usługi_x0020_ICT_x0020__x0028_02.01_x0029_",
+    "Required": false,
+    "Title": "Symbol usługi ICT (02.02.01)",
+    "TypeAsString": "Text"
+   },
+   {
+    "InternalName": "Id._x0020_funkcji_x0020__x0028_02.02.0050_x0029_",
+    "Required": false,
+    "Title": "Funkcja (06.01)",
+    "TypeAsString": "Lookup"
+   },
+   {
+    "InternalName": "Typ_x0020_usługi_x0020_ICT_x0020__x0028_02.02_x0029_",
+    "Required": false,
+    "Title": "Typ usługi ICT (02.02)",
+    "TypeAsString": "Lookup"
+   },
+   {
+    "InternalName": "Powód_x0020_rozwiązania_x0020_lub_x0020_zakończenia_x0020_ustaleń_x0020_umownych",
+    "Required": false,
+    "Title": "Powód zakończenia um. (02.02.0090)",
+    "TypeAsString": "Choice"
+   },
+   {
+    "InternalName": "Okres_x0020_wypowiedzenia",
+    "Required": false,
+    "Title": "Okres wypowiedzenia (02.02.0100)",
+    "TypeAsString": "Number"
+   },
+   {
+    "InternalName": "Okres_x0020_wypowiedzenia_x0020_dla_x0020_zewn._x0020_dostawcy_x0020__x0028_02.02.0110_x0029_",
+    "Required": false,
+    "Title": "Okres wypow. dla zewn. dostawcy (02.02.0110)",
+    "TypeAsString": "Number"
+   },
+   {
+    "InternalName": "Przechowywanie_x0020_danych_x0020__x0028_02.02.0140_x0029_",
+    "Required": false,
+    "Title": "Przechowywanie danych - storage (02.02.0140)",
+    "TypeAsString": "Boolean"
+   },
+   {
+    "InternalName": "Lokalizacja_x0020_składowania_x0020_danych_x0020__x0028_02.02.0150_x0029_",
+    "Required": false,
+    "Title": "Lokalizacja danych - storage (02.02.0150)",
+    "TypeAsString": "Choice"
+   },
+   {
+    "InternalName": "RT.02.02.0170",
+    "Required": false,
+    "Title": "Wrażliwość przech. (storage) danych (02.02.0170)",
+    "TypeAsString": "Choice"
+   },
+   {
+    "InternalName": "RT.02.02.0180",
+    "Required": false,
+    "Title": "Poziom zależności od dostawcy usł. (02.02.0180)",
+    "TypeAsString": "Choice"
+   },
+   {
+    "InternalName": "Prawo_x0020_właściwe_x0020_umowy_x0020__x0028_02.02.0120_x0029_",
+    "Required": false,
+    "Title": "Prawo właściwe umowy (02.02.0120)",
+    "TypeAsString": "Choice"
+   },
+   {
+    "InternalName": "Typ_x0020_usługi_x0020_ICT_x0020__x0028_02.02_x0029__x003A_Typ_x0020_usługi_x0020__x0028_90.00_x0029_",
+    "Required": false,
+    "Title": "Typ usługi ICT (02.02):Typ usługi (90.00)",
+    "TypeAsString": "Lookup"
+   },
+   {
+    "InternalName": "Kraj_x0020_świadczenia_x0020_usług_x0020_ICT_x0020__x0028_02.02.0130_x0029_",
+    "Required": false,
+    "Title": "Kraj świadczenia usług ICT (02.02.0130)",
+    "TypeAsString": "Choice"
+   },
+   {
+    "InternalName": "Miejsce_x0020_zarządzania_x0020_danymi_x0020__x0028_02.02.0160_x0029_",
+    "Required": false,
+    "Title": "Miejsce zarządzania danymi (02.02.0160)",
+    "TypeAsString": "Choice"
+   },
+   {
+    "InternalName": "Kod_x0020_dostawcy_x0020_usług_x0020__x0028_02.02.0030_x0029_",
+    "Required": false,
+    "Title": "Dostawca usług ICT (02.02.0030)",
+    "TypeAsString": "Lookup"
+   },
+   {
+    "InternalName": "Kod_x0020_dostawcy_x0020_usług_x0020__x0028_02.02.0030_x0029__x003A_Typ_x0020_kodu_x0020_jedn._x0020_domin._x0020__x0028_05.01.0090_x0029_",
+    "Required": false,
+    "Title": "Kod dostawcy usług (02.02.0030):Typ kodu jedn. domin. (05.01.0090)",
+    "TypeAsString": "Lookup"
+   },
+   {
+    "InternalName": "Kod_x0020_dostawcy_x0020_usług_x0020__x0028_02.02.0030_x0029__x003A_NIP_x0020__x0028_05.01.0010_x0029_",
+    "Required": false,
+    "Title": "Kod dostawcy usług (02.02.0030):NIP (05.01.0010)",
+    "TypeAsString": "Lookup"
+   },
+   {
+    "InternalName": "ContentType",
+    "Required": false,
+    "Title": "Typ zawartości",
+    "TypeAsString": "Computed"
+   }
+  ],
+  "Description": "",
+  "Group": "DORA Typy zawartości",
+  "Id": {
+   "StringValue": "0x0100244E3EF1D928CD41BE1FB92DC127435E"
+  },
+  "Name": "@ RT.02.02 Usługi ICT"
+ },
+ {
+  "Fields": [
+   {
+    "InternalName": "RT.06.01.0010",
+    "Required": false,
+    "Title": "Id. funkcji (06.01.0010)",
+    "TypeAsString": "Text"
+   },
+   {
+    "InternalName": "RT.06.01.0030",
+    "Required": false,
+    "Title": "Nazwa funkcji (06.01.0030)",
+    "TypeAsString": "Text"
+   },
+   {
+    "InternalName": "RT.06.01.0060",
+    "Required": false,
+    "Title": "Ocena krytyczności lub istotności (06.01.0050)",
+    "TypeAsString": "Choice"
+   },
+   {
+    "InternalName": "RT.06.01.0070",
+    "Required": false,
+    "Title": "Przyczyna krytyczności lub istotności (06.01.0060)",
+    "TypeAsString": "Note"
+   },
+   {
+    "InternalName": "RT.06.01.0080",
+    "Required": false,
+    "Title": "Data ostatniej oceny (06.01.0070)",
+    "TypeAsString": "DateTime"
+   },
+   {
+    "InternalName": "RT.06.01.0090",
+    "Required": false,
+    "Title": "Czas odzyskania funkcji (06.01.0080)",
+    "TypeAsString": "Number"
+   },
+   {
+    "InternalName": "RT.06.01.00100",
+    "Required": false,
+    "Title": "Punkt przywracania funkcji (06.01.0090)",
+    "TypeAsString": "Number"
+   },
+   {
+    "InternalName": "RT.06.01.00110",
+    "Required": false,
+    "Title": "Wpływ zatrzymania funkcji (06.01.00100)",
+    "TypeAsString": "Choice"
+   },
+   {
+    "InternalName": "ContentType",
+    "Required": false,
+    "Title": "Typ zawartości",
+    "TypeAsString": "Computed"
+   },
+   {
+    "InternalName": "Title",
+    "Required": false,
+    "Title": "Kod",
+    "TypeAsString": "Text"
+   }
+  ],
+  "Description": "",
+  "Group": "DORA Typy zawartości",
+  "Id": {
+   "StringValue": "0x01002684789CEFBCBA438B86029815F5E5BB"
+  },
+  "Name": "Um. - DORA (RT.06.01)  (Usunąć)"
+ },
+ {
+  "Fields": [
+   {
+    "InternalName": "Numer_x0020_referencyjny_x0020__x0028_05.02.0010_x0029_",
+    "Required": false,
+    "Title": "Numer referencyjny (05.02.0010)",
+    "TypeAsString": "Lookup"
+   },
+   {
+    "InternalName": "Typ_x0020_usługi_x0020_ICT_x0020__x0028_05.02_x0029_",
+    "Required": false,
+    "Title": "Typ usługi ICT (05.02)",
+    "TypeAsString": "Lookup"
+   },
+   {
+    "InternalName": "Kod_x0020_dostawcy_x0020_usługa_x0020__x0028_05.02.0030_x0029_",
+    "Required": false,
+    "Title": "Kod dostawcy usług (05.02.0030)",
+    "TypeAsString": "Lookup"
+   },
+   {
+    "InternalName": "RT.05.02.0050",
+    "Required": false,
+    "Title": "Ranga (05.02.0050)",
+    "TypeAsString": "Number"
+   },
+   {
+    "InternalName": "RT.05.02.0060",
+    "Required": false,
+    "Title": "Kod odbiorcy usług (05.02.0060)",
+    "TypeAsString": "Text"
+   },
+   {
+    "InternalName": "RT.05.02.0070",
+    "Required": false,
+    "Title": "Typ kodu odbiorcy usług (05.02.0070)",
+    "TypeAsString": "Text"
+   },
+   {
+    "InternalName": "ContentType",
+    "Required": false,
+    "Title": "Typ zawartości",
+    "TypeAsString": "Computed"
+   },
+   {
+    "InternalName": "Title",
+    "Required": false,
+    "Title": "Kod",
+    "TypeAsString": "Text"
+   },
+   {
+    "InternalName": "Typ_x0020_usługi_x0020_ICT_x0020__x0028_05.02_x0029__x003A_Typ_x0020_usługi_x0020__x0028_90.00_x0029_",
+    "Required": false,
+    "Title": "Typ usługi ICT (05.02):Typ usługi (90.00)",
+    "TypeAsString": "Lookup"
+   }
+  ],
+  "Description": "",
+  "Group": "DORA Typy zawartości",
+  "Id": {
+   "StringValue": "0x01002BC64F7F67C4E4468B18E680DC04EF4F"
+  },
+  "Name": "@ RT.05.02 Łańcuchy dostaw"
+ },
+ {
+  "Fields": [
+   {
+    "InternalName": "ContentType",
+    "Required": false,
+    "Title": "Typ zawartości",
+    "TypeAsString": "Computed"
+   },
+   {
+    "InternalName": "Title",
+    "Required": false,
+    "Title": "Kod",
+    "TypeAsString": "Text"
+   },
+   {
+    "InternalName": "Nr_x0020_LEI_x0020_podmiotu_x0020_korzyst._x0020_z_x0020_usług_x0020_ICT",
+    "Required": false,
+    "Title": "Nr LEI (02.02.0020)",
+    "TypeAsString": "Text"
+   },
+   {
+    "InternalName": "Typ_x0020_usługi_x0020_ICT",
+    "Required": false,
+    "Title": "Typ usługi ICT (02.02.0060) old",
+    "TypeAsString": "Choice"
+   },
+   {
+    "InternalName": "Powód_x0020_rozwiązania_x0020_lub_x0020_zakończenia_x0020_ustaleń_x0020_umownych",
+    "Required": false,
+    "Title": "Powód zakończenia um. (02.02.0090)",
+    "TypeAsString": "Choice"
+   },
+   {
+    "InternalName": "Okres_x0020_wypowiedzenia",
+    "Required": false,
+    "Title": "Okres wypowiedzenia (02.02.0100)",
+    "TypeAsString": "Number"
+   },
+   {
+    "InternalName": "RT.02.02.0170",
+    "Required": false,
+    "Title": "Wrażliwość przech. (storage) danych (02.02.0170)",
+    "TypeAsString": "Choice"
+   },
+   {
+    "InternalName": "RT.02.02.0180",
+    "Required": false,
+    "Title": "Poziom zależności od dostawcy usł. (02.02.0180)",
+    "TypeAsString": "Choice"
+   },
+   {
+    "InternalName": "Okres_x0020_wypowiedzenia_x0020_dla_x0020_zewn._x0020_dostawcy_x0020__x0028_02.02.0110_x0029_",
+    "Required": false,
+    "Title": "Okres wypow. dla zewn. dostawcy (02.02.0110)",
+    "TypeAsString": "Number"
+   },
+   {
+    "InternalName": "Przechowywanie_x0020_danych_x0020__x0028_02.02.0140_x0029_",
+    "Required": false,
+    "Title": "Przechowywanie danych - storage (02.02.0140)",
+    "TypeAsString": "Boolean"
+   }
+  ],
+  "Description": "",
+  "Group": "DORA Typy zawartości",
+  "Id": {
+   "StringValue": "0x0100449989E976B47E4AB8F5052964338610"
+  },
+  "Name": "Um. - DORA (RT.02.02)  (Usunąć)"
+ },
+ {
+  "Fields": [
+   {
+    "InternalName": "Nr_x0020_procesu",
+    "Required": false,
+    "Title": "Nr procesu (60.01.02)",
+    "TypeAsString": "Text"
+   },
+   {
+    "InternalName": "Nazwa_x0020_procesu",
+    "Required": false,
+    "Title": "Nazwa procesu (60.01.01)",
+    "TypeAsString": "Text"
+   },
+   {
+    "InternalName": "Proces_x0020_krytyczny",
+    "Required": false,
+    "Title": "Proces krytyczny (60.01.03)",
+    "TypeAsString": "Choice"
+   },
+   {
+    "InternalName": "Funkcja_x0020__x0028_RT.60_x0029_",
+    "Required": false,
+    "Title": "Funkcja (60.01)",
+    "TypeAsString": "Lookup"
+   },
+   {
+    "InternalName": "Proces_x0020_wew._x0020__x0028_60.01.03_x0029_",
+    "Required": false,
+    "Title": "Proces wew. (60.01.04)",
+    "TypeAsString": "Calculated"
+   },
+   {
+    "InternalName": "ContentType",
+    "Required": false,
+    "Title": "Typ zawartości",
+    "TypeAsString": "Computed"
+   },
+   {
+    "InternalName": "Title",
+    "Required": false,
+    "Title": "Kod",
+    "TypeAsString": "Text"
+   }
+  ],
+  "Description": "",
+  "Group": "DORA Typy zawartości",
+  "Id": {
+   "StringValue": "0x01007B3FFEEA12F37A4EBEF7F31F503CF3CE"
+  },
+  "Name": "@ RT.60.01 Procesy"
+ },
+ {
+  "Fields": [
+   {
+    "InternalName": "ContentType",
+    "Required": false,
+    "Title": "Typ zawartości",
+    "TypeAsString": "Computed"
+   },
+   {
+    "InternalName": "Title",
+    "Required": false,
+    "Title": "Kod",
+    "TypeAsString": "Text"
+   },
+   {
+    "InternalName": "RT.02.03.0010",
+    "Required": false,
+    "Title": "Nr referencyjny (02.03.0010)",
+    "TypeAsString": "Text"
+   },
+   {
+    "InternalName": "RT.02.03.0020",
+    "Required": false,
+    "Title": "Nr ref. ustalenia um. (02.03.0020)",
+    "TypeAsString": "Text"
+   }
+  ],
+  "Description": "",
+  "Group": "DORA Typy zawartości",
+  "Id": {
+   "StringValue": "0x01007E9B8DD2B7DA8143B4F78FCED7E160CE"
+  },
+  "Name": "Um. - DORA (RT.02.03)  (Usunąć)"
+ },
+ {
+  "Fields": [
+   {
+    "InternalName": "ContentType",
+    "Required": false,
+    "Title": "Typ zawartości",
+    "TypeAsString": "Computed"
+   },
+   {
+    "InternalName": "Title",
+    "Required": false,
+    "Title": "Kod",
+    "TypeAsString": "Text"
+   },
+   {
+    "InternalName": "Status_x0020_Dostawcy",
+    "Required": false,
+    "Title": "Status Dostawcy",
+    "TypeAsString": "Choice"
+   },
+   {
+    "InternalName": "Pełna_x0020_nazwa_x0020_Dostawcy",
+    "Required": false,
+    "Title": "Pełna nazwa Dostawcy",
+    "TypeAsString": "Text"
+   },
+   {
+    "InternalName": "Forma_x0020_prawna",
+    "Required": false,
+    "Title": "Forma prawna",
+    "TypeAsString": "Choice"
+   },
+   {
+    "InternalName": "Podmiot_x0020_powiązany",
+    "Required": false,
+    "Title": "Podmiot powiązany",
+    "TypeAsString": "Boolean"
+   },
+   {
+    "InternalName": "Grupa_x0020_kapitałowa",
+    "Required": false,
+    "Title": "Grupa kapitałowa",
+    "TypeAsString": "Choice"
+   },
+   {
+    "InternalName": "NIP",
+    "Required": false,
+    "Title": "NIP",
+    "TypeAsString": "Text"
+   },
+   {
+    "InternalName": "Dane_x0020_rejestrowe",
+    "Required": false,
+    "Title": "Dane rejestrowe",
+    "TypeAsString": "Note"
+   },
+   {
+    "InternalName": "Adres_x0020_siedziby",
+    "Required": false,
+    "Title": "Adres siedziby",
+    "TypeAsString": "Note"
+   },
+   {
+    "InternalName": "Adres_x0020_e-mail_x0020__x0028_firmowy_x0029_",
+    "Required": false,
+    "Title": "Adres e-mail (firmowy)",
+    "TypeAsString": "Text"
+   },
+   {
+    "InternalName": "Typ_x0020_Dostawcy_x0020__x0028_IT_x0029_",
+    "Required": false,
+    "Title": "Typ Dostawcy (IT)",
+    "TypeAsString": "Choice"
+   },
+   {
+    "InternalName": "Rezydencja",
+    "Required": false,
+    "Title": "Rezydencja",
+    "TypeAsString": "Choice"
+   },
+   {
+    "InternalName": "CR_x0020_Data_x0020_ważności",
+    "Required": false,
+    "Title": "CR Data ważności",
+    "TypeAsString": "DateTime"
+   },
+   {
+    "InternalName": "Osoby_x0020_kontaktowe",
+    "Required": false,
+    "Title": "Osoby kontaktowe",
+    "TypeAsString": "Note"
+   },
+   {
+    "InternalName": "Umowa_x0020_ramowa",
+    "Required": false,
+    "Title": "Umowa ramowa",
+    "TypeAsString": "Text"
+   },
+   {
+    "InternalName": "Obszar_x0020_biznesowy",
+    "Required": false,
+    "Title": "Obszar biznesowy",
+    "TypeAsString": "Choice"
+   },
+   {
+    "InternalName": "Nr_x0020_PK",
+    "Required": false,
+    "Title": "Nr PK",
+    "TypeAsString": "Text"
+   },
+   {
+    "InternalName": "Outsourcing_x0020_pracowniczy",
+    "Required": false,
+    "Title": "Outsourcing pracowniczy",
+    "TypeAsString": "Choice"
+   },
+   {
+    "InternalName": "TAG_x0020_Dostawcy",
+    "Required": false,
+    "Title": "TAG Dostawcy",
+    "TypeAsString": "Text"
+   },
+   {
+    "InternalName": "Id_x0020_OLD_Dostawcy",
+    "Required": false,
+    "Title": "Id OLD_Dostawcy",
+    "TypeAsString": "Number"
+   },
+   {
+    "InternalName": "_x0025_IPR",
+    "Required": false,
+    "Title": "%IPR",
+    "TypeAsString": "Text"
+   },
+   {
+    "InternalName": "Id_x0020_CRK_x0020_Dostawcy",
+    "Required": false,
+    "Title": "Id CRK Dostawcy",
+    "TypeAsString": "Number"
+   },
+   {
+    "InternalName": "Nazwa_x0020_skrócona",
+    "Required": false,
+    "Title": "Nazwa skrócona",
+    "TypeAsString": "Text"
+   },
+   {
+    "InternalName": "Dostawca_x0020_ICT",
+    "Required": false,
+    "Title": "Dostawca ICT",
+    "TypeAsString": "Choice"
+   }
+  ],
+  "Description": "",
+  "Group": "DORA Typy zawartości",
+  "Id": {
+   "StringValue": "0x0100809D33E0F7E5B841A8CA6C18D95630B6"
+  },
+  "Name": "@ CRK Dostawcy"
+ },
+ {
+  "Fields": [
+   {
+    "InternalName": "ContentType",
+    "Required": false,
+    "Title": "Typ zawartości",
+    "TypeAsString": "Computed"
+   },
+   {
+    "InternalName": "Title",
+    "Required": false,
+    "Title": "Kod",
+    "TypeAsString": "Text"
+   },
+   {
+    "InternalName": "RT.02.01.0020",
+    "Required": false,
+    "Title": "Typ ustalenia umownego (02.01.0020)",
+    "TypeAsString": "Choice"
+   },
+   {
+    "InternalName": "RT.02.01.0030",
+    "Required": false,
+    "Title": "Ref. do nadrzędnej umowy (02.01.0030)",
+    "TypeAsString": "Text"
+   },
+   {
+    "InternalName": "Waluta_x0020__x0028_RT.02.01.0040_x0029_",
+    "Required": false,
+    "Title": "Waluta (RT.02.01.0040)",
+    "TypeAsString": "Choice"
+   },
+   {
+    "InternalName": "Roczne_x0020_wydatki_x0020__x0028_02.01.0050_x0029_",
+    "Required": false,
+    "Title": "Roczne wydatki (02.01.0050)",
+    "TypeAsString": "Number"
+   }
+  ],
+  "Description": "Typ zawartości DORA dla Umów",
+  "Group": "DORA Typy zawartości",
+  "Id": {
+   "StringValue": "0x0100838B1340F960404982CA4F60C7C8712A"
+  },
+  "Name": "Um. - DORA (RT.02.01)  (Usunąć)"
+ },
+ {
+  "Fields": [
+   {
+    "InternalName": "ContentType",
+    "Required": false,
+    "Title": "Typ zawartości",
+    "TypeAsString": "Computed"
+   },
+   {
+    "InternalName": "Title",
+    "Required": false,
+    "Title": "Kod",
+    "TypeAsString": "Text"
+   },
+   {
+    "InternalName": "Typ_x0020_kodu_x0020_dostawcy",
+    "Required": false,
+    "Title": "Typ kodu dostawcy (05.01.0020)",
+    "TypeAsString": "Text"
+   },
+   {
+    "InternalName": "Kod_x0020_id._x0020_jedn._x0020_dominującej",
+    "Required": false,
+    "Title": "Kod id. jedn. dominującej (05.01.0110)",
+    "TypeAsString": "Text"
+   },
+   {
+    "InternalName": "Typ_x0020_kodu_x0020_jedn._x0020_dominującej",
+    "Required": false,
+    "Title": "Typ kodu jedn. dominującej (05.01.0090)",
+    "TypeAsString": "Text"
+   },
+   {
+    "InternalName": "Typ_x0020_osobowości_x0020_dostawcy",
+    "Required": false,
+    "Title": "Typ osobowości dostawcy (05.01.0070)",
+    "TypeAsString": "Choice"
+   },
+   {
+    "InternalName": "Typ_x0020_kodu_x0020_identyfikującego_x0020_dostawcę",
+    "Required": false,
+    "Title": "Typ kodu (02.02.0040) usunąć",
+    "TypeAsString": "Text"
+   }
+  ],
+  "Description": "",
+  "Group": "DORA Typy zawartości",
+  "Id": {
+   "StringValue": "0x01009B0BFFAA8E1BA14A9FB70EEAE3E51829"
+  },
+  "Name": "@ RT.05.01 Dostawcy"
+ },
+ {
+  "Fields": [
+   {
+    "InternalName": "Autor_x0020_analizy_x0020__x0028_DT.01.01.11_x0029_",
+    "Required": false,
+    "Title": "Autor analizy (DT.01.01.40)",
+    "TypeAsString": "Calculated"
+   },
+   {
+    "InternalName": "Nazwa_x0020_usługi_x0020__x0028_DT.01.01.03_x0029_",
+    "Required": true,
+    "Title": "Nazwa usługi (DT.01.01.01)",
+    "TypeAsString": "Text"
+   },
+   {
+    "InternalName": "Nr_x0020_i_x0020_nazwa_x0020_kwalifikacji_x0020__x0028_DT.01.01.02_x0029_",
+    "Required": false,
+    "Title": "Nr i nazwa kwalifikacji (DT.01.01.02)",
+    "TypeAsString": "Calculated"
+   },
+   {
+    "InternalName": "Umowa_x0020__x0028_DT.01.01.02_x0029_",
+    "Required": false,
+    "Title": "Nr CRK (DT.01.01.02)",
+    "TypeAsString": "Lookup"
+   },
+   {
+    "InternalName": "Dostawca_x0020__x0028_DT.01.01.02_x0029_",
+    "Required": false,
+    "Title": "Dostawca (DT.01.01.03)",
+    "TypeAsString": "Lookup"
+   },
+   {
+    "InternalName": "Opis_x0020_usługi_x0020__x0028_DT.01.01.04_x0029_",
+    "Required": false,
+    "Title": "Opis usługi (DT.01.01.04)",
+    "TypeAsString": "Note"
+   },
+   {
+    "InternalName": "Service_x0020_description_x0020__x0028_DT.01.01.04_x0029_",
+    "Required": false,
+    "Title": "Service description (DT.01.01.04)",
+    "TypeAsString": "Note"
+   },
+   {
+    "InternalName": "Podmiot_x0020__x0028_DT.01.01.01_x0029_",
+    "Required": false,
+    "Title": "Podmiot (DT.01.01.05)",
+    "TypeAsString": "Calculated"
+   },
+   {
+    "InternalName": "Liczba_x0020_odbiorców_x0020__x0028_DT.01.01.05_x0029_",
+    "Required": false,
+    "Title": "Kilku odbiorców? (DT.01.01.06)",
+    "TypeAsString": "Choice"
+   },
+   {
+    "InternalName": "Usługa_x0020_wewnątrzgrupowa_x003F__x0020__x0028_DT.01.01.06_x0029_",
+    "Required": false,
+    "Title": "Usługa wewnątrzgrupowa? (DT.01.01.07)",
+    "TypeAsString": "Choice"
+   },
+   {
+    "InternalName": "Nr_x0020_CRK_x0020_Umowy_x0020_ramowej_x0020__x0028_DT.01.01.07_x0029_",
+    "Required": false,
+    "Title": "Id um. ramowej (DT.01.01.08)",
+    "TypeAsString": "Text"
+   },
+   {
+    "InternalName": "Typ_x0020_kontraktu_x0020__x0028_DT.01.01.08_x0029_",
+    "Required": false,
+    "Title": "Typ kontraktu (DT.01.01.09)",
+    "TypeAsString": "Choice"
+   },
+   {
+    "InternalName": "Model_x0020_kontraktowy_x0020__x0028_DT.01.01.09_x0029_",
+    "Required": false,
+    "Title": "Model kontraktowania (DT.01.01.10)",
+    "TypeAsString": "Choice"
+   },
+   {
+    "InternalName": "DT.01",
+    "Required": true,
+    "Title": "Telefonia analogowa? (DT.01.01.31)",
+    "TypeAsString": "Choice"
+   },
+   {
+    "InternalName": "Typ_x0020_usługi_x0020_ICT_x0020__x0028_DT.00_x0029_",
+    "Required": false,
+    "Title": "Typ usługi ICT (DT.01.01.32)",
+    "TypeAsString": "Lookup"
+   },
+   {
+    "InternalName": "DT.03",
+    "Required": true,
+    "Title": "Usługa cykliczna? (DT.01.01.33)",
+    "TypeAsString": "Choice"
+   },
+   {
+    "InternalName": "Usługa_x0020_kwalifikowana_x0020_DORA_x0020__x0028_DT.01.01.32_x0029_",
+    "Required": false,
+    "Title": "Usługa ICT wg DORA? (DT.01.01.34)",
+    "TypeAsString": "Text"
+   },
+   {
+    "InternalName": "Funkcja_x0020_krytyczna",
+    "Required": false,
+    "Title": "Czy usługa związana z funkcją krytyczną (DT.01.01.35)",
+    "TypeAsString": "Lookup"
+   },
+   {
+    "InternalName": "Proces_x0020__x0028_RT.60.01_x0029_",
+    "Required": false,
+    "Title": "Proces (DT.01.01.36)",
+    "TypeAsString": "Lookup"
+   },
+   {
+    "InternalName": "Usługa_x0020_krytyczna_x003F__x0020__x0028_wg_x0020_EBA_x0029_",
+    "Required": true,
+    "Title": "Usługa krytyczna wg EBA? (DT.01.01.37)",
+    "TypeAsString": "Choice"
+   },
+   {
+    "InternalName": "Usługa_x0020_krytyczna_x003F__x0020__x0028_DT.01.01.38_x0029_",
+    "Required": false,
+    "Title": "Usługa krytyczna wg DORA? (DT.01.01.38)",
+    "TypeAsString": "Text"
+   },
+   {
+    "InternalName": "Data_x0020_analizy_x0020__x0028_DT.01.01.10_x0029_",
+    "Required": false,
+    "Title": "Data analizy (DT.01.01.39)",
+    "TypeAsString": "Calculated"
+   },
+   {
+    "InternalName": "Title",
+    "Required": false,
+    "Title": "Kod",
+    "TypeAsString": "Text"
+   },
+   {
+    "InternalName": "Nr_x0020_RKU",
+    "Required": false,
+    "Title": "Nr RKU (DT.01.01)",
+    "TypeAsString": "Text"
+   },
+   {
+    "InternalName": "Typ_x0020_usługi_x0020_ICT_x0020__x0028_DT.01.01_x0029__x003A_Symbol_x0020_usługi",
+    "Required": false,
+    "Title": "Typ usługi ICT (DT.01.01):Symbol usługi",
+    "TypeAsString": "Lookup"
+   },
+   {
+    "InternalName": "ContentType",
+    "Required": false,
+    "Title": "Typ zawartości",
+    "TypeAsString": "Computed"
+   }
+  ],
+  "Description": "",
+  "Group": "DORA Typy zawartości",
+  "Id": {
+   "StringValue": "0x0100A6AB3ADC1CC7D148A3C8A833722A40EC"
+  },
+  "Name": "@ DT.01.01 Charakterystyka usługi"
+ },
+ {
+  "Fields": [
+   {
+    "InternalName": "RT.06.01.0010",
+    "Required": true,
+    "Title": "Id. funkcji (06.01.0010)",
+    "TypeAsString": "Text"
+   },
+   {
+    "InternalName": "_x0037_0.01_x0020_Działalność_x0020_licencjonowana",
+    "Required": false,
+    "Title": "Działalność licencjonowana (06.01.0020)",
+    "TypeAsString": "Lookup"
+   },
+   {
+    "InternalName": "RT.06.01.0030",
+    "Required": false,
+    "Title": "Nazwa funkcji (06.01.0030)",
+    "TypeAsString": "Text"
+   },
+   {
+    "InternalName": "Function_x0020_name_x0020__x0028_06.01.0030_x0029_",
+    "Required": false,
+    "Title": "Function name (06.01.0030)",
+    "TypeAsString": "Text"
+   },
+   {
+    "InternalName": "Opis_x0020_funkcji",
+    "Required": false,
+    "Title": "Opis funkcji",
+    "TypeAsString": "Note"
+   },
+   {
+    "InternalName": "Nr_x0020_LEI_x0020_podmiotu_x0020_fin._x0020__x0028_06.01.0040_x0029_",
+    "Required": false,
+    "Title": "Nr LEI podmiotu fin. (06.01.0040)",
+    "TypeAsString": "Text"
+   },
+   {
+    "InternalName": "RT.06.01.0060",
+    "Required": false,
+    "Title": "Ocena krytyczności lub istotności (06.01.0050)",
+    "TypeAsString": "Choice"
+   },
+   {
+    "InternalName": "RT.06.01.0070",
+    "Required": false,
+    "Title": "Przyczyna krytyczności lub istotności (06.01.0060)",
+    "TypeAsString": "Note"
+   },
+   {
+    "InternalName": "Kod_x0020_krytyczności_x0020_lub_x0020_istotności_x0020__x0028_C280_x0029_",
+    "Required": false,
+    "Title": "Kod krytyczności lub istotności (C280)",
+    "TypeAsString": "Choice"
+   },
+   {
+    "InternalName": "RT.06.01.0080",
+    "Required": false,
+    "Title": "Data ostatniej oceny (06.01.0070)",
+    "TypeAsString": "DateTime"
+   },
+   {
+    "InternalName": "RT.06.01.0090",
+    "Required": false,
+    "Title": "Czas odzyskania funkcji (06.01.0080)",
+    "TypeAsString": "Number"
+   },
+   {
+    "InternalName": "RT.06.01.00100",
+    "Required": false,
+    "Title": "Punkt przywracania funkcji (06.01.0090)",
+    "TypeAsString": "Number"
+   },
+   {
+    "InternalName": "RT.06.01.00110",
+    "Required": false,
+    "Title": "Wpływ zatrzymania funkcji (06.01.00100)",
+    "TypeAsString": "Choice"
+   },
+   {
+    "InternalName": "Funkcja",
+    "Required": false,
+    "Title": "ID i Nazwa funkcji (06.01)",
+    "TypeAsString": "Calculated"
+   },
+   {
+    "InternalName": "Krytyczność_x0020_lub_x0020_istotność",
+    "Required": false,
+    "Title": "Krytyczność lub istotność",
+    "TypeAsString": "Calculated"
+   },
+   {
+    "InternalName": "Title",
+    "Required": false,
+    "Title": "Kod",
+    "TypeAsString": "Text"
+   },
+   {
+    "InternalName": "ContentType",
+    "Required": false,
+    "Title": "Typ zawartości",
+    "TypeAsString": "Computed"
+   }
+  ],
+  "Description": "",
+  "Group": "DORA Typy zawartości",
+  "Id": {
+   "StringValue": "0x0100C2AC5069DB6D214F80A7DED500ABFF44"
+  },
+  "Name": "@ RT.06.01 Funkcje"
+ },
+ {
+  "Fields": [
+   {
+    "InternalName": "Symbol_x0020_usługi",
+    "Required": false,
+    "Title": "Symbol typu usługi (90.01.01)",
+    "TypeAsString": "Text"
+   },
+   {
+    "InternalName": "Nazwa_x0020_typu_x0020_usługi",
+    "Required": false,
+    "Title": "Nazwa typu usługi (90.01.02)",
+    "TypeAsString": "Text"
+   },
+   {
+    "InternalName": "TMP1",
+    "Required": false,
+    "Title": "Ryzyko wstępne (90.01.03)",
+    "TypeAsString": "Choice"
+   },
+   {
+    "InternalName": "Typ_x0020_usługi",
+    "Required": false,
+    "Title": "Typ usługi (90.01)",
+    "TypeAsString": "Calculated"
+   },
+   {
+    "InternalName": "Ryzyko_x0020__x0028_90.01_x0029_",
+    "Required": false,
+    "Title": "Ryzyko (90.01)",
+    "TypeAsString": "Calculated"
+   },
+   {
+    "InternalName": "Title",
+    "Required": false,
+    "Title": "Kod",
+    "TypeAsString": "Text"
+   },
+   {
+    "InternalName": "ContentType",
+    "Required": false,
+    "Title": "Typ zawartości",
+    "TypeAsString": "Computed"
+   }
+  ],
+  "Description": "",
+  "Group": "DORA Typy zawartości",
+  "Id": {
+   "StringValue": "0x0100CC6622C5B365D34A870F669D06B5D781"
+  },
+  "Name": "@ RT.90.01 Typy Usług"
+ },
+ {
+  "Fields": [
+   {
+    "InternalName": "RT.05.02.0020",
+    "Required": false,
+    "Title": "Typ usługi ICT (05.02.0020) old",
+    "TypeAsString": "Choice"
+   },
+   {
+    "InternalName": "_x0030_040_x0020_Typ_x0020_kodu",
+    "Required": false,
+    "Title": "Typ kodu (05.02.0040)",
+    "TypeAsString": "Text"
+   },
+   {
+    "InternalName": "RT.05.02.0050",
+    "Required": false,
+    "Title": "Ranga (05.02.0050)",
+    "TypeAsString": "Number"
+   },
+   {
+    "InternalName": "RT.05.02.0060",
+    "Required": false,
+    "Title": "Kod odbiorcy usług (05.02.0060)",
+    "TypeAsString": "Text"
+   },
+   {
+    "InternalName": "RT.05.02.0070",
+    "Required": false,
+    "Title": "Typ kodu odbiorcy usług (05.02.0070)",
+    "TypeAsString": "Text"
+   },
+   {
+    "InternalName": "Title",
+    "Required": false,
+    "Title": "Kod",
+    "TypeAsString": "Text"
+   },
+   {
+    "InternalName": "ContentType",
+    "Required": false,
+    "Title": "Typ zawartości",
+    "TypeAsString": "Computed"
+   }
+  ],
+  "Description": "",
+  "Group": "DORA Typy zawartości",
+  "Id": {
+   "StringValue": "0x0100D1B95AC94E623840BAEB4C29F92590A2"
+  },
+  "Name": "Um. - DORA (RT.05.02)  (Usunąć)"
+ },
+ {
+  "Fields": [
+   {
+    "InternalName": "ContentType",
+    "Required": false,
+    "Title": "Typ zawartości",
+    "TypeAsString": "Computed"
+   },
+   {
+    "InternalName": "Title",
+    "Required": false,
+    "Title": "Kod",
+    "TypeAsString": "Text"
+   },
+   {
+    "InternalName": "RT.02.01.0020",
+    "Required": false,
+    "Title": "Typ ustalenia umownego (02.01.0020)",
+    "TypeAsString": "Choice"
+   },
+   {
+    "InternalName": "RT.02.01.0030",
+    "Required": false,
+    "Title": "Ref. do nadrzędnej umowy (02.01.0030)",
+    "TypeAsString": "Text"
+   },
+   {
+    "InternalName": "Nr_x0020_LEI_x0020_podmiotu_x0020_korzyst._x0020_z_x0020_usług_x0020_ICT",
+    "Required": false,
+    "Title": "Nr LEI (02.02.0020)",
+    "TypeAsString": "Text"
+   },
+   {
+    "InternalName": "Typ_x0020_usługi_x0020_ICT",
+    "Required": false,
+    "Title": "Typ usługi ICT (02.02.0060) old",
+    "TypeAsString": "Choice"
+   },
+   {
+    "InternalName": "Powód_x0020_rozwiązania_x0020_lub_x0020_zakończenia_x0020_ustaleń_x0020_umownych",
+    "Required": false,
+    "Title": "Powód zakończenia um. (02.02.0090)",
+    "TypeAsString": "Choice"
+   },
+   {
+    "InternalName": "Okres_x0020_wypowiedzenia",
+    "Required": false,
+    "Title": "Okres wypowiedzenia (02.02.0100)",
+    "TypeAsString": "Number"
+   },
+   {
+    "InternalName": "RT.02.02.0170",
+    "Required": false,
+    "Title": "Wrażliwość przech. (storage) danych (02.02.0170)",
+    "TypeAsString": "Choice"
+   },
+   {
+    "InternalName": "RT.02.02.0180",
+    "Required": false,
+    "Title": "Poziom zależności od dostawcy usł. (02.02.0180)",
+    "TypeAsString": "Choice"
+   },
+   {
+    "InternalName": "RT.02.03.0010",
+    "Required": false,
+    "Title": "Nr referencyjny (02.03.0010)",
+    "TypeAsString": "Text"
+   },
+   {
+    "InternalName": "RT.02.03.0020",
+    "Required": false,
+    "Title": "Nr ref. ustalenia um. (02.03.0020)",
+    "TypeAsString": "Text"
+   },
+   {
+    "InternalName": "RT.05.02.0020",
+    "Required": false,
+    "Title": "Typ usługi ICT (05.02.0020) old",
+    "TypeAsString": "Choice"
+   },
+   {
+    "InternalName": "_x0030_040_x0020_Typ_x0020_kodu",
+    "Required": false,
+    "Title": "Typ kodu (05.02.0040)",
+    "TypeAsString": "Text"
+   },
+   {
+    "InternalName": "RT.05.02.0050",
+    "Required": false,
+    "Title": "Ranga (05.02.0050)",
+    "TypeAsString": "Number"
+   },
+   {
+    "InternalName": "RT.05.02.0060",
+    "Required": false,
+    "Title": "Kod odbiorcy usług (05.02.0060)",
+    "TypeAsString": "Text"
+   },
+   {
+    "InternalName": "RT.05.02.0070",
+    "Required": false,
+    "Title": "Typ kodu odbiorcy usług (05.02.0070)",
+    "TypeAsString": "Text"
+   },
+   {
+    "InternalName": "RT.06.01.0010",
+    "Required": false,
+    "Title": "Id. funkcji (06.01.0010)",
+    "TypeAsString": "Text"
+   },
+   {
+    "InternalName": "RT.06.01.0030",
+    "Required": false,
+    "Title": "Nazwa funkcji (06.01.0030)",
+    "TypeAsString": "Text"
+   },
+   {
+    "InternalName": "RT.06.01.0060",
+    "Required": false,
+    "Title": "Ocena krytyczności lub istotności (06.01.0050)",
+    "TypeAsString": "Choice"
+   },
+   {
+    "InternalName": "RT.06.01.0070",
+    "Required": false,
+    "Title": "Przyczyna krytyczności lub istotności (06.01.0060)",
+    "TypeAsString": "Note"
+   },
+   {
+    "InternalName": "RT.06.01.0080",
+    "Required": false,
+    "Title": "Data ostatniej oceny (06.01.0070)",
+    "TypeAsString": "DateTime"
+   },
+   {
+    "InternalName": "RT.06.01.0090",
+    "Required": false,
+    "Title": "Czas odzyskania funkcji (06.01.0080)",
+    "TypeAsString": "Number"
+   },
+   {
+    "InternalName": "RT.06.01.00100",
+    "Required": false,
+    "Title": "Punkt przywracania funkcji (06.01.0090)",
+    "TypeAsString": "Number"
+   },
+   {
+    "InternalName": "RT.06.01.00110",
+    "Required": false,
+    "Title": "Wpływ zatrzymania funkcji (06.01.00100)",
+    "TypeAsString": "Choice"
+   },
+   {
+    "InternalName": "_x0030_040_x0020_Typ_x0020_usług_x0020_ICT",
+    "Required": false,
+    "Title": "Typ usług ICT (07.01.0040) old",
+    "TypeAsString": "Choice"
+   },
+   {
+    "InternalName": "_x0030_060_x0020_Powód",
+    "Required": false,
+    "Title": "Powód niezastępowalności (07.01.0060)",
+    "TypeAsString": "Choice"
+   },
+   {
+    "InternalName": "_x0030_080_x0020_Wdrożenie_x0020_planu_x0020_wyjścia",
+    "Required": false,
+    "Title": "Wdrożenie planu wyjścia (07.01.0080)",
+    "TypeAsString": "Boolean"
+   },
+   {
+    "InternalName": "_x0030_0100_x0020_Skutki_x0020_zaprzestania_x0020_świadczenia_x0020_usł.",
+    "Required": false,
+    "Title": "Skutki zaprzestania świadczenia usł. (07.01.00100)",
+    "TypeAsString": "Choice"
+   },
+   {
+    "InternalName": "_x0030_0120_x0020_Identyfikacja_x0020_alternatywnego_x0020_TPP",
+    "Required": false,
+    "Title": "Opis altern. dostawców (07.01.00120)",
+    "TypeAsString": "Note"
+   }
+  ],
+  "Description": "Wspólny typ dl wszystkich nowych pól",
+  "Group": "DORA Typy zawartości",
+  "Id": {
+   "StringValue": "0x0100D1E037F2D96C1147A85C0BC573BE94CC"
+  },
+  "Name": "Um. - DORA (Usunąć)"
+ },
+ {
+  "Fields": [
+   {
+    "InternalName": "ContentType",
+    "Required": false,
+    "Title": "Typ zawartości",
+    "TypeAsString": "Computed"
+   },
+   {
+    "InternalName": "Title",
+    "Required": true,
+    "Title": "Kod",
+    "TypeAsString": "Text"
+   },
+   {
+    "InternalName": "Nazwa_x0020_działalności",
+    "Required": false,
+    "Title": "Nazwa działalności",
+    "TypeAsString": "Text"
+   }
+  ],
+  "Description": "",
+  "Group": "DORA Typy zawartości",
+  "Id": {
+   "StringValue": "0x0100DFE95541871E6D4AA98B147B45D32486"
+  },
+  "Name": "@ RT.70.01 Działalność licencjonowana"
+ },
+ {
+  "Fields": [
+   {
+    "InternalName": "Kwalifikacja_x0020_usług_x0020__x0028_07.01_x0029_",
+    "Required": false,
+    "Title": "Kwalifikacja usług (07.01)",
+    "TypeAsString": "Lookup"
+   },
+   {
+    "InternalName": "Numer_x0020_referencyjny_x0020__x0028_07.01.0010_x0029_",
+    "Required": false,
+    "Title": "Nr CRK (07.01.0010)",
+    "TypeAsString": "Lookup"
+   },
+   {
+    "InternalName": "Typ_x0020_usług_x0020_ICT_x0020__x0028_07.01.0040_x0029_",
+    "Required": false,
+    "Title": "Typ usług ICT (07.01)",
+    "TypeAsString": "Lookup"
+   },
+   {
+    "InternalName": "Zastępowalność_x0020_Dostawcy_x0020__x0028_07.01.0050_x0029_",
+    "Required": false,
+    "Title": "Zastępowalność Dostawcy (07.01.0050)",
+    "TypeAsString": "Choice"
+   },
+   {
+    "InternalName": "_x0030_060_x0020_Powód",
+    "Required": false,
+    "Title": "Powód niezastępowalności (07.01.0060)",
+    "TypeAsString": "Choice"
+   },
+   {
+    "InternalName": "Data_x0020_ostatniego_x0020_audytu_x0020__x0028_07.01.0070_x0029_",
+    "Required": false,
+    "Title": "Data ostatniego audytu (07.01.0070)",
+    "TypeAsString": "DateTime"
+   },
+   {
+    "InternalName": "_x0030_080_x0020_Wdrożenie_x0020_planu_x0020_wyjścia",
+    "Required": false,
+    "Title": "Wdrożenie planu wyjścia (07.01.0080)",
+    "TypeAsString": "Boolean"
+   },
+   {
+    "InternalName": "Możliwość_x0020_reintegracji_x0020_usług_x0020__x0028_07.01.0090_x0029_",
+    "Required": false,
+    "Title": "Możliwość reintegracji usług (07.01.0090)",
+    "TypeAsString": "Choice"
+   },
+   {
+    "InternalName": "_x0030_0100_x0020_Skutki_x0020_zaprzestania_x0020_świadczenia_x0020_usł.",
+    "Required": false,
+    "Title": "Skutki zaprzestania świadczenia usł. (07.01.00100)",
+    "TypeAsString": "Choice"
+   },
+   {
+    "InternalName": "Są._x0020_alternatywni_x0020_dostawcy_x0020__x0028_07.01.00110_x0029_",
+    "Required": false,
+    "Title": "Są. alternatywni dostawcy (07.01.00110)",
+    "TypeAsString": "Boolean"
+   },
+   {
+    "InternalName": "_x0030_0120_x0020_Identyfikacja_x0020_alternatywnego_x0020_TPP",
+    "Required": false,
+    "Title": "Opis altern. dostawców (07.01.00120)",
+    "TypeAsString": "Note"
+   },
+   {
+    "InternalName": "Dostawca_x0020_usług_x0020_ICT_x003A_Typ_x0020_kodu_x0020_dostawcy_x0020__x0028_05.01.0020_x0029_",
+    "Required": false,
+    "Title": "Dostawca usług ICT:Typ kodu dostawcy (05.01.0020)",
+    "TypeAsString": "Lookup"
+   },
+   {
+    "InternalName": "Kod_x0020_dostawcy_x0020_usług_x0020__x0028_02.02.0030_x0029__x003A_Typ_x0020_kodu_x0020_jedn._x0020_domin._x0020__x0028_05.01.0090_x0029_",
+    "Required": false,
+    "Title": "Kod dostawcy usług (02.02.0030):Typ kodu jedn. domin. (05.01.0090)",
+    "TypeAsString": "Lookup"
+   },
+   {
+    "InternalName": "Kod_x0020_dostawcy_x0020_usług_x0020__x0028_02.02.0030_x0029__x003A_NIP_x0020__x0028_05.01.0010_x0029_",
+    "Required": false,
+    "Title": "Kod dostawcy usług (02.02.0030):NIP (05.01.0010)",
+    "TypeAsString": "Lookup"
+   },
+   {
+    "InternalName": "Title",
+    "Required": false,
+    "Title": "Kod",
+    "TypeAsString": "Text"
+   },
+   {
+    "InternalName": "Typ_x0020_usług_x0020_ICT_x0020__x0028_07.01.0040_x0029__x003A_Typ_x0020_usługi_x0020__x0028_90.00_x0029_",
+    "Required": false,
+    "Title": "Typ usług ICT (07.01.0040):Typ usługi (90.00)",
+    "TypeAsString": "Lookup"
+   },
+   {
+    "InternalName": "ContentType",
+    "Required": false,
+    "Title": "Typ zawartości",
+    "TypeAsString": "Computed"
+   },
+   {
+    "InternalName": "Kod_x0020_dostawcy_x0020_usług_x0020__x0028_02.02.0030_x0029_",
+    "Required": false,
+    "Title": "Dostawca usług ICT (02.02.0030)",
+    "TypeAsString": "Lookup"
+   },
+   {
+    "InternalName": "Description_x0020_altern._x0020_suppliers_x0020__x0028_07.01.00120_x0029_",
+    "Required": false,
+    "Title": "Description altern. suppliers (07.01.00120)",
+    "TypeAsString": "Note"
+   }
+  ],
+  "Description": "",
+  "Group": "DORA Typy zawartości",
+  "Id": {
+   "StringValue": "0x0100F419B47DEB6DF144884851B8AC8AC553"
+  },
+  "Name": "@ RT.07.01 Ocena Usług"
+ },
+ {
+  "Fields": [
+   {
+    "InternalName": "CRK_x0020_Ocena_x0020_krytyczności_x0020__x0028_DT.01.02.11_x0029_",
+    "Required": false,
+    "Title": "CRK Ocena krytyczności (DT.01.02.11)",
+    "TypeAsString": "Text"
+   },
+   {
+    "InternalName": "H",
+    "Required": false,
+    "Title": "Wpływ Dostawcy na Bank (DT.01.02.12)",
+    "TypeAsString": "Choice"
+   },
+   {
+    "InternalName": "Możliwość_x0020_reintegracji_x0020_usług_x0020__x0028__x0029_",
+    "Required": false,
+    "Title": "Możliwość reintegracji usług (DT.01.02.14)",
+    "TypeAsString": "Choice"
+   },
+   {
+    "InternalName": "Skutki_x0020_zaprzestania_x0020_świadczenia_x0020_usł._x0020__x0028__x0029_",
+    "Required": false,
+    "Title": "Skutek zaprzestania świadczenia usł. (DT.01.02.15)",
+    "TypeAsString": "Choice"
+   },
+   {
+    "InternalName": "Są_x0020_inne_x0020_usł._x0020_krytyczne_x0020_Dostawcy_x003F__x0020__x0028_DT.01.02.16_x0029_",
+    "Required": false,
+    "Title": "Są inne usł. krytyczne Dostawcy? (DT.01.02.16)",
+    "TypeAsString": "Choice"
+   },
+   {
+    "InternalName": "Są_x0020_podwykonawcy_x0020_spoza_x0020_UE_x003F_",
+    "Required": false,
+    "Title": "Są podwykonawcy spoza UE? (DT.01.02.02)",
+    "TypeAsString": "Choice"
+   },
+   {
+    "InternalName": "Opis_x0020_korzyści_x0020_i_x0020_kosztów",
+    "Required": false,
+    "Title": "Opis korzyści i kosztów (DT.01.02.03)",
+    "TypeAsString": "Note"
+   },
+   {
+    "InternalName": "Złożony_x0020_łańcuch_x0020_podwykonawców_x003F_",
+    "Required": false,
+    "Title": "Złożony łańcuch podwykonawców? (DT.01.02.04)",
+    "TypeAsString": "Choice"
+   },
+   {
+    "InternalName": "Zastępowalność_x0020_Dostawcy_x0020__x0028__x0029_",
+    "Required": false,
+    "Title": "Zastępowalność Dostawcy (DT.01.02.13)",
+    "TypeAsString": "Choice"
+   },
+   {
+    "InternalName": "Są._x0020_alternatywni_x0020_dostawcy_x0020__x0028__x0029_",
+    "Required": false,
+    "Title": "Są. alternatywni dostawcy? (DT.01.02.17)",
+    "TypeAsString": "Choice"
+   },
+   {
+    "InternalName": "Opis_x0020_altern._x0020_dostawców_x0020__x0028__x0029_",
+    "Required": false,
+    "Title": "Opis altern. dostawców (DT.01.02.18)",
+    "TypeAsString": "Note"
+   },
+   {
+    "InternalName": "ContentType",
+    "Required": false,
+    "Title": "Typ zawartości",
+    "TypeAsString": "Computed"
+   },
+   {
+    "InternalName": "Title",
+    "Required": false,
+    "Title": "Kod",
+    "TypeAsString": "Text"
+   },
+   {
+    "InternalName": "Zwiększone_x0020_ryzyko_x0020_koncentracji_x003F__x0020__x0028_DT.01.02.01_x0029_",
+    "Required": false,
+    "Title": "Ryzyko koncentracji? (DT.01.02.01)",
+    "TypeAsString": "Text"
+   }
+  ],
+  "Description": "",
+  "Group": "DORA Typy zawartości",
+  "Id": {
+   "StringValue": "0x0100FC499FED0C4BB14C9D1F830AC67BF2BE"
+  },
+  "Name": "@ DT.01.02 Usługi krytyczne"
+ },
+ {
+  "Fields": [
+   {
+    "InternalName": "FileLeafRef",
+    "Required": true,
+    "Title": "Nazwa",
+    "TypeAsString": "File"
+   },
+   {
+    "InternalName": "RT.02.01.0020",
+    "Required": false,
+    "Title": "Typ ustalenia umownego (02.01.0020)",
+    "TypeAsString": "Choice"
+   },
+   {
+    "InternalName": "RT.02.01.0030",
+    "Required": false,
+    "Title": "Ref. do nadrzędnej umowy (02.01.0030)",
+    "TypeAsString": "Text"
+   },
+   {
+    "InternalName": "Nr_x0020_LEI_x0020_podmiotu_x0020_korzyst._x0020_z_x0020_usług_x0020_ICT",
+    "Required": false,
+    "Title": "Nr LEI (02.02.0020)",
+    "TypeAsString": "Text"
+   },
+   {
+    "InternalName": "Typ_x0020_usługi_x0020_ICT",
+    "Required": false,
+    "Title": "Typ usługi ICT (02.02.0060) old",
+    "TypeAsString": "Choice"
+   },
+   {
+    "InternalName": "Powód_x0020_rozwiązania_x0020_lub_x0020_zakończenia_x0020_ustaleń_x0020_umownych",
+    "Required": false,
+    "Title": "Powód zakończenia um. (02.02.0090)",
+    "TypeAsString": "Choice"
+   },
+   {
+    "InternalName": "Okres_x0020_wypowiedzenia",
+    "Required": false,
+    "Title": "Okres wypowiedzenia (02.02.0100)",
+    "TypeAsString": "Number"
+   },
+   {
+    "InternalName": "RT.02.02.0170",
+    "Required": false,
+    "Title": "Wrażliwość przech. (storage) danych (02.02.0170)",
+    "TypeAsString": "Choice"
+   },
+   {
+    "InternalName": "RT.02.02.0180",
+    "Required": false,
+    "Title": "Poziom zależności od dostawcy usł. (02.02.0180)",
+    "TypeAsString": "Choice"
+   },
+   {
+    "InternalName": "Created",
+    "Required": false,
+    "Title": "Utworzony",
+    "TypeAsString": "DateTime"
+   },
+   {
+    "InternalName": "SelectFilename",
+    "Required": false,
+    "Title": "Wybierz",
+    "TypeAsString": "Computed"
+   },
+   {
+    "InternalName": "Created_x0020_By",
+    "Required": false,
+    "Title": "Dokument utworzony przez",
+    "TypeAsString": "Text"
+   },
+   {
+    "InternalName": "Modified",
+    "Required": false,
+    "Title": "Zmodyfikowane",
+    "TypeAsString": "DateTime"
+   },
+   {
+    "InternalName": "Title",
+    "Required": false,
+    "Title": "Kod",
+    "TypeAsString": "Text"
+   },
+   {
+    "InternalName": "Modified_x0020_By",
+    "Required": false,
+    "Title": "Dokument zmodyfikowany przez",
+    "TypeAsString": "Text"
+   },
+   {
+    "InternalName": "ContentType",
+    "Required": false,
+    "Title": "Typ zawartości",
+    "TypeAsString": "Computed"
+   },
+   {
+    "InternalName": "RT.02.03.0010",
+    "Required": false,
+    "Title": "Nr referencyjny (02.03.0010)",
+    "TypeAsString": "Text"
+   },
+   {
+    "InternalName": "RT.02.03.0020",
+    "Required": false,
+    "Title": "Nr ref. ustalenia um. (02.03.0020)",
+    "TypeAsString": "Text"
+   },
+   {
+    "InternalName": "RT.05.02.0020",
+    "Required": false,
+    "Title": "Typ usługi ICT (05.02.0020) old",
+    "TypeAsString": "Choice"
+   },
+   {
+    "InternalName": "_x0030_040_x0020_Typ_x0020_kodu",
+    "Required": false,
+    "Title": "Typ kodu (05.02.0040)",
+    "TypeAsString": "Text"
+   },
+   {
+    "InternalName": "RT.05.02.0050",
+    "Required": false,
+    "Title": "Ranga (05.02.0050)",
+    "TypeAsString": "Number"
+   },
+   {
+    "InternalName": "RT.05.02.0060",
+    "Required": false,
+    "Title": "Kod odbiorcy usług (05.02.0060)",
+    "TypeAsString": "Text"
+   },
+   {
+    "InternalName": "RT.05.02.0070",
+    "Required": false,
+    "Title": "Typ kodu odbiorcy usług (05.02.0070)",
+    "TypeAsString": "Text"
+   },
+   {
+    "InternalName": "_x0030_040_x0020_Typ_x0020_usług_x0020_ICT",
+    "Required": false,
+    "Title": "Typ usług ICT (07.01.0040) old",
+    "TypeAsString": "Choice"
+   },
+   {
+    "InternalName": "_x0030_060_x0020_Powód",
+    "Required": false,
+    "Title": "Powód niezastępowalności (07.01.0060)",
+    "TypeAsString": "Choice"
+   },
+   {
+    "InternalName": "_x0030_080_x0020_Wdrożenie_x0020_planu_x0020_wyjścia",
+    "Required": false,
+    "Title": "Wdrożenie planu wyjścia (07.01.0080)",
+    "TypeAsString": "Boolean"
+   },
+   {
+    "InternalName": "_x0030_0100_x0020_Skutki_x0020_zaprzestania_x0020_świadczenia_x0020_usł.",
+    "Required": false,
+    "Title": "Skutki zaprzestania świadczenia usł. (07.01.00100)",
+    "TypeAsString": "Choice"
+   },
+   {
+    "InternalName": "_x0030_0120_x0020_Identyfikacja_x0020_alternatywnego_x0020_TPP",
+    "Required": false,
+    "Title": "Opis altern. dostawców (07.01.00120)",
+    "TypeAsString": "Note"
+   }
+  ],
+  "Description": "",
+  "Group": "DORA Typy zawartości",
+  "Id": {
+   "StringValue": "0x0101000359BE35BCAB86448495EF5EBA00144F"
+  },
+  "Name": "Um. (Usunąć)"
+ }
+]

@@ -1,0 +1,31 @@
+[
+ {
+  "FileSystemObjectType": 0,
+  "Id": 3,
+  "ServerRedirectedEmbedUri": null,
+  "ServerRedirectedEmbedUrl": "",
+  "ContentTypeId": "0x008C43596493BE5F4F92670DC7FD04CC42",
+  "Title": "Słownik Działalności",
+  "BackgroundImageLocation": null,
+  "Description": "DORA001",
+  "LinkLocation": {
+   "Description": "Słownik Działalności",
+   "Url": "https://teams.sp.creditagricole/team/BiuroIT/dora/Lists/DORA011"
+  },
+  "LaunchBehavior": "Nawigacja w obrębie strony",
+  "TileOrder": 1,
+  "BackgroundImageClusterX": null,
+  "BackgroundImageClusterY": null,
+  "ComplianceAssetId": null,
+  "ID": 3,
+  "Modified": "2025-04-24T08:11:18Z",
+  "Created": "2025-04-24T08:07:35Z",
+  "AuthorId": 16,
+  "EditorId": 16,
+  "OData__UIVersionString": "1.0",
+  "Attachments": false,
+  "GUID": "76616820-bac7-42d5-97ab-5f5b02c1f984",
+  "FileRef": "/team/BiuroIT/dora/Lists/MENU04/3_.000",
+  "FileDirRef": "/team/BiuroIT/dora/Lists/MENU04"
+ }
+]

@@ -1,0 +1,40 @@
+{
+ "AllowRssFeeds": true,
+ "AlternateCssUrl": "",
+ "AppInstanceId": "00000000-0000-0000-0000-000000000000",
+ "Configuration": 0,
+ "Created": "2024-10-04T13:28:05",
+ "CurrentChangeToken": {
+  "StringValue": "1;2;78f724f1-6218-4137-9aa0-ac50085fb903;639247222847130000;19271474"
+ },
+ "CustomMasterUrl": "/team/BiuroIT/dora/_catalogs/masterpage/seattle.master",
+ "Description": "",
+ "DesignPackageId": "00000000-0000-0000-0000-000000000000",
+ "DocumentLibraryCalloutOfficeWebAppPreviewersDisabled": false,
+ "EnableMinimalDownload": true,
+ "HeaderEmphasis": 0,
+ "HorizontalQuickLaunch": false,
+ "Id": "78f724f1-6218-4137-9aa0-ac50085fb903",
+ "IsMultilingual": false,
+ "Language": 1045,
+ "LastItemModifiedDate": "2026-09-11T09:09:08Z",
+ "LastItemUserModifiedDate": "2026-09-11T09:09:08Z",
+ "MasterUrl": "/team/BiuroIT/dora/_catalogs/masterpage/seattle.master",
+ "NoCrawl": false,
+ "OverwriteTranslationsOnChange": false,
+ "ResourcePath": {
+  "DecodedUrl": "https://teams.sp.creditagricole/team/BiuroIT/dora"
+ },
+ "QuickLaunchEnabled": true,
+ "RecycleBinEnabled": true,
+ "ServerRelativeUrl": "/team/BiuroIT/dora",
+ "SiteLogoUrl": "/team/BiuroIT/dora/Biblioteka obrazw/DORA3.png",
+ "SyndicationEnabled": true,
+ "Title": "DORA (Digital Operational Resilience Act)",
+ "TreeViewEnabled": false,
+ "UIVersion": 15,
+ "UIVersionConfigurationEnabled": false,
+ "Url": "https://teams.sp.creditagricole/team/BiuroIT/dora",
+ "WebTemplate": "STS",
+ "WelcomePage": "SitePages/Strona główna.aspx"
+}

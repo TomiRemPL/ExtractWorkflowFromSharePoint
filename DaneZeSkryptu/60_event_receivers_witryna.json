@@ -1,0 +1,42 @@
+[
+ {
+  "ReceiverAssembly": "Microsoft.SharePoint, Version=15.0.0.0, Culture=neutral, PublicKeyToken=71e9bce111e9429c",
+  "ReceiverClass": "Microsoft.SharePoint.Applications.HierarchyTasksList.SPHierarchyTaskListEventReceiver",
+  "ReceiverId": "fe74ca70-8494-43a0-9036-798461e22684",
+  "ReceiverName": "",
+  "SequenceNumber": 10000,
+  "Synchronization": 2,
+  "EventType": 10104,
+  "ReceiverUrl": null
+ },
+ {
+  "ReceiverAssembly": "Microsoft.Office.Server.UserProfiles, Version=15.0.0.0, Culture=neutral, PublicKeyToken=71e9bce111e9429c",
+  "ReceiverClass": "Microsoft.Office.Server.UserProfiles.ContentFollowingWebEventReceiver",
+  "ReceiverId": "016852f4-9e49-43b9-8220-ca93588b731d",
+  "ReceiverName": "Auto-Follow New Site Event receiver",
+  "SequenceNumber": 10000,
+  "Synchronization": 2,
+  "EventType": 10204,
+  "ReceiverUrl": null
+ },
+ {
+  "ReceiverAssembly": "Microsoft.SharePoint, Version=15.0.0.0, Culture=neutral, PublicKeyToken=71e9bce111e9429c",
+  "ReceiverClass": "Microsoft.SharePoint.AccessRequestsSecurityEventReceiver",
+  "ReceiverId": "79cf3ffe-2617-4826-9a23-2f2fb69edb9b",
+  "ReceiverName": "",
+  "SequenceNumber": 10000,
+  "Synchronization": 2,
+  "EventType": 10312,
+  "ReceiverUrl": null
+ },
+ {
+  "ReceiverAssembly": "Nintex.Workflow, Version=1.0.0.0, Culture=neutral, PublicKeyToken=913f6bae0ca5ae12",
+  "ReceiverClass": "Nintex.Workflow.Activities.Services.WorklfowCompletedEventReceiver",
+  "ReceiverId": "56f98cc7-d17f-47e7-b95c-49736775a29f",
+  "ReceiverName": "Created By Nintex Workflow Start Action",
+  "SequenceNumber": 10000,
+  "Synchronization": 2,
+  "EventType": 10503,
+  "ReceiverUrl": null
+ }
+]

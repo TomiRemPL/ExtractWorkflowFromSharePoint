@@ -1,0 +1,65 @@
+[
+ {
+  "Id": 1031,
+  "IsDocLib": true,
+  "IsExternal": false,
+  "IsVisible": true,
+  "ListTemplateType": 0,
+  "Title": "Strona główna",
+  "Url": "/team/BiuroIT/dora"
+ },
+ {
+  "Id": 2082,
+  "IsDocLib": true,
+  "IsExternal": true,
+  "IsVisible": true,
+  "ListTemplateType": 0,
+  "Title": "Wiadomości",
+  "Url": "/team/BiuroIT/dora/_layouts/15/News.aspx"
+ },
+ {
+  "Id": 2065,
+  "IsDocLib": true,
+  "IsExternal": false,
+  "IsVisible": true,
+  "ListTemplateType": 100,
+  "Title": "Kwalifikacja Usług",
+  "Url": "/team/BiuroIT/dora/Lists/DORA009/AllItems.aspx"
+ },
+ {
+  "Id": 2071,
+  "IsDocLib": true,
+  "IsExternal": false,
+  "IsVisible": true,
+  "ListTemplateType": 0,
+  "Title": "Słownik Dostawców",
+  "Url": "/team/BiuroIT/dora/Lists/DORA001"
+ },
+ {
+  "Id": 2066,
+  "IsDocLib": true,
+  "IsExternal": false,
+  "IsVisible": true,
+  "ListTemplateType": 0,
+  "Title": "Rejestry:",
+  "Url": "/team/BiuroIT/dora"
+ },
+ {
+  "Id": 1033,
+  "IsDocLib": true,
+  "IsExternal": true,
+  "IsVisible": true,
+  "ListTemplateType": 0,
+  "Title": "Ostatnie",
+  "Url": ""
+ },
+ {
+  "Id": 2081,
+  "IsDocLib": true,
+  "IsExternal": false,
+  "IsVisible": true,
+  "ListTemplateType": 119,
+  "Title": "Strony",
+  "Url": "/team/BiuroIT/dora/SitePages/Forms/AllPages.aspx"
+ }
+]

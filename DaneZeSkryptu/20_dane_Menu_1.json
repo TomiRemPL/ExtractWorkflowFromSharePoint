@@ -1,0 +1,130 @@
+[
+ {
+  "FileSystemObjectType": 0,
+  "Id": 4,
+  "ServerRedirectedEmbedUri": null,
+  "ServerRedirectedEmbedUrl": "",
+  "ContentTypeId": "0x001BB39099DE3BE7479D287CEF96215814",
+  "Title": "Rejestr Umów",
+  "BackgroundImageLocation": {
+   "Description": "DORA002",
+   "Url": "https://teams.sp.creditagricole/team/BiuroIT/dora/Biblioteka%20obrazw/Walizka.png"
+  },
+  "Description": "DORA002",
+  "LinkLocation": {
+   "Description": "DORA002",
+   "Url": "https://teams.sp.creditagricole/team/BiuroIT/dora/Lists/DORA002"
+  },
+  "LaunchBehavior": "Nawigacja w obrębie strony",
+  "TileOrder": 1,
+  "BackgroundImageClusterX": null,
+  "BackgroundImageClusterY": null,
+  "ComplianceAssetId": null,
+  "ID": 4,
+  "Modified": "2024-11-15T10:35:52Z",
+  "Created": "2024-10-08T12:45:44Z",
+  "AuthorId": 16,
+  "EditorId": 16,
+  "OData__UIVersionString": "1.0",
+  "Attachments": false,
+  "GUID": "faa1b1b8-8670-4271-8229-e48faa73318e",
+  "FileRef": "/team/BiuroIT/dora/Lists/MENU01/4_.000",
+  "FileDirRef": "/team/BiuroIT/dora/Lists/MENU01"
+ },
+ {
+  "FileSystemObjectType": 0,
+  "Id": 5,
+  "ServerRedirectedEmbedUri": null,
+  "ServerRedirectedEmbedUrl": "",
+  "ContentTypeId": "0x001BB39099DE3BE7479D287CEF96215814",
+  "Title": "Rejestr Usług ICT",
+  "BackgroundImageLocation": {
+   "Description": "DORA003",
+   "Url": "https://teams.sp.creditagricole/team/BiuroIT/dora/Biblioteka%20obrazw/Walizka.png"
+  },
+  "Description": "DORA003",
+  "LinkLocation": {
+   "Description": "DORA003",
+   "Url": "https://teams.sp.creditagricole/team/BiuroIT/dora/Lists/DORA003"
+  },
+  "LaunchBehavior": "Nawigacja w obrębie strony",
+  "TileOrder": 2,
+  "BackgroundImageClusterX": null,
+  "BackgroundImageClusterY": null,
+  "ComplianceAssetId": null,
+  "ID": 5,
+  "Modified": "2024-11-15T10:36:02Z",
+  "Created": "2024-11-04T09:03:30Z",
+  "AuthorId": 16,
+  "EditorId": 16,
+  "OData__UIVersionString": "1.0",
+  "Attachments": false,
+  "GUID": "aa2015cd-98a3-44a0-b9aa-af9750266314",
+  "FileRef": "/team/BiuroIT/dora/Lists/MENU01/5_.000",
+  "FileDirRef": "/team/BiuroIT/dora/Lists/MENU01"
+ },
+ {
+  "FileSystemObjectType": 0,
+  "Id": 6,
+  "ServerRedirectedEmbedUri": null,
+  "ServerRedirectedEmbedUrl": "",
+  "ContentTypeId": "0x001BB39099DE3BE7479D287CEF96215814",
+  "Title": "Rejestr Łańcuchów Dostaw",
+  "BackgroundImageLocation": {
+   "Description": "DORA004",
+   "Url": "https://teams.sp.creditagricole/team/BiuroIT/dora/Biblioteka%20obrazw/Walizka.png"
+  },
+  "Description": "DORA004",
+  "LinkLocation": {
+   "Description": "DORA004",
+   "Url": "https://teams.sp.creditagricole/team/BiuroIT/dora/Lists/DORA004"
+  },
+  "LaunchBehavior": "Nawigacja w obrębie strony",
+  "TileOrder": 3,
+  "BackgroundImageClusterX": null,
+  "BackgroundImageClusterY": null,
+  "ComplianceAssetId": null,
+  "ID": 6,
+  "Modified": "2024-11-15T10:36:12Z",
+  "Created": "2024-11-05T11:04:46Z",
+  "AuthorId": 16,
+  "EditorId": 16,
+  "OData__UIVersionString": "1.0",
+  "Attachments": false,
+  "GUID": "bb341d61-39bb-4a31-aeea-e1bd0e6b12ea",
+  "FileRef": "/team/BiuroIT/dora/Lists/MENU01/6_.000",
+  "FileDirRef": "/team/BiuroIT/dora/Lists/MENU01"
+ },
+ {
+  "FileSystemObjectType": 0,
+  "Id": 7,
+  "ServerRedirectedEmbedUri": null,
+  "ServerRedirectedEmbedUrl": "",
+  "ContentTypeId": "0x001BB39099DE3BE7479D287CEF96215814",
+  "Title": "Rejestr Ocen",
+  "BackgroundImageLocation": {
+   "Description": "DORA005",
+   "Url": "https://teams.sp.creditagricole/team/BiuroIT/dora/Biblioteka%20obrazw/Walizka.png"
+  },
+  "Description": "DORA005",
+  "LinkLocation": {
+   "Description": "DORA005",
+   "Url": "https://teams.sp.creditagricole/team/BiuroIT/dora/Lists/DORA005"
+  },
+  "LaunchBehavior": "Nawigacja w obrębie strony",
+  "TileOrder": 4,
+  "BackgroundImageClusterX": null,
+  "BackgroundImageClusterY": null,
+  "ComplianceAssetId": null,
+  "ID": 7,
+  "Modified": "2024-11-15T10:36:22Z",
+  "Created": "2024-11-05T11:07:37Z",
+  "AuthorId": 16,
+  "EditorId": 16,
+  "OData__UIVersionString": "1.0",
+  "Attachments": false,
+  "GUID": "fbf2f114-7134-4248-87fc-d0744678ec88",
+  "FileRef": "/team/BiuroIT/dora/Lists/MENU01/7_.000",
+  "FileDirRef": "/team/BiuroIT/dora/Lists/MENU01"
+ }
+]

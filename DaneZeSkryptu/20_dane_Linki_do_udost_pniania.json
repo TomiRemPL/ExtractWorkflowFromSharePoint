@@ -1,0 +1,21 @@
+[
+ {
+  "FileSystemObjectType": 0,
+  "Id": 1,
+  "ServerRedirectedEmbedUri": null,
+  "ServerRedirectedEmbedUrl": "",
+  "ContentTypeId": "0x00C79A3D524DC77E4FB3B1679AC717202E",
+  "Title": null,
+  "ComplianceAssetId": null,
+  "ID": 1,
+  "Modified": "2025-12-04T13:38:02Z",
+  "Created": "2025-12-04T13:38:02Z",
+  "AuthorId": 1073741823,
+  "EditorId": 1073741823,
+  "OData__UIVersionString": "1.0",
+  "Attachments": false,
+  "GUID": "0c6e86ba-82ed-429f-9018-f595e1d11ccb",
+  "FileRef": "/team/BiuroIT/dora/Linki do udostpniania/1_.000",
+  "FileDirRef": "/team/BiuroIT/dora/Linki do udostpniania"
+ }
+]

@@ -1,0 +1,98 @@
+[
+ {
+  "BasePermissions": {
+   "High": "2147483647",
+   "Low": "4294967295"
+  },
+  "Description": "Ma pełną kontrolę.",
+  "Hidden": false,
+  "Id": 1073741829,
+  "Name": "Pełna kontrola",
+  "Order": 1,
+  "RoleTypeKind": 5
+ },
+ {
+  "BasePermissions": {
+   "High": "432",
+   "Low": "1012866047"
+  },
+  "Description": "Może przeglądać, dodawać, aktualizować, usuwać, zatwierdzać i dostosowywać.",
+  "Hidden": false,
+  "Id": 1073741828,
+  "Name": "Projektowanie",
+  "Order": 32,
+  "RoleTypeKind": 4
+ },
+ {
+  "BasePermissions": {
+   "High": "432",
+   "Low": "1011028719"
+  },
+  "Description": "Może przeglądać, dodawać, aktualizować i usuwać elementy listy i dokumenty.",
+  "Hidden": false,
+  "Id": 1073741827,
+  "Name": "Współtworzenie",
+  "Order": 64,
+  "RoleTypeKind": 3
+ },
+ {
+  "BasePermissions": {
+   "High": "176",
+   "Low": "138612833"
+  },
+  "Description": "Może wyświetlać strony i elementy list oraz pobierać dokumenty.",
+  "Hidden": false,
+  "Id": 1073741826,
+  "Name": "Czytanie",
+  "Order": 128,
+  "RoleTypeKind": 2
+ },
+ {
+  "BasePermissions": {
+   "High": "48",
+   "Low": "134287360"
+  },
+  "Description": "Może przeglądać określone listy, biblioteki dokumentów, elementy listy, foldery oraz dokumenty po nadaniu uprawnień.",
+  "Hidden": true,
+  "Id": 1073741825,
+  "Name": "Ograniczony dostęp",
+  "Order": 160,
+  "RoleTypeKind": 1
+ },
+ {
+  "BasePermissions": {
+   "High": "176",
+   "Low": "138612801"
+  },
+  "Description": "Może wyświetlać strony, elementy list oraz dokumenty. Typy dokumentów z dostępnymi programami obsługi plików na serwerze mogą być wyświetlane w przeglądarce, ale nie mogą być pobierane.",
+  "Hidden": false,
+  "Id": 1073741924,
+  "Name": "Tylko przeglądanie",
+  "Order": 2147483647,
+  "RoleTypeKind": 0
+ },
+ {
+  "BasePermissions": {
+   "High": "32",
+   "Low": "65536"
+  },
+  "Description": "Prześlij zawartość do tej witryny przy użyciu usług sieci Web.",
+  "Hidden": false,
+  "Id": 1073741925,
+  "Name": "Osoby przesyłające w usługach sieci Web centrum rekordów",
+  "Order": 2147483647,
+  "RoleTypeKind": 0
+ },
+ {
+  "BasePermissions": {
+   "High": "432",
+   "Low": "1006834279"
+  },
+  "Description": "Może przeglądać, dodawać i aktualizować elementy listy i dokumenty.",
+  "Hidden": false,
+  "Id": 1073741926,
+  "Name": "Edycja",
+  "Order": 2147483647,
+  "RoleTypeKind": 0
+ }
+]

@@ -1,0 +1,158 @@
+[
+ {
+  "DefinitionId": "00bfea71-d8fe-4fec-8dad-01c19a6e4053",
+  "DisplayName": "WikiPageHomePage"
+ },
+ {
+  "DefinitionId": "00bfea71-c796-4402-9f2f-0eb9a6e71b18",
+  "DisplayName": "WebPageLibrary"
+ },
+ {
+  "DefinitionId": "00bfea71-5932-4f9c-ad71-1557e5751100",
+  "DisplayName": "IssuesList"
+ },
+ {
+  "DefinitionId": "00bfea71-4ea5-48d4-a4ad-305cf7030140",
+  "DisplayName": "WorkflowHistoryList"
+ },
+ {
+  "DefinitionId": "d95c97f3-e528-4da2-ae9f-32b3535fbb59",
+  "DisplayName": "MBrowserRedirect"
+ },
+ {
+  "DefinitionId": "192efa95-e50c-475e-87ab-361cede5dd7f",
+  "DisplayName": "PromotedLinksList"
+ },
+ {
+  "DefinitionId": "00bfea71-f600-43f6-a895-40c0de7b0117",
+  "DisplayName": "NoCodeWorkflowLibrary"
+ },
+ {
+  "DefinitionId": "a7a2793e-67cd-4dc1-9fd0-43f61581207a",
+  "DisplayName": "FollowingContent"
+ },
+ {
+  "DefinitionId": "ea23650b-0340-4708-b465-441a41c37af7",
+  "DisplayName": "MySiteMicroBlog"
+ },
+ {
+  "DefinitionId": "00bfea71-eb8a-40b1-80c7-506be7590102",
+  "DisplayName": "SurveysList"
+ },
+ {
+  "DefinitionId": "00bfea71-3a1d-41d3-a0ee-651d11570120",
+  "DisplayName": "GridList"
+ },
+ {
+  "DefinitionId": "00bfea71-513d-4ca0-96c2-6a47775c0119",
+  "DisplayName": "GanttTasksList"
+ },
+ {
+  "DefinitionId": "00bfea71-2062-426c-90bf-714c59600103",
+  "DisplayName": "LinksList"
+ },
+ {
+  "DefinitionId": "f41cc668-37e5-4743-b4a8-74d1db3fd8a4",
+  "DisplayName": "MobilityRedirect"
+ },
+ {
+  "DefinitionId": "00bfea71-2d77-4a75-9fca-76516689e21a",
+  "DisplayName": "workflowProcessList"
+ },
+ {
+  "DefinitionId": "00bfea71-a83e-497e-9ba0-7a5c597d0107",
+  "DisplayName": "TasksList"
+ },
+ {
+  "DefinitionId": "b6917cb1-93a0-4b97-a84d-7cf49975d4ec",
+  "DisplayName": "SitePages"
+ },
+ {
+  "DefinitionId": "00bfea71-4ea5-48d4-a4ad-7ea5c011abe5",
+  "DisplayName": "TeamCollab"
+ },
+ {
+  "DefinitionId": "99fe402e-89a0-45aa-9163-85342e865dc8",
+  "DisplayName": "BaseWeb"
+ },
+ {
+  "DefinitionId": "5153156a-63af-4fac-b557-91bd8c315432",
+  "DisplayName": "SiteFeedController"
+ },
+ {
+  "DefinitionId": "57311b7a-9afd-4ff0-866e-9393ad6647b1",
+  "DisplayName": "WorkflowTask"
+ },
+ {
+  "DefinitionId": "f9ce21f8-f437-4f7e-8bc6-946378c850f0",
+  "DisplayName": "HierarchyTasksList"
+ },
+ {
+  "DefinitionId": "87294c72-f260-42f3-a41b-981a2ffce37a",
+  "DisplayName": "MDSFeature"
+ },
+ {
+  "DefinitionId": "ff13819a-a9ac-46fb-8163-9d53357ef98d",
+  "DisplayName": "TaskListNewsFeed"
+ },
+ {
+  "DefinitionId": "00bfea71-d1ce-42de-9c63-a44004ce0104",
+  "DisplayName": "AnnouncementsList"
+ },
+ {
+  "DefinitionId": "00bfea71-52d4-45b3-b544-b1c71b620109",
+  "DisplayName": "PictureLibrary"
+ },
+ {
+  "DefinitionId": "4aec7207-0d02-4f4f-aa07-b370199cd0c7",
+  "DisplayName": "GettingStarted"
+ },
+ {
+  "DefinitionId": "2c63df2b-ceab-42c6-aeff-b3968162d4b1",
+  "DisplayName": "WorkflowServiceStore"
+ },
+ {
+  "DefinitionId": "15a572c6-e545-4d32-897a-bab6f5846e18",
+  "DisplayName": "SiteFeed"
+ },
+ {
+  "DefinitionId": "9bf7bf98-5660-498a-9399-bc656a61ed5d",
+  "DisplayName": "NintexWorkflowWeb"
+ },
+ {
+  "DefinitionId": "00bfea71-7e6d-4186-9ba8-c047ac750105",
+  "DisplayName": "ContactsList"
+ },
+ {
+  "DefinitionId": "00bfea71-de22-43b2-a848-c05709900100",
+  "DisplayName": "CustomList"
+ },
+ {
+  "DefinitionId": "00bfea71-e717-4e80-aa17-d0c71b360101",
+  "DisplayName": "DocumentLibrary"
+ },
+ {
+  "DefinitionId": "00bfea71-6a49-43fa-b535-d15c05500108",
+  "DisplayName": "DiscussionsList"
+ },
+ {
+  "DefinitionId": "00bfea71-f381-423d-b9d1-da7a54c50110",
+  "DisplayName": "DataSourceLibrary"
+ },
+ {
+  "DefinitionId": "b0d5ad7e-23bc-4545-98c6-de91686ba8bc",
+  "DisplayName": "NewsPage"
+ },
+ {
+  "DefinitionId": "00bfea71-9549-43f8-b978-e47e54a10600",
+  "DisplayName": "ExternalList"
+ },
+ {
+  "DefinitionId": "00bfea71-ec85-4903-972d-ebe475780106",
+  "DisplayName": "EventsList"
+ },
+ {
+  "DefinitionId": "00bfea71-1e1d-4562-b56a-f05371bb0115",
+  "DisplayName": "XmlFormLibrary"
+ }
+]
