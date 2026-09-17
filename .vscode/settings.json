@@ -1,0 +1,27 @@
+{
+  // --- HTTP proxy for the whole VS Code environment ---
+  "http.proxy": "http://127.0.0.1:3001",
+  "http.proxySupport": "on",
+  "http.proxyStrictSSL": true,
+  "http.noProxy": [
+    "localhost",
+    "127.0.0.1",
+    "::1"
+  ],
+
+  // Proxy for anything launched from the integrated terminal (git, py, pip, npm, lean-ctx)
+  "terminal.integrated.env.windows": {
+    "HTTP_PROXY": "http://127.0.0.1:3001",
+    "HTTPS_PROXY": "http://127.0.0.1:3001",
+    "ALL_PROXY": "http://127.0.0.1:3001",
+    "NO_PROXY": "localhost,127.0.0.1,::1"
+  },
+
+  // Python tooling in this workspace
+  "python.defaultInterpreterPath": "${workspaceFolder}\\.venv\\Scripts\\python.exe",
+
+  // --- lean-ctx first ---
+  "chat.tools.autoApprove": false,
+  "chat.mcp.access": "all",
+  "github.copilot.chat.codesearch.enabled": true
+}
