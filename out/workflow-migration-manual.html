@@ -70,6 +70,18 @@
     .flow { display: flex; flex-wrap: wrap; gap: 7px; align-items: center; margin: 12px 0; }
     .flow span { padding: 7px 10px; background: #f4f0df; border: 1px solid #e7d9a7; border-radius: 3px; font-size: .88rem; }
     .flow i { color: var(--muted); font-style: normal; }
+    .legend { display: flex; flex-wrap: wrap; gap: 8px; margin: 14px 0; }
+    .object { display: inline-block; padding: 2px 7px; border: 1px solid; border-radius: 3px; font-size: .72rem; font-weight: 800; letter-spacing: .04em; text-transform: uppercase; white-space: nowrap; }
+    .object.list { color: #245b8a; background: #e6f1fb; border-color: #9bc1df; }
+    .object.field { color: #176647; background: #e4f4e9; border-color: #9bd0ad; }
+    .object.lookup { color: #735018; background: #fff1cf; border-color: #e1c37a; }
+    .object.workflow { color: #75436d; background: #f8e8f5; border-color: #d4a7ca; }
+    .object.variable { color: #7b4d21; background: #f8eadc; border-color: #ddb78e; }
+    .object.system { color: #43515a; background: #edf0f2; border-color: #bdc7cd; }
+    .mermaid-panel { margin: 18px 0; padding: 16px; background: #fbfcfa; border: 1px solid var(--line); overflow-x: auto; }
+    .mermaid { min-width: 680px; text-align: center; }
+    .diagram-source { margin-top: 8px; }
+    .diagram-source summary { padding: 8px 0; font-size: .9rem; }
     pre { position: relative; overflow-x: auto; margin: 12px 0 0; padding: 18px; background: #172126; color: #e5f2eb; border-radius: 4px; font-size: .83rem; line-height: 1.5; }
     .copy { float: right; margin: 8px 8px 0 0; padding: 5px 8px; border-color: #50656a; background: #26383d; color: white; font-size: .75rem; }
     details { margin: 10px 0; border-top: 1px solid var(--line); }
@@ -115,6 +127,7 @@
         <div class="metric span-4"><b>4</b><small>workflow z inventory i plikami .nwf</small></div><div class="metric span-4"><b>3</b><small>listy biznesowe objęte logiką</small></div><div class="metric span-4"><b>0</b><small>udokumentowanych endpointów Nintex</small></div>
         <div class="panel span-6"><h3>Zakres</h3><p>Manual obejmuje wywołanie logiki z systemu zewnętrznego, odczyt i zapis danych SharePoint, mapowanie reguł na APEX oraz kontrakt REST.</p><p>Poza zakresem: migracja formularzy Nintex, całej witryny, automatyczny transfer danych i odtwarzanie wszystkich uprawnień użytkowników.</p></div>
         <div class="panel span-6"><h3>Model docelowy</h3><p>System zewnętrzny wywołuje endpoint APEX/ORDS. Warstwa APEX waliduje żądanie, odczytuje i aktualizuje SharePoint przez REST oraz zwraca wynik albo identyfikator zadania.</p><div class="callout warning"><strong>Decyzja blokująca:</strong> przed produkcją trzeba potwierdzić uwierzytelnienie z serwera APEX do konkretnej instalacji SharePoint, zwłaszcza przy NTLM/Kerberos.</div></div>
+        <div class="panel span-12"><h3>Legenda obiektów</h3><p>Kolory pozwalają szybko odróżnić elementy SharePoint od logiki workflow i infrastruktury integracyjnej.</p><div class="legend"><span class="object list">lista / biblioteka SharePoint</span><span class="object field">pole SharePoint</span><span class="object lookup">lookup / relacja między listami</span><span class="object workflow">workflow / akcja</span><span class="object variable">zmienna workflow</span><span class="object system">APEX / REST / system</span></div><p class="section-kicker">Diagramy Mermaid są renderowane z osadzonego źródła. Przy braku dostępu do CDN widoczny pozostaje pełny kod diagramu w sekcji „Źródło Mermaid”.</p></div>
       </div>
     </section>
     <section id="contract" data-search="rest api endpoint sync async authentication uwierzytelnienie payload response error retry ords plsql">
@@ -173,19 +186,188 @@ end;</pre></details>
       <div id="workflow-list">
         <article class="workflow" data-list="Kwalifikacja Usług" data-workflow="DT01 Mechanizm Kwalifikacji Usługi" data-search="dt01 mechanizm kwalifikacji usługi telefonia analogowa usługa ict krytyczna ryzyko koncentracji">
           <div class="workflow-head"><div><h3>DT01 Mechanizm Kwalifikacji Usługi</h3><div class="meta"><span>Kwalifikacja Usług</span><span>utworzenie · zmiana · ręcznie</span><span>WorkflowId: 0076ff37-500d-4e62-a445-d54959d8e0c3</span></div></div><span class="status">potwierdzone</span></div>
-          <div class="workflow-body"><p>Wylicza trzy wartości kwalifikacyjne na podstawie pól bieżącego elementu i zapisuje je w tym samym elemencie.</p><div class="flow"><span>odczyt pól wejściowych</span><i>→</i><span>warunki Tak/Nie</span><i>→</i><span>zmienne</span><i>→</i><span>aktualizacja 3 pól</span></div><table><tr><th>Odczyt</th><th>Zapis</th></tr><tr><td>Telefonia analogowa, model kontraktowania, usługa cykliczna, typ usługi ICT, usługa krytyczna EBA, funkcja krytyczna, dostawca, inne usługi krytyczne dostawcy</td><td>Usługa ICT wg DORA, Usługa krytyczna wg DORA, Ryzyko koncentracji</td></tr></table><details><summary>Mapowanie APEX</summary><p>Jedna procedura transakcyjna: pobierz element, wylicz wartości zgodnie z warunkami, wykonaj aktualizację SharePoint z oczekiwanym ETag, zapisz audit log. W przypadku konfliktu nie nadpisuj zmian bez ponownego odczytu.</p></details></div>
+            <div class="workflow-body"><p>Wylicza trzy wartości kwalifikacyjne na podstawie pól bieżącego elementu i zapisuje je w tym samym elemencie.</p><div class="flow"><span>odczyt pól wejściowych</span><i>→</i><span>warunki Tak/Nie</span><i>→</i><span>zmienne</span><i>→</i><span>aktualizacja 3 pól</span></div><div class="legend"><span class="object list">lista: Kwalifikacja Usług</span><span class="object field">pole: wejście</span><span class="object variable">zmienna workflow</span><span class="object field">pole: zapis</span></div><div class="mermaid-panel"><div class="mermaid">flowchart TD
+          start((Start))
+          n1["Start workflow: DT01 Mechanizm Kwalifikacji Usługi"]
+          start --> n1
+          n2{"Telefonia analogowa = Tak LUB Model kontraktowania = ATU?"}
+          n1 --> n2
+          n3{"Usługa cykliczna = Tak?"}
+          n2 -- Nie --> n3
+          n4["zm_DT-01-01-34 = Nie"]
+          n3 -- Nie --> n4
+          n5{"Symbol usługi = eba_TA:S00?"}
+          n3 -- Tak --> n5
+          n6["zm_DT-01-01-34 = Tak"]
+          n5 -- Nie --> n6
+          n7["zm_DT-01-01-34 = Nie"]
+          n5 -- Tak --> n7
+          n8["zm_DT-01-01-34 = Nie"]
+          n2 -- Tak --> n8
+          n9{"zm_DT-01-01-34 = Tak?"}
+          n4 --> n9
+          n6 --> n9
+          n7 --> n9
+          n8 --> n9
+          n10["zm_DT-01-01-38 = Nie"]
+          n9 -- Nie --> n10
+          n11{"Usługa krytyczna EBA = Tak LUB funkcja krytyczna nie zawiera F0?"}
+          n9 -- Tak --> n11
+          n12["zm_DT-01-01-38 = Nie"]
+          n11 -- Nie --> n12
+          n13["zm_DT-01-01-38 = Tak"]
+          n11 -- Tak --> n13
+          n14{"Dostawca istnieje ORAZ inne usługi krytyczne = Tak?"}
+          n13 --> n14
+          n15["zm_DT-01-02-01 = Tak"]
+          n14 -- Tak --> n15
+          n16["Zapis historii wyników"]
+          n10 --> n16
+          n12 --> n16
+          n14 --> n16
+          n15 --> n16
+          n17["Aktualizacja 3 pól wynikowych w Kwalifikacja Usług"]
+          n16 --> n17
+          stop((Koniec))
+          n17 --> stop</div><details class="diagram-source"><summary>Źródło Mermaid z raportu Markdown</summary><pre>flowchart TD
+          start((Start)) --> n1["Start workflow: DT01 Mechanizm Kwalifikacji Usługi"]
+          n1 --> n2{"Telefonia analogowa = Tak LUB Model kontraktowania = ATU?"}
+          n2 -- Nie --> n3{"Usługa cykliczna = Tak?"}
+          n3 -- Nie --> n4["zm_DT-01-01-34 = Nie"]
+          n3 -- Tak --> n5{"Symbol usługi = eba_TA:S00?"}
+          n5 -- Nie --> n6["zm_DT-01-01-34 = Tak"]
+          n5 -- Tak --> n7["zm_DT-01-01-34 = Nie"]
+          n2 -- Tak --> n8["zm_DT-01-01-34 = Nie"]
+          n4 --> n9{"zm_DT-01-01-34 = Tak?"}
+          n6 --> n9
+          n7 --> n9
+          n8 --> n9
+          n9 -- Nie --> n10["zm_DT-01-01-38 = Nie"]
+          n9 -- Tak --> n11{"Usługa krytyczna EBA = Tak LUB funkcja krytyczna nie zawiera F0?"}
+          n11 -- Nie --> n12["zm_DT-01-01-38 = Nie"]
+          n11 -- Tak --> n13["zm_DT-01-01-38 = Tak"]
+          n13 --> n14{"Dostawca istnieje ORAZ inne usługi krytyczne = Tak?"}
+          n14 -- Tak --> n15["zm_DT-01-02-01 = Tak"]
+          n10 --> n16["Zapis historii wyników"]
+          n12 --> n16
+          n14 --> n16
+          n15 --> n16
+          n16 --> n17["Aktualizacja 3 pól wynikowych w Kwalifikacja Usług"]
+          n17 --> stop((Koniec))</pre></details></div><table><tr><th>Odczyt</th><th>Zapis</th></tr><tr><td>Telefonia analogowa, model kontraktowania, usługa cykliczna, typ usługi ICT, usługa krytyczna EBA, funkcja krytyczna, dostawca, inne usługi krytyczne dostawcy</td><td>Usługa ICT wg DORA, Usługa krytyczna wg DORA, Ryzyko koncentracji</td></tr></table><details><summary>Identyfikatory pól SharePoint</summary><table><tr><th>Typ</th><th>Nazwa biznesowa</th><th>InternalName</th></tr><tr><td><span class="object field">pole</span></td><td>Telefonia analogowa?</td><td>DT_x002e_01</td></tr><tr><td><span class="object field">pole</span></td><td>Usługa cykliczna?</td><td>DT_x002e_03</td></tr><tr><td><span class="object field">pole</span></td><td>Usługa ICT wg DORA?</td><td>Us_x0142_uga_x0020_kwalifikowana</td></tr><tr><td><span class="object field">pole</span></td><td>Usługa krytyczna wg DORA?</td><td>Us_x0142_uga_x0020_krytyczna_x000</td></tr><tr><td><span class="object field">pole</span></td><td>Ryzyko koncentracji?</td><td>Zwi_x0119_kszone_x0020_ryzyko_x0</td></tr></table></details><details><summary>Mapowanie APEX</summary><p>Jedna procedura transakcyjna: pobierz element, wylicz wartości zgodnie z warunkami, wykonaj aktualizację SharePoint z oczekiwanym ETag, zapisz audit log. W przypadku konfliktu nie nadpisuj zmian bez ponownego odczytu.</p></details></div>
         </article>
         <article class="workflow" data-list="Kwalifikacja Usług" data-workflow="DT01 Wypełnienie pól Nr RKU oraz Nazwa" data-search="dt01 rku nazwa id title">
           <div class="workflow-head"><div><h3>DT01 Wypełnienie pól Nr RKU oraz Nazwa</h3><div class="meta"><span>Kwalifikacja Usług</span><span>utworzenie · zmiana · ręcznie</span><span>WorkflowId: fd6dc49c-7328-42e4-9f30-ea2f17e7be7a</span></div></div><span class="status">potwierdzone</span></div>
-          <div class="workflow-body"><p>Uzupełnia brakujący numer RKU oraz tytuł elementu na podstawie identyfikatora i nazwy usługi.</p><div class="flow"><span>jeśli Nr RKU puste</span><i>→</i><span>RKU-{ID}</span><i>+</i><span>jeśli Nazwa pusta</span><i>→</i><span>nazwa usługi</span></div><table><tr><th>Odczyt</th><th>Zapis</th></tr><tr><td>Nr RKU, Nazwa usługi</td><td>Nr RKU, Title</td></tr></table><details><summary>Mapowanie APEX</summary><p>Operacja idempotentna: ustawiaj tylko pola puste. Powtórne wywołanie nie powinno zmieniać ręcznie poprawionych wartości.</p></details></div>
+            <div class="workflow-body"><p>Uzupełnia brakujący numer RKU oraz tytuł elementu na podstawie identyfikatora i nazwy usługi.</p><div class="flow"><span>jeśli Nr RKU puste</span><i>→</i><span>RKU-{ID}</span><i>+</i><span>jeśli Nazwa pusta</span><i>→</i><span>nazwa usługi</span></div><div class="legend"><span class="object list">lista: Kwalifikacja Usług</span><span class="object field">pole: Nr RKU</span><span class="object field">pole: Title</span><span class="object workflow">workflow: DT01 RKU</span></div><div class="mermaid-panel"><div class="mermaid">flowchart TD
+          start((Start)) --> n1["Start DT01 Wypełnienie pól Nr RKU oraz Nazwa"]
+          n1 --> n2{"Nr RKU jest puste?"}
+          n2 -- Tak --> n3["Ustaw Nr RKU = RKU-{ItemProperty:ID}"]
+          n2 -- Nie --> n4{"Nazwa / Title jest pusta?"}
+          n3 --> n4
+          n4 -- Tak --> n5["Ustaw Title = Nazwa usługi"]
+          n4 -- Nie --> stop((Koniec))
+          n5 --> stop</div><details class="diagram-source"><summary>Źródło Mermaid z raportu Markdown</summary><pre>flowchart TD
+          start((Start))
+          n1["Start workflow: DT01 Wypełnienie pól Nr RKU oraz Nazwa"]
+          start --> n1
+          n2{"Nr RKU jest puste?"}
+          n1 --> n2
+          n2 -- Tak --> n3["Ustaw Nr RKU = RKU-{ItemProperty:ID}"]
+          n2 -- Nie --> n4{"Nazwa / Title jest pusta?"}
+          n3 --> n4
+          n4 -- Tak --> n5["Ustaw Title = Nazwa usługi"]
+          n4 -- Nie --> stop((Koniec))
+          n5 --> stop</pre></details></div><table><tr><th>Odczyt</th><th>Zapis</th></tr><tr><td>Nr RKU, Nazwa usługi</td><td>Nr RKU, Title</td></tr></table><details><summary>Identyfikatory pól SharePoint</summary><table><tr><th>Typ</th><th>Nazwa</th><th>InternalName</th></tr><tr><td><span class="object field">pole</span></td><td>Nr RKU</td><td>Nr_x0020_RKU</td></tr><tr><td><span class="object field">pole</span></td><td>Nazwa</td><td>Title</td></tr><tr><td><span class="object field">pole</span></td><td>Nazwa usługi</td><td>Nazwa_x0020_us_x0142_ugi_x0020__</td></tr></table></details><details><summary>Mapowanie APEX</summary><p>Operacja idempotentna: ustawiaj tylko pola puste. Powtórne wywołanie nie powinno zmieniać ręcznie poprawionych wartości.</p></details></div>
         </article>
         <article class="workflow" data-list="Rejestr Usług ICT" data-workflow="RT0202 Pobranie danych z Kwalifikacji Usługi" data-search="rt0202 cross item lookup kwalifikacja usługi symbol dostawca funkcja">
           <div class="workflow-head"><div><h3>RT0202 Pobranie danych z Kwalifikacji Usługi</h3><div class="meta"><span>Rejestr Usług ICT</span><span>utworzenie · zmiana · ręcznie</span><span>WorkflowId: a9815b9f-33f7-453f-bf3e-d001a301c5ab</span></div></div><span class="status">potwierdzone</span></div>
-          <div class="workflow-body"><p>Kopiuje dane z powiązanego elementu Kwalifikacja Usług do Rejestru Usług ICT, dopasowując rekord przez lookup.</p><div class="flow"><span>ID bieżącego elementu</span><i>→</i><span>lookup Kwalifikacja Usług</span><i>→</i><span>odczyt 4 pól</span><i>→</i><span>zapis w RT0202</span></div><table><tr><th>Źródło</th><th>Wynik</th></tr><tr><td>Kwalifikacja Usług: nazwa usługi, Nr CRK, dostawca, typ usługi, funkcja</td><td>Symbol ICT, Title, typ usługi, dostawca usług, funkcja, Nr CRK</td></tr></table><details><summary>Mapowanie APEX</summary><p>Najpierw odczytaj ID elementu źródłowego z lookupu, potem pobierz pola źródłowe w osobnym GET. Aktualizację wykonaj jednym MERGE, a po niej zapisz commit/audit.</p></details></div>
+            <div class="workflow-body"><p>Kopiuje dane z powiązanego elementu Kwalifikacja Usług do Rejestru Usług ICT, dopasowując rekord przez lookup.</p><div class="flow"><span>ID bieżącego elementu</span><i>→</i><span>lookup Kwalifikacja Usług</span><i>→</i><span>odczyt 4 pól</span><i>→</i><span>zapis w RT0202</span></div><div class="legend"><span class="object list">lista źródłowa: Rejestr Usług ICT</span><span class="object lookup">lookup: Kwalifikacja Usług</span><span class="object field">pola odczytu</span><span class="object field">pola zapisu</span></div><div class="mermaid-panel"><div class="mermaid">flowchart TD
+          start((Start))
+          n1["Start RT0202"]
+          start --> n1
+          n2["Symbol usługi ICT = ICT-{ItemProperty:ID}"]
+          n1 --> n2
+          n3["Odczytaj Nazwa usługi przez CrossItemLookup"]
+          n2 --> n3
+          n4["Zapisz historię: zm_DT-01-01-01"]
+          n3 --> n4
+          n5["Aktualizuj Title w Rejestr Usług ICT"]
+          n4 --> n5
+          n6["Commit zmian"]
+          n5 --> n6
+          n7["Odczytaj Nr CRK"]
+          n6 --> n7
+          n8["Odczytaj Dostawcę"]
+          n7 --> n8
+          n9["Odczytaj Typ usługi ICT"]
+          n8 --> n9
+          n10["Odczytaj Funkcję"]
+          n9 --> n10
+          n11["Zapisz historię zmiennych"]
+          n10 --> n11
+          n12["Aktualizuj 5 pól w Rejestr Usług ICT"]
+          n11 --> n12
+          stop((Koniec))
+          n12 --> stop</div><details class="diagram-source"><summary>Źródło Mermaid z raportu Markdown</summary><pre>flowchart TD
+          start((Start)) --> n1["Start RT0202"]
+          n1 --> n2["Symbol usługi ICT = ICT-{ItemProperty:ID}"]
+          n2 --> n3["Odczytaj Nazwa usługi przez CrossItemLookup"]
+          n3 --> n4["Zapisz historię: zm_DT-01-01-01"]
+          n4 --> n5["Aktualizuj Title w Rejestr Usług ICT"]
+          n5 --> n6["Commit zmian"]
+          n6 --> n7["Odczytaj Nr CRK"]
+          n7 --> n8["Odczytaj Dostawcę"]
+          n8 --> n9["Odczytaj Typ usługi ICT"]
+          n9 --> n10["Odczytaj Funkcję"]
+          n10 --> n11["Zapisz historię zmiennych"]
+          n11 --> n12["Aktualizuj 5 pól w Rejestr Usług ICT"]
+          n12 --> stop((Koniec))</pre></details></div><table><tr><th>Źródło</th><th>Wynik</th></tr><tr><td>Kwalifikacja Usług: nazwa usługi, Nr CRK, dostawca, typ usługi, funkcja</td><td>Symbol ICT, Title, typ usługi, dostawca usług, funkcja, Nr CRK</td></tr></table><details><summary>Identyfikatory list i pól SharePoint</summary><table><tr><th>Typ</th><th>Obiekt</th><th>InternalName / GUID</th></tr><tr><td><span class="object list">lista</span></td><td>Rejestr Usług ICT</td><td>D7273010-E4C3-4D13-8006-F60B440402E8</td></tr><tr><td><span class="object list">lista</span></td><td>Kwalifikacja Usług</td><td>45763939-B649-439D-9A1B-39D6AB430FBF</td></tr><tr><td><span class="object lookup">lookup</span></td><td>Kwalifikacja Usług (powiązanie)</td><td>Us_x0142_uga_x0020_kwalifikowana</td></tr><tr><td><span class="object field">pole</span></td><td>Nazwa usługi</td><td>Nazwa_x0020_us_x0142_ugi_x0020__</td></tr><tr><td><span class="object field">pole</span></td><td>Nr CRK</td><td>Umowa_x0020__x0028_DT_x002e_01_x</td></tr><tr><td><span class="object field">pole</span></td><td>Dostawca</td><td>Dostawca_x0020__x0028_DT_x002e_0</td></tr></table></details><details><summary>Mapowanie APEX</summary><p>Najpierw odczytaj ID elementu źródłowego z lookupu, potem pobierz pola źródłowe w osobnym GET. Aktualizację wykonaj jednym MERGE, a po niej zapisz commit/audit.</p></details></div>
         </article>
         <article class="workflow" data-list="Rejestr Ocen" data-workflow="RT0701 Pobranie danych z Kwalifikacji Usługi do RT0701" data-search="rt0701 cross item lookup rejestr ocen zastępowalność reintegracja skutki">
           <div class="workflow-head"><div><h3>RT0701 Pobranie danych z Kwalifikacji Usługi do RT0701</h3><div class="meta"><span>Rejestr Ocen</span><span>utworzenie · zmiana · ręcznie</span><span>WorkflowId: 0e6b5c9e-eca3-476a-890f-c2e70e9d2f67</span></div></div><span class="status">potwierdzone</span></div>
-          <div class="workflow-body"><p>Tworzy numer ROC i pobiera z Kwalifikacja Usług dane do rejestru ocen przez lookup dopasowany po ID.</p><div class="flow"><span>ROC-{ID}</span><i>→</i><span>lookup Kwalifikacja usług</span><i>→</i><span>pola CRK, typ, dostawca</span><i>→</i><span>pola oceny</span></div><table><tr><th>Źródło</th><th>Wynik</th></tr><tr><td>Nr CRK, typ usługi ICT, dostawca, zastępowalność, reintegracja, skutek zaprzestania</td><td>Nr ROC, Nr CRK, typ usług ICT, dostawca, zastępowalność, reintegracja, skutki</td></tr></table><details><summary>Mapowanie APEX</summary><p>Rozdziel aktualizację identyfikatora ROC i danych oceny na logiczne kroki, ale obsłuż częściową porażkę przez status wykonania oraz audit log.</p></details></div>
+            <div class="workflow-body"><p>Tworzy numer ROC i pobiera z Kwalifikacja Usług dane do rejestru ocen przez lookup dopasowany po ID.</p><div class="flow"><span>ROC-{ID}</span><i>→</i><span>lookup Kwalifikacja usług</span><i>→</i><span>pola CRK, typ, dostawca</span><i>→</i><span>pola oceny</span></div><div class="legend"><span class="object list">lista źródłowa: Rejestr Ocen</span><span class="object lookup">lookup: Kwalifikacja Usług</span><span class="object field">pola oceny</span><span class="object variable">zmienne workflow</span></div><div class="mermaid-panel"><div class="mermaid">flowchart TD
+          start((Start))
+          n1["Start RT0701"]
+          start --> n1
+          n2["Nr ROC = ROC-{ItemProperty:ID}"]
+          n1 --> n2
+          n3["Odczytaj Nr CRK przez lookup"]
+          n2 --> n3
+          n4["Odczytaj Typ usług ICT"]
+          n3 --> n4
+          n5["Odczytaj Dostawcę"]
+          n4 --> n5
+          n6["Aktualizuj Nr CRK, typ i dostawcę"]
+          n5 --> n6
+          n7["Commit zmian"]
+          n6 --> n7
+          n8["Odczytaj Zastępowalność Dostawcy"]
+          n7 --> n8
+          n9["Odczytaj Możliwość reintegracji usług"]
+          n8 --> n9
+          n10["Odczytaj Skutek zaprzestania świadczenia"]
+          n9 --> n10
+          n11["Aktualizuj pola oceny"]
+          n10 --> n11
+          n12["Commit zmian"]
+          n11 --> n12
+          n13["Zapisz historię wyników"]
+          n12 --> n13
+          stop((Koniec))
+          n13 --> stop</div><details class="diagram-source"><summary>Źródło Mermaid z raportu Markdown</summary><pre>flowchart TD
+          start((Start)) --> n1["Start RT0701"]
+          n1 --> n2["Nr ROC = ROC-{ItemProperty:ID}"]
+          n2 --> n3["Odczytaj Nr CRK przez lookup"]
+          n3 --> n4["Odczytaj Typ usług ICT"]
+          n4 --> n5["Odczytaj Dostawcę"]
+          n5 --> n6["Aktualizuj Nr CRK, typ i dostawcę"]
+          n6 --> n7["Commit zmian"]
+          n7 --> n8["Odczytaj Zastępowalność Dostawcy"]
+          n8 --> n9["Odczytaj Możliwość reintegracji usług"]
+          n9 --> n10["Odczytaj Skutek zaprzestania świadczenia"]
+          n10 --> n11["Aktualizuj pola oceny"]
+          n11 --> n12["Commit zmian"]
+          n12 --> n13["Zapisz historię wyników"]
+          n13 --> stop((Koniec))</pre></details></div><table><tr><th>Źródło</th><th>Wynik</th></tr><tr><td>Nr CRK, typ usługi ICT, dostawca, zastępowalność, reintegracja, skutek zaprzestania</td><td>Nr ROC, Nr CRK, typ usług ICT, dostawca, zastępowalność, reintegracja, skutki</td></tr></table><details><summary>Identyfikatory list i pól SharePoint</summary><table><tr><th>Typ</th><th>Obiekt</th><th>InternalName / GUID</th></tr><tr><td><span class="object list">lista</span></td><td>Rejestr Ocen</td><td>EA9F2CE5-D851-4AA4-9925-1DF84AB6D7B6</td></tr><tr><td><span class="object list">lista</span></td><td>Kwalifikacja Usług</td><td>45763939-B649-439D-9A1B-39D6AB430FBF</td></tr><tr><td><span class="object lookup">lookup</span></td><td>Kwalifikacja usług (powiązanie)</td><td>Kwalifikacja_x0020_us_x0142_ug_x</td></tr><tr><td><span class="object field">pole</span></td><td>Nr ROC / Title</td><td>Title</td></tr><tr><td><span class="object field">pole</span></td><td>Nr CRK</td><td>Umowa_x0020__x0028_DT_x002e_01_x</td></tr><tr><td><span class="object field">pole</span></td><td>Zastępowalność Dostawcy</td><td>Zast_x0119_powalno_x015b__x0107_</td></tr></table></details><details><summary>Mapowanie APEX</summary><p>Rozdziel aktualizację identyfikatora ROC i danych oceny na logiczne kroki, ale obsłuż częściową porażkę przez status wykonania oraz audit log.</p></details></div>
         </article>
       </div>
     </section>
@@ -206,6 +388,11 @@ end;</pre></details>
     </section>
   </main>
   <footer><div class="shell">Źródła: `DaneZeSkryptu/*.nwf`, `Workflow-Inventory.csv`, raporty w `out/`, [PROJECT_CONTEXT.md](../PROJECT_CONTEXT.md). Artefakt offline, wersja robocza 1.0.</div></footer>
+  <script type="module">
+    import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs';
+    mermaid.initialize({ startOnLoad: false, securityLevel: 'strict', theme: 'base', themeVariables: { primaryColor: '#e4f4e9', primaryTextColor: '#172126', primaryBorderColor: '#176647', lineColor: '#637177', secondaryColor: '#fff1cf', tertiaryColor: '#f8e8f5' } });
+    mermaid.run({ querySelector: '.mermaid' }).catch(() => {});
+  </script>
   <script>
     const search = document.querySelector('#search');
     const filter = document.querySelector('#filter');
