@@ -1,0 +1,243 @@
+<!doctype html>
+<html lang="pl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>SharePoint Nintex → Oracle APEX | Manual migracji workflow</title>
+  <style>
+    :root {
+      --ink: #172126;
+      --muted: #637177;
+      --paper: #f5f6f1;
+      --panel: #ffffff;
+      --line: #d9dfda;
+      --green: #0f766e;
+      --green-dark: #0b4f4a;
+      --yellow: #e8b94e;
+      --red: #b94a48;
+      --blue: #2f5d8c;
+      --shadow: 0 18px 50px rgba(23, 33, 38, .08);
+    }
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body { margin: 0; color: var(--ink); background: var(--paper); font: 15px/1.6 "Trebuchet MS", "Segoe UI", sans-serif; }
+    h1, h2, h3, h4 { line-height: 1.15; margin: 0 0 .7rem; font-family: Georgia, "Times New Roman", serif; font-weight: 700; }
+    h1 { max-width: 850px; font-size: clamp(2.5rem, 6vw, 5.5rem); letter-spacing: 0; }
+    h2 { font-size: 2.1rem; }
+    h3 { font-size: 1.35rem; }
+    p { margin: .45rem 0 1rem; }
+    a { color: var(--green-dark); }
+    code, pre { font-family: Consolas, "Courier New", monospace; }
+    code { color: var(--green-dark); }
+    .shell { width: min(1180px, calc(100% - 36px)); margin: auto; }
+    .hero { padding: 34px 0 38px; background: linear-gradient(135deg, #dfece2 0%, #f5f6f1 52%, #f4ddaa 100%); border-bottom: 1px solid var(--line); }
+    .eyebrow { color: var(--green-dark); font-size: .78rem; font-weight: 800; letter-spacing: .12em; text-transform: uppercase; }
+    .hero-grid { display: grid; grid-template-columns: 1.4fr .8fr; gap: 28px; align-items: end; }
+    .lede { max-width: 700px; color: #3c4b4d; font-size: 1.1rem; }
+    .hero-note { padding: 19px; border-left: 4px solid var(--yellow); background: rgba(255,255,255,.65); }
+    .hero-note strong { display: block; margin-bottom: .35rem; }
+    .toolbar { position: sticky; top: 0; z-index: 5; padding: 12px 0; background: rgba(245,246,241,.94); border-bottom: 1px solid var(--line); backdrop-filter: blur(10px); }
+    .toolbar-inner { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+    .search { flex: 1 1 280px; min-width: 220px; padding: 11px 13px; border: 1px solid var(--line); border-radius: 4px; background: var(--panel); color: var(--ink); font: inherit; }
+    button, select { padding: 10px 12px; border: 1px solid var(--line); border-radius: 4px; background: var(--panel); color: var(--ink); font: inherit; cursor: pointer; }
+    button:hover, button.active { border-color: var(--green); color: var(--green-dark); }
+    .tabs { display: flex; gap: 5px; overflow-x: auto; padding-top: 10px; }
+    .tabs button { white-space: nowrap; border: 0; background: transparent; }
+    main { padding: 48px 0 90px; }
+    section { scroll-margin-top: 115px; margin-bottom: 58px; }
+    .section-head { display: flex; justify-content: space-between; gap: 20px; align-items: end; margin-bottom: 18px; }
+    .section-kicker { color: var(--muted); font-size: .86rem; }
+    .grid { display: grid; grid-template-columns: repeat(12, 1fr); gap: 16px; }
+    .span-4 { grid-column: span 4; } .span-6 { grid-column: span 6; } .span-8 { grid-column: span 8; } .span-12 { grid-column: 1 / -1; }
+    .panel, .workflow { background: var(--panel); border: 1px solid var(--line); box-shadow: var(--shadow); }
+    .panel { padding: 22px; }
+    .panel h3 { color: var(--green-dark); }
+    .metric { min-height: 145px; padding: 22px; background: var(--green-dark); color: white; }
+    .metric b { display: block; font: 2.6rem Georgia, serif; }
+    .metric small { color: #d5eee8; }
+    .status { display: inline-flex; align-items: center; gap: 7px; padding: 4px 8px; border-radius: 99px; background: #e4f2ec; color: var(--green-dark); font-size: .76rem; font-weight: 800; }
+    .status.proposed { background: #fff2cd; color: #72520e; }
+    .status.open { background: #fbe5e1; color: #853c38; }
+    .workflow { overflow: hidden; }
+    .workflow-head { display: flex; justify-content: space-between; gap: 18px; padding: 20px 22px; background: #edf4ee; border-bottom: 1px solid var(--line); }
+    .workflow-head h3 { margin: 0; }
+    .workflow-body { padding: 22px; }
+    .meta { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 16px; color: var(--muted); font-size: .88rem; }
+    .meta span { padding: 3px 8px; background: #f3f5f1; border: 1px solid var(--line); }
+    table { width: 100%; border-collapse: collapse; font-size: .9rem; }
+    th, td { padding: 9px 8px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }
+    th { color: var(--green-dark); font-size: .78rem; letter-spacing: .05em; text-transform: uppercase; }
+    .flow { display: flex; flex-wrap: wrap; gap: 7px; align-items: center; margin: 12px 0; }
+    .flow span { padding: 7px 10px; background: #f4f0df; border: 1px solid #e7d9a7; border-radius: 3px; font-size: .88rem; }
+    .flow i { color: var(--muted); font-style: normal; }
+    pre { position: relative; overflow-x: auto; margin: 12px 0 0; padding: 18px; background: #172126; color: #e5f2eb; border-radius: 4px; font-size: .83rem; line-height: 1.5; }
+    .copy { float: right; margin: 8px 8px 0 0; padding: 5px 8px; border-color: #50656a; background: #26383d; color: white; font-size: .75rem; }
+    details { margin: 10px 0; border-top: 1px solid var(--line); }
+    summary { padding: 12px 0; cursor: pointer; color: var(--green-dark); font-weight: 800; }
+    .callout { padding: 16px 18px; border-left: 4px solid var(--blue); background: #eaf1f7; }
+    .warning { border-left-color: var(--yellow); background: #fff8e5; }
+    .danger { border-left-color: var(--red); background: #fbeceb; }
+    .checklist { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px 20px; padding: 0; list-style: none; }
+    .checklist li::before { content: "□"; margin-right: 8px; color: var(--green); font-weight: 900; }
+    .hidden { display: none !important; }
+    footer { padding: 25px 0 45px; border-top: 1px solid var(--line); color: var(--muted); font-size: .85rem; }
+    @media (max-width: 800px) { .hero-grid { grid-template-columns: 1fr; } .span-4, .span-6, .span-8 { grid-column: 1 / -1; } .section-head { display: block; } .checklist { grid-template-columns: 1fr; } }
+    @media print { .toolbar, .tabs, .copy { display: none !important; } body { background: white; } .hero { padding-top: 0; } .panel, .workflow { box-shadow: none; break-inside: avoid; } section { margin-bottom: 30px; } }
+  </style>
+</head>
+<body>
+  <header class="hero">
+    <div class="shell hero-grid">
+      <div>
+        <div class="eyebrow">Manual migracji · stan 17.09.2026</div>
+        <h1>SharePoint Nintex → Oracle APEX</h1>
+        <p class="lede">Praktyczny opis przeniesienia logiki workflow do warstwy wywoływanej z systemu zewnętrznego. APEX komunikuje się bezpośrednio z SharePoint, a kontrakt REST może działać synchronicznie lub asynchronicznie.</p>
+      </div>
+      <div class="hero-note"><strong>Najważniejsze ograniczenie</strong>Eksport potwierdza wyłącznie triggery SharePoint: utworzenie, zmiana i uruchomienie ręczne. Nie zawiera publicznego API Nintex. Docelowy endpoint APEX jest propozycją do wdrożenia i zatwierdzenia.</div>
+    </div>
+  </header>
+  <nav class="toolbar">
+    <div class="shell">
+      <div class="toolbar-inner">
+        <input id="search" class="search" type="search" placeholder="Szukaj workflow, pola, akcji lub decyzji..." aria-label="Szukaj w manualu">
+        <select id="filter" aria-label="Filtruj workflow"><option value="all">Wszystkie workflow</option><option value="Kwalifikacja Usług">Kwalifikacja Usług</option><option value="Rejestr Usług ICT">Rejestr Usług ICT</option><option value="Rejestr Ocen">Rejestr Ocen</option></select>
+        <button id="clear" type="button">Wyczyść</button>
+      </div>
+      <div class="tabs" aria-label="Nawigacja manuala">
+        <button data-target="overview" class="active">Start</button><button data-target="contract">Kontrakt REST</button><button data-target="workflows">Workflow</button><button data-target="mapping">Mapowanie APEX</button><button data-target="verify">Weryfikacja</button>
+      </div>
+    </div>
+  </nav>
+  <main class="shell">
+    <section id="overview" data-search="zakres stan obecny sharepoint nintex oracle apex decyzje">
+      <div class="section-head"><div><div class="section-kicker">01 · Punkt wyjścia</div><h2>Co migrujemy</h2></div><span class="status">potwierdzone w eksporcie</span></div>
+      <div class="grid">
+        <div class="metric span-4"><b>4</b><small>workflow z inventory i plikami .nwf</small></div><div class="metric span-4"><b>3</b><small>listy biznesowe objęte logiką</small></div><div class="metric span-4"><b>0</b><small>udokumentowanych endpointów Nintex</small></div>
+        <div class="panel span-6"><h3>Zakres</h3><p>Manual obejmuje wywołanie logiki z systemu zewnętrznego, odczyt i zapis danych SharePoint, mapowanie reguł na APEX oraz kontrakt REST.</p><p>Poza zakresem: migracja formularzy Nintex, całej witryny, automatyczny transfer danych i odtwarzanie wszystkich uprawnień użytkowników.</p></div>
+        <div class="panel span-6"><h3>Model docelowy</h3><p>System zewnętrzny wywołuje endpoint APEX/ORDS. Warstwa APEX waliduje żądanie, odczytuje i aktualizuje SharePoint przez REST oraz zwraca wynik albo identyfikator zadania.</p><div class="callout warning"><strong>Decyzja blokująca:</strong> przed produkcją trzeba potwierdzić uwierzytelnienie z serwera APEX do konkretnej instalacji SharePoint, zwłaszcza przy NTLM/Kerberos.</div></div>
+      </div>
+    </section>
+    <section id="contract" data-search="rest api endpoint sync async authentication uwierzytelnienie payload response error retry ords plsql">
+      <div class="section-head"><div><div class="section-kicker">02 · Warstwa integracji</div><h2>Kontrakt REST</h2></div><span class="status proposed">propozycja docelowa</span></div>
+      <div class="grid">
+        <div class="panel span-6"><h3>Uruchomienie</h3><pre><button class="copy" type="button">Kopiuj</button>POST /ords/dora/workflows/{workflowKey}/runs
+Authorization: Bearer &lt;token&gt;
+Idempotency-Key: &lt;unique-key&gt;
+Content-Type: application/json
+
+{
+  "itemId": 123,
+  "mode": "sync",
+  "correlationId": "crm-2026-000123"
+}</pre></div>
+        <div class="panel span-6"><h3>Odpowiedź synchroniczna</h3><pre><button class="copy" type="button">Kopiuj</button>HTTP/1.1 200 OK
+{
+  "runId": "run-7f2a",
+  "workflowKey": "RT0202",
+  "status": "succeeded",
+  "itemId": 123,
+  "changedFields": ["Title", "Symbol_x0020_us_x..."],
+  "correlationId": "crm-2026-000123"
+}</pre></div>
+        <div class="panel span-6"><h3>Odpowiedź asynchroniczna</h3><pre><button class="copy" type="button">Kopiuj</button>HTTP/1.1 202 Accepted
+Location: /ords/dora/workflows/runs/run-7f2a
+{
+  "runId": "run-7f2a",
+  "status": "queued",
+  "pollAfterSeconds": 2
+}
+
+GET /ords/dora/workflows/runs/run-7f2a</pre></div>
+        <div class="panel span-6"><h3>Macierz błędów</h3><table><tr><th>HTTP</th><th>Znaczenie</th><th>Retry</th></tr><tr><td>400</td><td>Niepoprawny payload lub brak itemId</td><td>Nie</td></tr><tr><td>401/403</td><td>Brak autoryzacji/uprawnień</td><td>Nie</td></tr><tr><td>404</td><td>Workflow lub element nie istnieje</td><td>Nie</td></tr><tr><td>409</td><td>Konflikt ETag / równoległa zmiana</td><td>Tak po odczycie</td></tr><tr><td>502/503</td><td>SharePoint niedostępny</td><td>Tak z backoff</td></tr><tr><td>500</td><td>Błąd logiki lub nieobsłużona odpowiedź</td><td>Zależnie od idempotencji</td></tr></table></div>
+      </div>
+      <details><summary>Minimalny szkic APEX_WEB_SERVICE</summary><pre><button class="copy" type="button">Kopiuj</button>l_body := apex_web_service.make_rest_request(
+  p_url         =&gt; l_sharepoint_url,
+  p_http_method =&gt; 'GET',
+  p_credential_static_id =&gt; 'DORA_SHAREPOINT'
+);
+
+-- Następnie: walidacja JSON, zapis wyniku i kontrola HTTP statusu.
+-- Credential, wallet i ACL konfigurujemy poza kodem.</pre></details>
+      <details><summary>Minimalny szkic handlera ORDS</summary><pre><button class="copy" type="button">Kopiuj</button>procedure run_workflow(p_workflow_key varchar2, p_item_id number) is
+begin
+  -- 1. walidacja whitelisty workflow i elementu
+  -- 2. odczyt danych przez SharePoint REST
+  -- 3. wykonanie reguł workflow
+  -- 4. aktualizacja pól z kontrolą ETag
+  -- 5. zapis audit logu i correlation_id
+  null;
+end;</pre></details>
+    </section>
+    <section id="workflows" data-search="workflow dt01 rt0202 rt0701 pola odczyt zapis kwalifikacja usług rejestr usług ict rejestr ocen">
+      <div class="section-head"><div><div class="section-kicker">03 · Inwentaryzacja</div><h2>Workflow do przeniesienia</h2></div><span class="status">4 raporty zweryfikowane</span></div>
+      <div id="workflow-list">
+        <article class="workflow" data-list="Kwalifikacja Usług" data-workflow="DT01 Mechanizm Kwalifikacji Usługi" data-search="dt01 mechanizm kwalifikacji usługi telefonia analogowa usługa ict krytyczna ryzyko koncentracji">
+          <div class="workflow-head"><div><h3>DT01 Mechanizm Kwalifikacji Usługi</h3><div class="meta"><span>Kwalifikacja Usług</span><span>utworzenie · zmiana · ręcznie</span><span>WorkflowId: 0076ff37-500d-4e62-a445-d54959d8e0c3</span></div></div><span class="status">potwierdzone</span></div>
+          <div class="workflow-body"><p>Wylicza trzy wartości kwalifikacyjne na podstawie pól bieżącego elementu i zapisuje je w tym samym elemencie.</p><div class="flow"><span>odczyt pól wejściowych</span><i>→</i><span>warunki Tak/Nie</span><i>→</i><span>zmienne</span><i>→</i><span>aktualizacja 3 pól</span></div><table><tr><th>Odczyt</th><th>Zapis</th></tr><tr><td>Telefonia analogowa, model kontraktowania, usługa cykliczna, typ usługi ICT, usługa krytyczna EBA, funkcja krytyczna, dostawca, inne usługi krytyczne dostawcy</td><td>Usługa ICT wg DORA, Usługa krytyczna wg DORA, Ryzyko koncentracji</td></tr></table><details><summary>Mapowanie APEX</summary><p>Jedna procedura transakcyjna: pobierz element, wylicz wartości zgodnie z warunkami, wykonaj aktualizację SharePoint z oczekiwanym ETag, zapisz audit log. W przypadku konfliktu nie nadpisuj zmian bez ponownego odczytu.</p></details></div>
+        </article>
+        <article class="workflow" data-list="Kwalifikacja Usług" data-workflow="DT01 Wypełnienie pól Nr RKU oraz Nazwa" data-search="dt01 rku nazwa id title">
+          <div class="workflow-head"><div><h3>DT01 Wypełnienie pól Nr RKU oraz Nazwa</h3><div class="meta"><span>Kwalifikacja Usług</span><span>utworzenie · zmiana · ręcznie</span><span>WorkflowId: fd6dc49c-7328-42e4-9f30-ea2f17e7be7a</span></div></div><span class="status">potwierdzone</span></div>
+          <div class="workflow-body"><p>Uzupełnia brakujący numer RKU oraz tytuł elementu na podstawie identyfikatora i nazwy usługi.</p><div class="flow"><span>jeśli Nr RKU puste</span><i>→</i><span>RKU-{ID}</span><i>+</i><span>jeśli Nazwa pusta</span><i>→</i><span>nazwa usługi</span></div><table><tr><th>Odczyt</th><th>Zapis</th></tr><tr><td>Nr RKU, Nazwa usługi</td><td>Nr RKU, Title</td></tr></table><details><summary>Mapowanie APEX</summary><p>Operacja idempotentna: ustawiaj tylko pola puste. Powtórne wywołanie nie powinno zmieniać ręcznie poprawionych wartości.</p></details></div>
+        </article>
+        <article class="workflow" data-list="Rejestr Usług ICT" data-workflow="RT0202 Pobranie danych z Kwalifikacji Usługi" data-search="rt0202 cross item lookup kwalifikacja usługi symbol dostawca funkcja">
+          <div class="workflow-head"><div><h3>RT0202 Pobranie danych z Kwalifikacji Usługi</h3><div class="meta"><span>Rejestr Usług ICT</span><span>utworzenie · zmiana · ręcznie</span><span>WorkflowId: a9815b9f-33f7-453f-bf3e-d001a301c5ab</span></div></div><span class="status">potwierdzone</span></div>
+          <div class="workflow-body"><p>Kopiuje dane z powiązanego elementu Kwalifikacja Usług do Rejestru Usług ICT, dopasowując rekord przez lookup.</p><div class="flow"><span>ID bieżącego elementu</span><i>→</i><span>lookup Kwalifikacja Usług</span><i>→</i><span>odczyt 4 pól</span><i>→</i><span>zapis w RT0202</span></div><table><tr><th>Źródło</th><th>Wynik</th></tr><tr><td>Kwalifikacja Usług: nazwa usługi, Nr CRK, dostawca, typ usługi, funkcja</td><td>Symbol ICT, Title, typ usługi, dostawca usług, funkcja, Nr CRK</td></tr></table><details><summary>Mapowanie APEX</summary><p>Najpierw odczytaj ID elementu źródłowego z lookupu, potem pobierz pola źródłowe w osobnym GET. Aktualizację wykonaj jednym MERGE, a po niej zapisz commit/audit.</p></details></div>
+        </article>
+        <article class="workflow" data-list="Rejestr Ocen" data-workflow="RT0701 Pobranie danych z Kwalifikacji Usługi do RT0701" data-search="rt0701 cross item lookup rejestr ocen zastępowalność reintegracja skutki">
+          <div class="workflow-head"><div><h3>RT0701 Pobranie danych z Kwalifikacji Usługi do RT0701</h3><div class="meta"><span>Rejestr Ocen</span><span>utworzenie · zmiana · ręcznie</span><span>WorkflowId: 0e6b5c9e-eca3-476a-890f-c2e70e9d2f67</span></div></div><span class="status">potwierdzone</span></div>
+          <div class="workflow-body"><p>Tworzy numer ROC i pobiera z Kwalifikacja Usług dane do rejestru ocen przez lookup dopasowany po ID.</p><div class="flow"><span>ROC-{ID}</span><i>→</i><span>lookup Kwalifikacja usług</span><i>→</i><span>pola CRK, typ, dostawca</span><i>→</i><span>pola oceny</span></div><table><tr><th>Źródło</th><th>Wynik</th></tr><tr><td>Nr CRK, typ usługi ICT, dostawca, zastępowalność, reintegracja, skutek zaprzestania</td><td>Nr ROC, Nr CRK, typ usług ICT, dostawca, zastępowalność, reintegracja, skutki</td></tr></table><details><summary>Mapowanie APEX</summary><p>Rozdziel aktualizację identyfikatora ROC i danych oceny na logiczne kroki, ale obsłuż częściową porażkę przez status wykonania oraz audit log.</p></details></div>
+        </article>
+      </div>
+    </section>
+    <section id="mapping" data-search="mapowanie apex plsql sharepoint rest internalname etag idempotencja audit">
+      <div class="section-head"><div><div class="section-kicker">04 · Implementacja</div><h2>Zasady mapowania</h2></div><span class="status proposed">do implementacji</span></div>
+      <div class="grid">
+        <div class="panel span-6"><h3>Nintex → APEX/REST</h3><table><tr><th>Nintex</th><th>Warstwa docelowa</th></tr><tr><td>WFIfElseAdapter</td><td>Warunek PL/SQL `IF`/`CASE`</td></tr><tr><td>SPSetVariableAdapter</td><td>Zmienna lokalna lub rekord kontekstu</td></tr><tr><td>SPSetFieldWithKeyAdapter</td><td>PATCH/MERGE pola SharePoint</td></tr><tr><td>SPUpdateItemWithKeyAdapter</td><td>Jedna aktualizacja elementu przez REST</td></tr><tr><td>CrossItemLookup</td><td>GET lookupu + GET elementu docelowego</td></tr><tr><td>NWWriteToHistoryListAdapter</td><td>Audit log APEX i opcjonalnie lista historii</td></tr><tr><td>NWCommitAdapter</td><td>Jawna granica transakcji i statusu wykonania</td></tr></table></div>
+        <div class="panel span-6"><h3>Reguły bezpieczeństwa</h3><ul><li>Workflow uruchamiaj wyłącznie z whitelisty, nie przyjmuj dowolnego typu akcji od klienta.</li><li>Trzymaj credentiale w APEX Credential Store, nie w HTML ani kodzie.</li><li>Waliduj `itemId`, listę, workflowKey i dozwolone pola.</li><li>Używaj `If-Match`/ETag, aby nie nadpisać równoległych zmian.</li><li>Loguj correlation ID, wynik, czas, status SharePoint i bezpieczny fragment błędu.</li></ul><div class="callout danger"><strong>Nie kopiuj sekretów do manuala.</strong> Hosty, tokeny, wallet, konta techniczne i ACL są konfiguracją środowiska.</div></div>
+      </div>
+    </section>
+    <section id="verify" data-search="test weryfikacja odbiór checklist pętle błędy timeout">
+      <div class="section-head"><div><div class="section-kicker">05 · Odbiór</div><h2>Checklist wdrożenia</h2></div><span class="status open">otwarte decyzje</span></div>
+      <div class="grid">
+        <div class="panel span-6"><h3>Technicznie</h3><ul class="checklist"><li>CSV odczytany jako UTF-16</li><li>Każdy rekord ma odpowiadający `.nwf`</li><li>APEX osiąga SharePoint</li><li>Credential i wallet działają</li><li>GET, lookup i MERGE przeszły POC</li><li>Konflikt ETag jest obsłużony</li></ul></div>
+        <div class="panel span-6"><h3>Funkcjonalnie</h3><ul class="checklist"><li>DT01 zapisuje trzy pola wynikowe</li><li>RKU i Title nie są nadpisywane</li><li>RT0202 kopiuje właściwy rekord źródłowy</li><li>RT0701 tworzy poprawny numer ROC</li><li>Sync zwraca wynik końcowy</li><li>Async pozwala odpytać status</li></ul></div>
+        <div class="panel span-12"><h3>Decyzje do zatwierdzenia</h3><p>Przed produkcją należy potwierdzić: sposób uwierzytelnienia, właściciela endpointu, SLA i timeout, autoryzację per workflow, źródło prawdy dla historii, zachowanie przy zmianie elementu w SharePoint oraz czy APEX ma uruchamiać Nintex, czy wykonywać logikę bezpośrednio.</p></div>
+      </div>
+    </section>
+  </main>
+  <footer><div class="shell">Źródła: `DaneZeSkryptu/*.nwf`, `Workflow-Inventory.csv`, raporty w `out/`, [PROJECT_CONTEXT.md](../PROJECT_CONTEXT.md). Artefakt offline, wersja robocza 1.0.</div></footer>
+  <script>
+    const search = document.querySelector('#search');
+    const filter = document.querySelector('#filter');
+    const clear = document.querySelector('#clear');
+    const cards = [...document.querySelectorAll('.workflow')];
+    const sections = [...document.querySelectorAll('main section')];
+    function applyFilter() {
+      const query = search.value.trim().toLowerCase();
+      const list = filter.value;
+      cards.forEach(card => {
+        const haystack = (card.dataset.search + ' ' + card.textContent).toLowerCase();
+        card.classList.toggle('hidden', (query && !haystack.includes(query)) || (list !== 'all' && card.dataset.list !== list));
+      });
+      sections.forEach(section => {
+        if (section.id === 'workflows') return;
+        const haystack = (section.dataset.search + ' ' + section.textContent).toLowerCase();
+        section.classList.toggle('hidden', Boolean(query && !haystack.includes(query)));
+      });
+    }
+    search.addEventListener('input', applyFilter); filter.addEventListener('change', applyFilter);
+    clear.addEventListener('click', () => { search.value = ''; filter.value = 'all'; applyFilter(); search.focus(); });
+    document.querySelectorAll('[data-target]').forEach(button => button.addEventListener('click', () => {
+      document.querySelector('#' + button.dataset.target).scrollIntoView();
+      document.querySelectorAll('[data-target]').forEach(item => item.classList.remove('active'));
+      button.classList.add('active');
+    }));
+    document.querySelectorAll('.copy').forEach(button => button.addEventListener('click', async () => {
+      const pre = button.parentElement;
+      await navigator.clipboard.writeText(pre.innerText.replace(/^Kopiuj\n/, ''));
+      const old = button.textContent; button.textContent = 'Skopiowano';
+      setTimeout(() => button.textContent = old, 1200);
+    }));
+  </script>
+</body>
+</html>
