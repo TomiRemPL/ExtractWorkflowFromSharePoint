@@ -21,7 +21,10 @@ Program:
 - generuje listę kroków workflow ze szczegółami technicznymi;
 - generuje tabelę pól odczytywanych i zapisywanych;
 - obsługuje błędy pojedynczych plików bez przerywania całego przetwarzania;
-- zawiera interaktywny, samodzielny manual HTML dotyczący planowanej integracji z Oracle APEX.
+- zawiera interaktywny manual HTML dotyczący planowanej integracji z Oracle APEX;
+- pokazuje pełny diagram Mermaid dla każdego z czterech workflow oraz rozwijane źródło Mermaid;
+- prezentuje techniczne identyfikatory list, GUID-y, `InternalName` pól i relacje lookup;
+- rozróżnia kolorami listy, pola, lookupy, workflow, zmienne i elementy APEX/REST.
 
 ## Uruchomienie generatora
 
@@ -36,7 +39,8 @@ Po wykonaniu polecenia w katalogu `out/` powstają:
 - osobny raport Markdown dla każdego pliku `.nwf`;
 - `index.md` z listą workflow;
 - lista typów akcji bez dedykowanego opisu, jeżeli takie wystąpią;
-- `workflow-migration-manual.html` pozostaje osobnym manualem HTML i nie jest nadpisywany przez generator.
+- `workflow-migration-manual.html` pozostaje osobnym manualem HTML i nie jest nadpisywany przez generator;
+- raporty Markdown są źródłem weryfikacyjnym dla manuala HTML, ale manual nie jest obecnie generowany automatycznie z Markdown.
 
 Program nie wymaga zewnętrznych zależności. Generator korzysta wyłącznie ze standardowej biblioteki Pythona, między innymi `xml.etree`, `json`, `argparse`, `dataclasses` i `pathlib`.
 
@@ -92,9 +96,10 @@ Plik [out/workflow-migration-manual.html](out/workflow-migration-manual.html) je
 - diagramy Mermaid i ich źródła;
 - identyfikatory list, pól, lookupów i workflow;
 - kolorową legendę obiektów `LISTA`, `POLE`, `LOOKUP`, `WORKFLOW`, `ZMIENNA` i `APEX/REST`;
+- pełne diagramy Mermaid odpowiadające diagramom z raportów Markdown, z fallbackiem w postaci kodu źródłowego;
 - wyszukiwanie, filtrowanie, rozwijane sekcje, kopiowanie przykładów i tryb wydruku.
 
-Diagramy Mermaid są renderowane z użyciem CDN, dlatego ich wizualizacja wymaga dostępu do sieci. Pełny kod diagramów jest osadzony w pliku jako fallback i pozostaje dostępny offline.
+Diagramy Mermaid są renderowane z użyciem CDN, dlatego ich wizualizacja wymaga dostępu do sieci. Pełny kod diagramów jest osadzony w pliku jako fallback i pozostaje dostępny offline. Sam manual otwiera się lokalnie bez serwera.
 
 ## Dane wejściowe
 
@@ -108,7 +113,7 @@ Najważniejsze konwencje katalogu `DaneZeSkryptu/`:
 - pliki `.nwf` — eksporty workflow;
 - `Workflow-Inventory.csv` — inwentaryzacja workflow w kodowaniu UTF-16.
 
-Generator korzysta przede wszystkim z plików `.nwf`, `00_kolumny_witryny.json` i `10_lista_*.json`. Pozostałe dane stanowią materiał referencyjny dla dalszej analizy i migracji.
+Generator korzysta przede wszystkim z plików `.nwf`, `00_kolumny_witryny.json` i `10_lista_*.json`. `Workflow-Inventory.csv` został odczytany i potwierdził cztery workflow odpowiadające eksportom `.nwf`, ale nie jest jeszcze automatycznie wczytywany przez generator. Pozostałe dane stanowią materiał referencyjny dla dalszej analizy i migracji.
 
 ## Ważne ograniczenia
 
@@ -118,6 +123,10 @@ Generator korzysta przede wszystkim z plików `.nwf`, `00_kolumny_witryny.json` 
 - `Workflow-Inventory.csv` jest odczytywany jako UTF-16.
 - Duże pliki `.nwf` mogą zawierać bardzo długie lub pojedyncze linie XML; do ich analizy należy używać parsera XML albo małych skryptów, a nie polegać wyłącznie na podglądzie tekstu.
 - Automatyczne testy jednostkowe nie zostały jeszcze utworzone. Dotychczasowa weryfikacja obejmuje cztery przykładowe workflow i ręczne porównanie raportów.
+
+## Stan repozytorium
+
+Ostatni zsynchronizowany commit na GitHub to `acd6105` (`Document project and expand workflow manual`). Zawiera README oraz rozbudowany manual HTML z diagramami Mermaid. Gałąź `master` śledzi `origin/master`.
 
 ## Dokumentacja
 

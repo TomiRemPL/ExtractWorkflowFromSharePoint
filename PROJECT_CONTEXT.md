@@ -17,6 +17,11 @@ co dany workflow odczytuje i zmienia (pola, listy, warunki), w języku biznesowy
 
 **Status: zaimplementowane, przetestowane na 4 przykładowych plikach `.nwf`, działa poprawnie.**
 
+Utworzono również pojedynczy manual HTML `out/workflow-migration-manual.html` opisujący
+docelową integrację z Oracle APEX. Manual zawiera karty wszystkich 4 workflow, diagramy
+Mermaid, źródło każdego diagramu, identyfikatory list i pól, legendę typów obiektów oraz
+kontrakt REST sync/async z przykładami APEX/ORDS.
+
 ## 2. Jak uruchomić
 
 ```powershell
@@ -62,8 +67,8 @@ Kluczowe pliki JSON i ich dokładny format (zweryfikowane na realnych danych):
 - **`20_dane_<Nazwa>.json`** — tablica elementów listy, klucze = `InternalName` kolumn
   (np. `"Us_x0142_uga_x0020_kwalifikowana": "Tak"`).
 - **`Workflow-Inventory.csv`** — plik **UTF-16** (BOM), NIE UTF-8. Trzeba czytać z
-  `encoding="utf-16"`. Zawartość nie została jeszcze w pełni przeanalizowana (nieblokujące,
-  narzędzie go na razie nie używa).
+  `encoding="utf-16"`. Został odczytany i potwierdził 4 rekordy odpowiadające 4 plikom `.nwf`;
+  generator raportów nadal nie wczytuje go automatycznie.
 
 ## 4. Format pliku `.nwf` (najważniejsza część researchu)
 
@@ -325,6 +330,26 @@ Uwaga implementacyjna: plik ma fallback importu (`if __package__ in (None, ""): 
 żeby dało się go uruchomić zarówno jako `py tools\nwf_report\generate_report.py` (bezpośrednio)
 jak i jako moduł pakietu — sprawdzone, działa w obu trybach.
 
+## 5.1. Zaimplementowany manual HTML
+
+Plik `out/workflow-migration-manual.html` jest pojedynczym artefaktem dokumentacyjnym,
+otwieranym lokalnie w przeglądarce. Zawiera:
+
+- sekcję zakresu, stanu obecnego i ograniczenia, że eksport nie dokumentuje publicznego API Nintex;
+- kontrakt REST dla uruchomienia workflow w trybie synchronicznym i asynchronicznym;
+- przykłady request/response, `Idempotency-Key`, `correlationId`, statusu `202` i endpointu statusu;
+- macierz błędów HTTP oraz szkice `APEX_WEB_SERVICE` i handlera ORDS/PLSQL;
+- mapowanie akcji Nintex na PL/SQL i SharePoint REST;
+- pełne karty czterech workflow wraz z listami źródłowymi, lookupami, polami i GUID-ami;
+- diagram Mermaid dla każdego workflow oraz rozwijane źródło diagramu jako fallback tekstowy;
+- kolorową legendę: lista, pole, lookup, workflow, zmienna i APEX/REST;
+- wyszukiwanie, filtrowanie po liście, nawigację sekcji, `details`, kopiowanie przykładów i CSS do wydruku.
+
+Mermaid jest ładowany z CDN jako moduł ES, więc wizualne renderowanie diagramów wymaga dostępu
+do sieci. Kod diagramów pozostaje osadzony w HTML i można go odczytać bez sieci. Manual nie jest
+jeszcze generowany automatycznie z raportów Markdown; przy zmianie parsera trzeba zaktualizować
+go świadomie i porównać z `out/*.md`.
+
 ## 6. Wyniki weryfikacji (stan na 2026-09-17)
 
 Wygenerowano `out/*.md` dla 4 plików z `DaneZeSkryptu`:
@@ -367,8 +392,11 @@ dedykowany handler.
   ale nie zostały utworzone. Warto dodać `tools/nwf_report/tests/` z fixture'ami z realnych
   4 plików.
 - **`Workflow-Inventory.csv`** (UTF-16) nie jest jeszcze wczytywany/wykorzystywany w raportach —
-  mógłby wzbogacić `index.md` o dodatkowe metadane (status workflow, autor itd.), ale trzeba
-  najpierw sprawdzić jego dokładny układ kolumn.
+  jego układ został sprawdzony, a 4 rekordy odpowiadają 4 eksportom `.nwf`. Można go w przyszłości
+  włączyć do `index.md` i manuala, aby dodać autora, wersję, datę modyfikacji, URL i GUID-y.
+- **Automatyczne generowanie manuala HTML** — obecny HTML został przygotowany ręcznie na podstawie
+  raportów i eksportów. W przyszłości warto dodać generator danych HTML albo szablon, aby diagramy,
+  pola i workflow nie rozjechały się po zmianach parsera.
 - **Numeracja węzłów Mermaid vs. lista kroków**: obie części raportu numerują węzły niezależnie
   (osobne liczniki w `_collect_steps` i `_build_mermaid`) — wizualnie działa dobrze, ale jeśli
   w przyszłości potrzebne będzie krzyżowe odwoływanie się (np. link z kroku do węzła diagramu),
@@ -388,6 +416,18 @@ dedykowany handler.
   (nie występuje w 4 przykładowych plikach) — obecny algorytm `_build_mermaid` nie ma
   specjalnej obsługi cykli/pętli, potraktuje taki węzeł przez fallback jako zwykły krok
   sekwencyjny (bez strzałki powrotnej).
+
+## 10. Stan na koniec sesji 2026-09-17
+
+- Dodano `AGENTS.md` z preferencją używania `lean-ctx` i regułami pracy z repozytorium.
+- Dodano `README.md` opisujący obecną funkcjonalność programu.
+- Utworzono i rozbudowano `out/workflow-migration-manual.html` o diagramy Mermaid dla każdego
+  workflow, źródła diagramów, identyfikatory list/pól oraz legendę kolorów obiektów.
+- Uruchomienie `py tools\nwf_report\generate_report.py --input DaneZeSkryptu --output out`
+  zakończyło się poprawnie dla wszystkich 4 workflow.
+- Ostatni commit zsynchronizowany z GitHub: `acd6105 Document project and expand workflow manual`.
+- Na jutro: zacommitować dzisiejszą aktualizację dokumentacji, wypchnąć ją do `origin/master`,
+  a następnie zdecydować, czy dodać automatyczne generowanie manuala HTML i testy jednostkowe.
 
 ## 9. Powiązane pliki pamięci (memory tool)
 
