@@ -18,16 +18,23 @@
 
 ## Run and verify
 
-Use the Python launcher available on this machine:
+Use `uv` or the Python launcher available on this machine:
 
 ```powershell
+uv run python tools\nwf_report\generate_report.py --input DaneZeSkryptu --output out
+# lub alternatywnie:
 py tools\nwf_report\generate_report.py --input DaneZeSkryptu --output out
 ```
 
-- Do not replace `py` with `python`; the latter is not the working interpreter here.
-- The generator has no external dependencies and uses the Python standard library.
-- After changes to the report generator, regenerate `out/` and inspect `out/index.md` plus at least one representative workflow report.
-- Preserve existing generated-report formats unless the task explicitly changes them. Mention any unrelated pre-existing failures instead of repairing them incidentally.
+Uruchamianie testów:
+```powershell
+uv run pytest
+```
+
+- Środowisko i pakiety są zarządzane przez `uv` (`pyproject.toml`, `.venv`).
+- ZASADA DOTYCZĄCA BIBLIOTEK: Kod ma korzystać z najbardziej dopasowanych i odpowiednich bibliotek. Nie ma ograniczenia do samej biblioteki standardowej. Jeśli do realizacji zadania, testów lub usprawnienia kodu potrzebna jest biblioteka zewnętrzna, należy ją zainstalować za pomocą `uv add` (lub `uv add --dev`).
+- Po zmianach w generatorze raportów zregeneruj `out/` i sprawdź `out/index.md` oraz przynajmniej jeden reprezentatywny raport.
+- Zachowaj istniejące formaty generowanych raportów, chyba że zadanie jawnie wymaga ich zmiany.
 
 ## Domain constraints
 
@@ -39,10 +46,10 @@ py tools\nwf_report\generate_report.py --input DaneZeSkryptu --output out
 
 ## Change conventions
 
+- Pakiety instaluj zawsze przez `uv add` / `uv add --dev`.
+- Dobieraj najlepsze i najbardziej optymalne biblioteki do problemu (np. `pytest`, biblioteki do parsowania XML/HTML, typowania, walidacji).
 - Keep changes minimal and aligned with the existing modules in `tools/nwf_report/`.
 - Do not duplicate the detailed project documentation in this file; update [PROJECT_CONTEXT.md](PROJECT_CONTEXT.md) when verified technical facts change.
-- Prefer standard-library solutions and existing helpers. Do not add dependencies without a concrete need.
-- When adding behavior, add focused tests if the project test setup has been introduced; until then, use the existing four sample workflows for regression checks.
 - Do not create commits or branches unless explicitly requested.
 
 ## Future customization

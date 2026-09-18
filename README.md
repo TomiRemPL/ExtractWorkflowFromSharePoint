@@ -26,23 +26,34 @@ Program:
 - prezentuje techniczne identyfikatory list, GUID-y, `InternalName` pól i relacje lookup;
 - rozróżnia kolorami listy, pola, lookupy, workflow, zmienne i elementy APEX/REST.
 
-## Uruchomienie generatora
+## Uruchomienie generatora i zarządzanie projektem
 
-W systemie Windows używany jest launcher `py`:
+Zarządzanie środowiskiem wirtualnym i bibliotekami realizowane jest za pomocą **`uv`**:
 
 ```powershell
+uv run python tools\nwf_report\generate_report.py --input DaneZeSkryptu --output out
+# lub bezpośrednio przez launcher py:
 py tools\nwf_report\generate_report.py --input DaneZeSkryptu --output out
 ```
+
+Uruchomienie testów jednostkowych:
+```powershell
+uv run pytest
+```
+
+Zarządzanie zależnościami:
+- Projekt wykorzystuje `uv` (`pyproject.toml`, `.venv`).
+- Kod i testy korzystają z najbardziej dopasowanych i odpowiednich bibliotek.
+- Instalacja nowych pakietów produkcyjnych: `uv add <pakiet>`
+- Instalacja pakietów deweloperskich / testowych: `uv add --dev <pakiet>`
 
 Po wykonaniu polecenia w katalogu `out/` powstają:
 
 - osobny raport Markdown dla każdego pliku `.nwf`;
-- `index.md` z listą workflow;
-- lista typów akcji bez dedykowanego opisu, jeżeli takie wystąpią;
+- `index.md` z listą workflow i ewentualną listą typów akcji bez dedykowanego opisu;
+- `walkthrough.md` zawierający statystyki wykonania, liczbę akcji w każdym workflow, listę źródeł oraz statusy;
 - `workflow-migration-manual.html` pozostaje osobnym manualem HTML i nie jest nadpisywany przez generator;
 - raporty Markdown są źródłem weryfikacyjnym dla manuala HTML, ale manual nie jest obecnie generowany automatycznie z Markdown.
-
-Program nie wymaga zewnętrznych zależności. Generator korzysta wyłącznie ze standardowej biblioteki Pythona, między innymi `xml.etree`, `json`, `argparse`, `dataclasses` i `pathlib`.
 
 ## Struktura projektu
 
