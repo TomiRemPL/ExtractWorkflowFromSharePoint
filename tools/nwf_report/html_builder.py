@@ -309,7 +309,7 @@ def _generate_html(workflows_data: list[dict]) -> str:
       border-radius: 12px;
       padding: 24px;
       position: relative;
-      overflow: hidden;
+      overflow: visible;
       min-height: 520px;
       box-shadow: var(--shadow);
     }}
@@ -330,11 +330,14 @@ def _generate_html(workflows_data: list[dict]) -> str:
     }}
     .mermaid-wrapper {{
       overflow-x: auto;
+      overflow-y: hidden;
       padding: 12px 0;
-      text-align: center;
+      text-align: left;
+      scrollbar-width: auto;
     }}
     .mermaid-wrapper svg {{
-      max-width: 100%;
+      max-width: none;
+      min-width: 100%;
       height: auto;
     }}
     /* Mermaid interactive tile styling */

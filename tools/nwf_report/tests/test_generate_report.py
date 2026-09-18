@@ -70,3 +70,14 @@ def test_e2e_generate_report_sample_workflows(tmp_path: Path, monkeypatch: pytes
         content = report_file.read_text(encoding="utf-8")
         assert content.startswith("# ")
         assert "```mermaid" in content
+
+    # Verify workflow-migration-manual.html was generated and contains interactive app
+    html_path = out_dir / "workflow-migration-manual.html"
+    assert html_path.exists(), "Brak wygenerowanego pliku workflow-migration-manual.html"
+    html_content = html_path.read_text(encoding="utf-8")
+    assert "<!doctype html>" in html_content
+    assert 'id="workflows-data"' in html_content
+    assert 'id="inspector"' in html_content
+    assert "DT01 Mechanizm Kwalifikacji" in html_content
+    assert "Oracle APEX Flow" in html_content
+
