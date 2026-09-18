@@ -12,14 +12,16 @@ from pathlib import Path
 if __package__ in (None, ""):
     sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
     from nwf_report.action_catalog import UNKNOWN_TYPES_SEEN
+    from nwf_report.html_builder import build_html_manual
     from nwf_report.metadata_loader import FieldResolver, load_site_metadata
     from nwf_report.nwf_parser import iter_actions, parse_nwf
-    from nwf_report.report_builder import build_report
+    from nwf_report.report_builder import build_report, build_workflow_data
 else:
     from .action_catalog import UNKNOWN_TYPES_SEEN
+    from .html_builder import build_html_manual
     from .metadata_loader import FieldResolver, load_site_metadata
     from .nwf_parser import iter_actions, parse_nwf
-    from .report_builder import build_report
+    from .report_builder import build_report, build_workflow_data
 
 
 def _safe_filename(name: str) -> str:
@@ -85,6 +87,7 @@ def main() -> None:
 
     index_lines = ["# Raporty workflow Nintex", ""]
     summary_items: list[dict] = []
+    workflows_data: list[dict] = []
 
     for nwf_path in nwf_files:
         try:
@@ -103,6 +106,9 @@ def main() -> None:
 
         resolver = FieldResolver(wf.list_references, site_metadata, source_list_id=(wf.source_list.list_id if wf.source_list else ""))
         report_md = build_report(wf, resolver)
+        wf_data = build_workflow_data(wf, resolver)
+        workflows_data.append(wf_data)
+
         out_name = _safe_filename(wf.title or nwf_path.stem) + ".md"
         (output_dir / out_name).write_text(report_md, encoding="utf-8")
         src_list = wf.source_list
@@ -133,7 +139,13 @@ def main() -> None:
     walkthrough_md = _build_walkthrough(summary_items, UNKNOWN_TYPES_SEEN)
     (output_dir / "walkthrough.md").write_text(walkthrough_md, encoding="utf-8")
 
-    print(f"Gotowe. Raporty oraz walkthrough zapisano w: {output_dir}")
+    # Generowanie interaktywnego portalu manuala migracji w formacie HTML
+    if workflows_data:
+        html_out_path = output_dir / "workflow-migration-manual.html"
+        build_html_manual(workflows_data, html_out_path)
+        print(f"OK: Wygenerowano portal HTML -> {html_out_path.name}")
+
+    print(f"Gotowe. Raporty, portal HTML oraz walkthrough zapisano w: {output_dir}")
 
 
 if __name__ == "__main__":

@@ -21,6 +21,11 @@ class ActionDescription:
     writes: list[FieldRef] = field(default_factory=list)
     technical_lines: list[str] = field(default_factory=list)
     is_structural: bool = False  # kontener (sekwencja/rownolegle/galaz warunku) - bez wlasnego opisu
+    action_type: str = ""
+    label: str = ""
+    condition_text: str = ""
+    hint_universal: str = ""
+    hint_apex: str = ""
 
 
 _OPERATOR_PL = {
@@ -114,6 +119,10 @@ def _describe_variables_adapter(node: ActionNode, resolver: FieldResolver) -> Ac
     return ActionDescription(
         summary=f"Start workflow '{name}'. Uruchamiane: {trig_txt}.",
         technical_lines=[f"{k} = {v}" for k, v in node.params.items()],
+        action_type="NWWorkflowVariablesAdapter",
+        label=name or "Start workflow",
+        hint_universal=f"Wyzwalacz procesu (Triggers: {trig_txt}). Punkt wejścia przyjmujący parametr itemId.",
+        hint_apex="Wywołanie z endpointu REST / ORDS lub trigger bazodanowy / start procesu w Flows for APEX.",
     )
 
 
@@ -131,15 +140,21 @@ def _extract_condition_fields(cond_el: ET.Element | None) -> list[FieldRef]:
 
 def _describe_if_else(node: ActionNode, resolver: FieldResolver) -> ActionDescription:
     cond_txt = _render_condition(node.condition_el, resolver)
+    label = node.t_label or "Warunek"
     return ActionDescription(
         summary=f"Warunek: JEŻELI {cond_txt}",
         reads=_extract_condition_fields(node.condition_el),
         technical_lines=[f"ConditionUse={node.condition_use}"],
+        action_type="WFIfElseAdapter",
+        label=label,
+        condition_text=cond_txt,
+        hint_universal=f"Bramka decyzyjna (Exclusive Gateway / IF): sprawdzenie warunku logicznego: {cond_txt}.",
+        hint_apex=f"Instrukcja IF ... THEN ... ELSIF w PL/SQL lub Exclusive Gateway w Flows for APEX.",
     )
 
 
 def _describe_if_else_branch(node: ActionNode, resolver: FieldResolver) -> ActionDescription:
-    return ActionDescription(summary="", is_structural=True)
+    return ActionDescription(summary="", is_structural=True, action_type="WFIfElseBranchAdapter")
 
 
 def _describe_write_to_history(node: ActionNode, resolver: FieldResolver) -> ActionDescription:
@@ -148,6 +163,10 @@ def _describe_write_to_history(node: ActionNode, resolver: FieldResolver) -> Act
     return ActionDescription(
         summary=f"Zapisz wpis w historii przepływu: „{short}”" + (" (…)" if len(msg.splitlines()) > 1 else ""),
         technical_lines=[f"Message = {msg}"],
+        action_type="NWWriteToHistoryListAdapter",
+        label=node.t_label or "Zapis historii",
+        hint_universal="Zapis audytowy do dziennika zdarzeń (Audit Log).",
+        hint_apex="APEX_DEBUG.INFO() lub INSERT INTO t_workflow_history(run_id, item_id, message, created_at);",
     )
 
 
@@ -161,6 +180,10 @@ def _describe_update_item(node: ActionNode, resolver: FieldResolver) -> ActionDe
         summary=f"Zaktualizuj element {target}: ustaw pola {fields_txt}.",
         writes=writes,
         technical_lines=[f"ListId = {list_id}", f"ThisItem = {this_item}"],
+        action_type="SPUpdateItemWithKeyAdapter",
+        label=node.t_label or "Aktualizacja pól",
+        hint_universal=f"Aktualizacja danych elementu ({fields_txt}). W systemie docelowym UPDATE lub REST PATCH/MERGE.",
+        hint_apex="UPDATE tabela SET ... WHERE id = :id; lub REST MERGE z nagłówkiem If-Match (weryfikacja ETag).",
     )
 
 
@@ -173,6 +196,10 @@ def _describe_set_field_with_key(node: ActionNode, resolver: FieldResolver) -> A
         summary=f"Ustaw pole {field_readable} na wartość: „{value}”.",
         writes=writes,
         technical_lines=[f"{k} = {v}" for k, v in node.params.items()],
+        action_type="SPSetFieldWithKeyAdapter",
+        label=node.t_label or f"Ustaw {field_readable}",
+        hint_universal=f"Ustawienie pola {field_readable} = '{value}'.",
+        hint_apex=f"UPDATE tabela SET {field_internal} = '{value}' WHERE id = :id;",
     )
 
 
@@ -187,21 +214,39 @@ def _describe_set_variable(node: ActionNode, resolver: FieldResolver) -> ActionD
         summary=f"{prefix}Zapisz w zmiennej '{var_name}' wartość: {value_txt}.",
         reads=_extract_condition_fields(value_el),
         technical_lines=[f"{k} = {v}" for k, v in node.params.items()],
+        action_type="SPSetVariableAdapter",
+        label=label or f"Zmienna {var_name}",
+        hint_universal=f"Obliczenie/odczyt i zapis do zmiennej lokalnej '{var_name}'.",
+        hint_apex=f"l_{var_name.replace('-', '_')} := {value_txt}; lub flow_process.set_var(p_process_id, '{var_name}', ...);",
     )
 
 
 def _describe_run_if(node: ActionNode, resolver: FieldResolver) -> ActionDescription:
     cond_txt = _render_condition(node.condition_el, resolver)
     summary = f"Wykonaj poniższe kroki TYLKO JEŻELI {cond_txt}" if cond_txt else "Wykonaj warunkowo poniższe kroki"
-    return ActionDescription(summary=summary, reads=_extract_condition_fields(node.condition_el))
+    return ActionDescription(
+        summary=summary,
+        reads=_extract_condition_fields(node.condition_el),
+        action_type="NWRunIf2Adapter",
+        label=node.t_label or "Wykonaj jeśli",
+        condition_text=cond_txt,
+        hint_universal=f"Warunek wykonania bloku podrzędnego: IF ({cond_txt}).",
+        hint_apex=f"IF {cond_txt} THEN ... END IF;",
+    )
 
 
 def _describe_commit(node: ActionNode, resolver: FieldResolver) -> ActionDescription:
-    return ActionDescription(summary="Zapisz (zatwierdź) zebrane zmiany w elemencie.")
+    return ActionDescription(
+        summary="Zapisz (zatwierdź) zebrane zmiany w elemencie.",
+        action_type="NWCommitAdapter",
+        label=node.t_label or "Zatwierdzenie transakcji",
+        hint_universal="Zatwierdzenie bieżącego stanu transakcji (COMMIT).",
+        hint_apex="COMMIT; lub przejście etapu procesu BPMN.",
+    )
 
 
 def _describe_structural(node: ActionNode, resolver: FieldResolver) -> ActionDescription:
-    return ActionDescription(summary="", is_structural=True)
+    return ActionDescription(summary="", is_structural=True, action_type=_short_type(node.type))
 
 
 TYPE_HANDLERS = {
@@ -242,4 +287,9 @@ def _describe_fallback(node: ActionNode, resolver: FieldResolver) -> ActionDescr
         summary=summary,
         reads=reads,
         technical_lines=[f"Type = {node.type}"] + [f"{k} = {v}" for k, v in node.params.items()],
+        action_type=_short_type(node.type),
+        label=label,
+        hint_universal="Niestandardowa akcja Nintex - wymaga analizy parametrów technicznych XML.",
+        hint_apex="Do zaimplementowania jako dedykowany moduł PL/SQL lub wywołanie REST.",
     )
+

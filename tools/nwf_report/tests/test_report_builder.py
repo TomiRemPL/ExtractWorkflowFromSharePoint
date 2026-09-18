@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import xml.etree.ElementTree as ET
+from pathlib import Path
+
 import pytest
 
 from tools.nwf_report.metadata_loader import FieldResolver
@@ -10,6 +12,7 @@ from tools.nwf_report.report_builder import (
     _build_mermaid,
     _collect_steps,
     _mermaid_label,
+    build_workflow_data,
     build_report,
 )
 
@@ -158,4 +161,63 @@ def test_build_report_structure(sample_resolver: FieldResolver) -> None:
     assert "## Pola odczytywane / zapisywane" in report
     assert "| Pole | Odczyt | Zapis |" in report
     assert "Wartość Kwoty (Kwota)" in report
+
+
+def test_build_workflow_data_extracts_migration_contract(sample_resolver: FieldResolver) -> None:
+    trigger = ActionNode(
+        type="Nintex.Workflow.Activities.Adapters.NWWorkflowVariablesAdapter",
+        enabled=True,
+        condition_use="None",
+        params={
+            "StartManually": "true",
+            "StartOnChange": "true",
+            "Id": "workflow-123",
+        },
+        param_elements={},
+        field_refs=[],
+        children=[],
+    )
+    variable = ActionNode(
+        type="Nintex.Workflow.Activities.Adapters.SPSetVariableAdapter",
+        enabled=True,
+        condition_use="None",
+        params={"Value": "{WorkflowVariable:Status}"},
+        param_elements={"VariableName": ET.fromstring('<VariableName Name="Status" Type="Text" Description="Status procesu" />')},
+        field_refs=[],
+        children=[],
+        t_label="Ustaw status",
+    )
+    update = ActionNode(
+        type="Nintex.Workflow.Activities.Adapters.SPUpdateItemWithKeyAdapter",
+        enabled=True,
+        condition_use="None",
+        params={"ListId": "{AAAAAAAA-1111-2222-3333-444444444444}"},
+        param_elements={},
+        field_refs=[FieldRef("Wartość Kwoty", "Kwota", "Number")],
+        children=[],
+        t_label="Zapisz kwotę",
+    )
+    wf = WorkflowModel(
+        title="Migracja statusu",
+        description="Workflow do migracji",
+        list_references=[
+            ListReference(
+                "Lista Rejestr",
+                "{AAAAAAAA-1111-2222-3333-444444444444}",
+                True,
+                [FieldRef("Wartość Kwoty", "Kwota", "Number")],
+            )
+        ],
+        actions=[trigger, variable, update],
+        source_path=Path("DaneZeSkryptu/migracja.nwf"),
+    )
+
+    data = build_workflow_data(wf, sample_resolver)
+
+    assert data["triggers"] == ["ręcznie", "zmiana elementu"]
+    assert data["workflow_guid"] == "workflow-123"
+    assert data["variables"] == [{"name": "Status", "type": "Text", "description": "Status procesu"}]
+    assert data["actions_count"] == 2
+    assert data["fields"][0]["internal_name"] == "Kwota"
+    assert data["steps"][1]["hint_apex"]
 
