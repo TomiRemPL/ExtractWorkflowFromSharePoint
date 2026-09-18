@@ -5893,9 +5893,34 @@ end;</div>
             activeIndex = idx;
             renderTabs();
             renderActiveWorkflow();
+            document.getElementById('sec-flows').scrollIntoView({ behavior: 'smooth', block: 'start' });
           });
           wfTabsContainer.appendChild(btn);
         });
+      }
+
+      function filterWorkflowTabs(query) {
+        const q = query.toLowerCase().trim();
+        const matchesWorkflow = (wf) => {
+          if (!q) return true;
+          const searchable = [
+            wf.title,
+            wf.description,
+            wf.source_list_name,
+            ...(wf.other_lists || []),
+            ...(wf.fields || []).flatMap(f => [f.display_name, f.internal_name]),
+            ...(wf.steps || []).flatMap(s => [s.label, s.summary, s.short_type, s.condition_text])
+          ].filter(Boolean).join(' ').toLowerCase();
+          return searchable.includes(q);
+        };
+
+        const matchingIndexes = workflows
+          .map((wf, idx) => matchesWorkflow(wf) ? idx : -1)
+          .filter(idx => idx >= 0);
+        wfTabsContainer.querySelectorAll('.wf-tab').forEach((tab, idx) => {
+          tab.style.display = matchingIndexes.includes(idx) ? '' : 'none';
+        });
+        return matchingIndexes;
       }
 
       // Renderowanie aktywnego workflow
@@ -6055,11 +6080,20 @@ end;</div>
       const searchInput = document.getElementById('global-search');
       searchInput.addEventListener('input', (e) => {
         const q = e.target.value.toLowerCase().trim();
+        const matchingIndexes = filterWorkflowTabs(q);
+
         const rows = fieldsTbody.querySelectorAll('tr');
         rows.forEach(r => {
           const text = r.textContent.toLowerCase();
           r.style.display = (!q || text.includes(q)) ? '' : 'none';
         });
+
+        if (q && matchingIndexes.length > 0 && !matchingIndexes.includes(activeIndex)) {
+          activeIndex = matchingIndexes[0];
+          renderTabs();
+          filterWorkflowTabs(q);
+          renderActiveWorkflow();
+        }
       });
 
       // Inicjalizacja
