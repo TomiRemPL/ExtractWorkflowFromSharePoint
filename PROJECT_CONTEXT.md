@@ -24,17 +24,25 @@ kontrakt REST sync/async z przykładami APEX/ORDS.
 
 ## 2. Jak uruchomić
 
+Zarządzanie środowiskiem i zależnościami odbywa się przez `uv` (`pyproject.toml`, `.venv`).
+
 ```powershell
 cd C:\Users\torembiasz\Desktop\prace\202609_DORA
+uv run python tools\nwf_report\generate_report.py --input DaneZeSkryptu --output out
+# lub z użyciem launchera py:
 py tools\nwf_report\generate_report.py --input DaneZeSkryptu --output out
 ```
 
-- Python jest dostępny na tej maszynie tylko jako `py` (launcher), NIE jako `python` (alias
-  Microsoft Store jest zablokowany/nieaktywny). Wersja: Python 3.14.7.
-- Wynik: pliki `out/<Nazwa Workflow>.md` (jeden na workflow) + `out/index.md` (spis + lista
-  typów akcji bez dedykowanego opisu, jeśli takie wystąpią).
-- Brak zależności zewnętrznych — czysta biblioteka standardowa (`xml.etree`, `json`, `argparse`,
-  `dataclasses`).
+Uruchomienie testów:
+```powershell
+uv run pytest
+```
+
+- Python / środowisko: Python 3.14.7, pakiety zarządzane przez `uv`.
+- Wynik: pliki `out/<Nazwa Workflow>.md` (jeden na workflow), `out/index.md` (spis + lista
+  typów akcji bez dedykowanego opisu) oraz `out/walkthrough.md` (tabela podsumowująca statystyki, liczbę akcji i statusy).
+- Zasada bibliotek: Kod i testy mają korzystać z najbardziej dopasowanych, wydajnych i odpowiednich bibliotek.
+  Brak ograniczenia do samej biblioteki standardowej. Wszelkie potrzebne pakiety instalujemy przez `uv add` / `uv add --dev`.
 
 ## 3. Struktura katalogu `DaneZeSkryptu/`
 
