@@ -62,7 +62,8 @@ flowchart TD
 
 ## Kroki workflow
 
-- Start workflow 'DT01 Mechanizm Kwalifikacji Usługi'. Uruchamiane: ręcznie, przy utworzeniu elementu, przy zmianie elementu.
+- `[n1]` Start workflow 'DT01 Mechanizm Kwalifikacji Usługi'. Uruchamiane: ręcznie, przy utworzeniu elementu, przy zmianie elementu.
+  > **Wskazówka migracji**: Wyzwalacz procesu (Triggers: ręcznie, przy utworzeniu elementu, przy zmianie elementu). Punkt wejścia przyjmujący parametr itemId. (APEX: `Wywołanie z endpointu REST / ORDS lub trigger bazodanowy / start procesu w Flows for APEX.`)
   <details><summary>Szczegóły techniczne</summary>
 
   ```
@@ -98,21 +99,24 @@ flowchart TD
   UsesConditionalStart = false
   ```
   </details>
-- Warunek: JEŻELI (wartość pola Telefonia analogowa? (DT.01.01.31) (DT_x002e_01) z bieżącego elementu jest równe Tak) LUB (wartość pola Model kontraktowania (DT.01.01.10) (Model_x0020_kontraktowy_x0020__x) z bieżącego elementu jest równe ATU)
+- `[n2]` Warunek: JEŻELI (wartość pola Telefonia analogowa? (DT.01.01.31) (DT_x002e_01) z bieżącego elementu jest równe Tak) LUB (wartość pola Model kontraktowania (DT.01.01.10) (Model_x0020_kontraktowy_x0020__x) z bieżącego elementu jest równe ATU)
+  > **Wskazówka migracji**: Bramka decyzyjna (Exclusive Gateway / IF): sprawdzenie warunku logicznego: (wartość pola Telefonia analogowa? (DT.01.01.31) (DT_x002e_01) z bieżącego elementu jest równe Tak) LUB (wartość pola Model kontraktowania (DT.01.01.10) (Model_x0020_kontraktowy_x0020__x) z bieżącego elementu jest równe ATU). (APEX: `Instrukcja IF ... THEN ... ELSIF w PL/SQL lub Exclusive Gateway w Flows for APEX.`)
   <details><summary>Szczegóły techniczne</summary>
 
   ```
   ConditionUse=Child
   ```
   </details>
-    - Warunek: JEŻELI wartość pola Usługa cykliczna? (DT.01.01.33) (DT_x002e_03) z bieżącego elementu jest równe Tak
+    - `[n3]` Warunek: JEŻELI wartość pola Usługa cykliczna? (DT.01.01.33) (DT_x002e_03) z bieżącego elementu jest równe Tak
+      > **Wskazówka migracji**: Bramka decyzyjna (Exclusive Gateway / IF): sprawdzenie warunku logicznego: wartość pola Usługa cykliczna? (DT.01.01.33) (DT_x002e_03) z bieżącego elementu jest równe Tak. (APEX: `Instrukcja IF ... THEN ... ELSIF w PL/SQL lub Exclusive Gateway w Flows for APEX.`)
       <details><summary>Szczegóły techniczne</summary>
 
       ```
       ConditionUse=Child
       ```
       </details>
-        - DT-01-01-34 Usługa ICT?: Zapisz w zmiennej 'zm_DT-01-01-34' wartość: Nie.
+        - `[n4]` DT-01-01-34 Usługa ICT?: Zapisz w zmiennej 'zm_DT-01-01-34' wartość: Nie.
+          > **Wskazówka migracji**: Obliczenie/odczyt i zapis do zmiennej lokalnej 'zm_DT-01-01-34'. (APEX: `l_zm_DT_01_01_34 := Nie; lub flow_process.set_var(p_process_id, 'zm_DT-01-01-34', ...);`)
           <details><summary>Szczegóły techniczne</summary>
 
           ```
@@ -121,14 +125,16 @@ flowchart TD
           Value = Nie
           ```
           </details>
-        - Warunek: JEŻELI wartość pola Typ usługi ICT (DT.01.01):Symbol usługi (Typ_x0020_us_x0142_ugi_x0020_ICT0) z bieżącego elementu jest równe eba_TA:S00
+        - `[n5]` Warunek: JEŻELI wartość pola Typ usługi ICT (DT.01.01):Symbol usługi (Typ_x0020_us_x0142_ugi_x0020_ICT0) z bieżącego elementu jest równe eba_TA:S00
+          > **Wskazówka migracji**: Bramka decyzyjna (Exclusive Gateway / IF): sprawdzenie warunku logicznego: wartość pola Typ usługi ICT (DT.01.01):Symbol usługi (Typ_x0020_us_x0142_ugi_x0020_ICT0) z bieżącego elementu jest równe eba_TA:S00. (APEX: `Instrukcja IF ... THEN ... ELSIF w PL/SQL lub Exclusive Gateway w Flows for APEX.`)
           <details><summary>Szczegóły techniczne</summary>
 
           ```
           ConditionUse=Child
           ```
           </details>
-            - DT-01-01-34 Usługa ICT?: Zapisz w zmiennej 'zm_DT-01-01-34' wartość: Tak.
+            - `[n6]` DT-01-01-34 Usługa ICT?: Zapisz w zmiennej 'zm_DT-01-01-34' wartość: Tak.
+              > **Wskazówka migracji**: Obliczenie/odczyt i zapis do zmiennej lokalnej 'zm_DT-01-01-34'. (APEX: `l_zm_DT_01_01_34 := Tak; lub flow_process.set_var(p_process_id, 'zm_DT-01-01-34', ...);`)
               <details><summary>Szczegóły techniczne</summary>
 
               ```
@@ -137,7 +143,8 @@ flowchart TD
               Value = Tak
               ```
               </details>
-            - DT-01-01-34 Usługa ICT?: Zapisz w zmiennej 'zm_DT-01-01-34' wartość: Nie.
+            - `[n7]` DT-01-01-34 Usługa ICT?: Zapisz w zmiennej 'zm_DT-01-01-34' wartość: Nie.
+              > **Wskazówka migracji**: Obliczenie/odczyt i zapis do zmiennej lokalnej 'zm_DT-01-01-34'. (APEX: `l_zm_DT_01_01_34 := Nie; lub flow_process.set_var(p_process_id, 'zm_DT-01-01-34', ...);`)
               <details><summary>Szczegóły techniczne</summary>
 
               ```
@@ -146,7 +153,8 @@ flowchart TD
               Value = Nie
               ```
               </details>
-    - DT-01-01-34 Usługa ICT?: Zapisz w zmiennej 'zm_DT-01-01-34' wartość: Nie.
+    - `[n8]` DT-01-01-34 Usługa ICT?: Zapisz w zmiennej 'zm_DT-01-01-34' wartość: Nie.
+      > **Wskazówka migracji**: Obliczenie/odczyt i zapis do zmiennej lokalnej 'zm_DT-01-01-34'. (APEX: `l_zm_DT_01_01_34 := Nie; lub flow_process.set_var(p_process_id, 'zm_DT-01-01-34', ...);`)
       <details><summary>Szczegóły techniczne</summary>
 
       ```
@@ -155,14 +163,16 @@ flowchart TD
       Value = Nie
       ```
       </details>
-- Warunek: JEŻELI {WorkflowVariable:zm_DT-01-01-34} jest równe Tak
+- `[n9]` Warunek: JEŻELI {WorkflowVariable:zm_DT-01-01-34} jest równe Tak
+  > **Wskazówka migracji**: Bramka decyzyjna (Exclusive Gateway / IF): sprawdzenie warunku logicznego: {WorkflowVariable:zm_DT-01-01-34} jest równe Tak. (APEX: `Instrukcja IF ... THEN ... ELSIF w PL/SQL lub Exclusive Gateway w Flows for APEX.`)
   <details><summary>Szczegóły techniczne</summary>
 
   ```
   ConditionUse=Child
   ```
   </details>
-    - zm_DT-01-01-38: Zapisz w zmiennej 'zm_DT-01-01-38' wartość: Nie.
+    - `[n10]` zm_DT-01-01-38: Zapisz w zmiennej 'zm_DT-01-01-38' wartość: Nie.
+      > **Wskazówka migracji**: Obliczenie/odczyt i zapis do zmiennej lokalnej 'zm_DT-01-01-38'. (APEX: `l_zm_DT_01_01_38 := Nie; lub flow_process.set_var(p_process_id, 'zm_DT-01-01-38', ...);`)
       <details><summary>Szczegóły techniczne</summary>
 
       ```
@@ -171,14 +181,16 @@ flowchart TD
       Value = Nie
       ```
       </details>
-    - Warunek: JEŻELI (wartość pola Usługa krytyczna wg EBA? (DT.01.01.37) (Us_x0142_uga_x0020_krytyczna_x00) z bieżącego elementu jest równe Tak) LUB (wartość pola Czy usługa związana z funkcją krytyczną (DT.01.01.35) (Funkcja_x0020_krytyczna) z bieżącego elementu nie zawiera F0)
+    - `[n11]` Warunek: JEŻELI (wartość pola Usługa krytyczna wg EBA? (DT.01.01.37) (Us_x0142_uga_x0020_krytyczna_x00) z bieżącego elementu jest równe Tak) LUB (wartość pola Czy usługa związana z funkcją krytyczną (DT.01.01.35) (Funkcja_x0020_krytyczna) z bieżącego elementu nie zawiera F0)
+      > **Wskazówka migracji**: Bramka decyzyjna (Exclusive Gateway / IF): sprawdzenie warunku logicznego: (wartość pola Usługa krytyczna wg EBA? (DT.01.01.37) (Us_x0142_uga_x0020_krytyczna_x00) z bieżącego elementu jest równe Tak) LUB (wartość pola Czy usługa związana z funkcją krytyczną (DT.01.01.35) (Funkcja_x0020_krytyczna) z bieżącego elementu nie zawiera F0). (APEX: `Instrukcja IF ... THEN ... ELSIF w PL/SQL lub Exclusive Gateway w Flows for APEX.`)
       <details><summary>Szczegóły techniczne</summary>
 
       ```
       ConditionUse=Child
       ```
       </details>
-        - zm_DT-01-01-38: Zapisz w zmiennej 'zm_DT-01-01-38' wartość: Nie.
+        - `[n12]` zm_DT-01-01-38: Zapisz w zmiennej 'zm_DT-01-01-38' wartość: Nie.
+          > **Wskazówka migracji**: Obliczenie/odczyt i zapis do zmiennej lokalnej 'zm_DT-01-01-38'. (APEX: `l_zm_DT_01_01_38 := Nie; lub flow_process.set_var(p_process_id, 'zm_DT-01-01-38', ...);`)
           <details><summary>Szczegóły techniczne</summary>
 
           ```
@@ -187,7 +199,8 @@ flowchart TD
           Value = Nie
           ```
           </details>
-        - zm_DT-01-01-38: Zapisz w zmiennej 'zm_DT-01-01-38' wartość: Tak.
+        - `[n13]` zm_DT-01-01-38: Zapisz w zmiennej 'zm_DT-01-01-38' wartość: Tak.
+          > **Wskazówka migracji**: Obliczenie/odczyt i zapis do zmiennej lokalnej 'zm_DT-01-01-38'. (APEX: `l_zm_DT_01_01_38 := Tak; lub flow_process.set_var(p_process_id, 'zm_DT-01-01-38', ...);`)
           <details><summary>Szczegóły techniczne</summary>
 
           ```
@@ -196,14 +209,16 @@ flowchart TD
           Value = Tak
           ```
           </details>
-        - Warunek: JEŻELI (wartość pola Dostawca (DT.01.01.03) (Dostawca_x0020__x0028_DT_x002e_0) z bieżącego elementu) ORAZ (wartość pola Są inne usł. krytyczne Dostawcy? (DT.01.02.16) (S_x0105__x0020_inne_x0020_us_x01) z bieżącego elementu jest równe Tak)
+        - `[n14]` Warunek: JEŻELI (wartość pola Dostawca (DT.01.01.03) (Dostawca_x0020__x0028_DT_x002e_0) z bieżącego elementu) ORAZ (wartość pola Są inne usł. krytyczne Dostawcy? (DT.01.02.16) (S_x0105__x0020_inne_x0020_us_x01) z bieżącego elementu jest równe Tak)
+          > **Wskazówka migracji**: Bramka decyzyjna (Exclusive Gateway / IF): sprawdzenie warunku logicznego: (wartość pola Dostawca (DT.01.01.03) (Dostawca_x0020__x0028_DT_x002e_0) z bieżącego elementu) ORAZ (wartość pola Są inne usł. krytyczne Dostawcy? (DT.01.02.16) (S_x0105__x0020_inne_x0020_us_x01) z bieżącego elementu jest równe Tak). (APEX: `Instrukcja IF ... THEN ... ELSIF w PL/SQL lub Exclusive Gateway w Flows for APEX.`)
           <details><summary>Szczegóły techniczne</summary>
 
           ```
           ConditionUse=Child
           ```
           </details>
-            - zm_DT-01-02-01: Zapisz w zmiennej 'zm_DT-01-02-01' wartość: Tak.
+            - `[n15]` zm_DT-01-02-01: Zapisz w zmiennej 'zm_DT-01-02-01' wartość: Tak.
+              > **Wskazówka migracji**: Obliczenie/odczyt i zapis do zmiennej lokalnej 'zm_DT-01-02-01'. (APEX: `l_zm_DT_01_02_01 := Tak; lub flow_process.set_var(p_process_id, 'zm_DT-01-02-01', ...);`)
               <details><summary>Szczegóły techniczne</summary>
 
               ```
@@ -212,7 +227,8 @@ flowchart TD
               Value = Tak
               ```
               </details>
-- Zapisz wpis w historii przepływu: „DT-01-01-34 Usługa DORA ICT: {WorkflowVariable:zm_DT-01-01-34}” (…)
+- `[n16]` Zapisz wpis w historii przepływu: „DT-01-01-34 Usługa DORA ICT: {WorkflowVariable:zm_DT-01-01-34}” (…)
+  > **Wskazówka migracji**: Zapis audytowy do dziennika zdarzeń (Audit Log). (APEX: `APEX_DEBUG.INFO() lub INSERT INTO t_workflow_history(run_id, item_id, message, created_at);`)
   <details><summary>Szczegóły techniczne</summary>
 
   ```
@@ -221,7 +237,8 @@ DT-01-01-38 Usługa DORA ICT Krytyczna: {WorkflowVariable:zm_DT-01-01-38}
 DT-01-02-01: Ryzyko koncentracji: {WorkflowVariable:zm_DT-01-02-01}
   ```
   </details>
-- Zaktualizuj element w bieżącym elemencie: ustaw pola Usługa ICT wg DORA? (DT.01.01.34) (Us_x0142_uga_x0020_kwalifikowana), Usługa krytyczna wg DORA? (DT.01.01.38) (Us_x0142_uga_x0020_krytyczna_x000), Ryzyko koncentracji? (DT.01.02.01) (Zwi_x0119_kszone_x0020_ryzyko_x0).
+- `[n17]` Zaktualizuj element w bieżącym elemencie: ustaw pola Usługa ICT wg DORA? (DT.01.01.34) (Us_x0142_uga_x0020_kwalifikowana), Usługa krytyczna wg DORA? (DT.01.01.38) (Us_x0142_uga_x0020_krytyczna_x000), Ryzyko koncentracji? (DT.01.02.01) (Zwi_x0119_kszone_x0020_ryzyko_x0).
+  > **Wskazówka migracji**: Aktualizacja danych elementu (Usługa ICT wg DORA? (DT.01.01.34) (Us_x0142_uga_x0020_kwalifikowana), Usługa krytyczna wg DORA? (DT.01.01.38) (Us_x0142_uga_x0020_krytyczna_x000), Ryzyko koncentracji? (DT.01.02.01) (Zwi_x0119_kszone_x0020_ryzyko_x0)). W systemie docelowym UPDATE lub REST PATCH/MERGE. (APEX: `UPDATE tabela SET ... WHERE id = :id; lub REST MERGE z nagłówkiem If-Match (weryfikacja ETag).`)
   <details><summary>Szczegóły techniczne</summary>
 
   ```
@@ -229,6 +246,14 @@ DT-01-02-01: Ryzyko koncentracji: {WorkflowVariable:zm_DT-01-02-01}
   ThisItem = True
   ```
   </details>
+
+## Zmienne przepływu pracy
+
+| Zmienna | Typ | Opis / Rola |
+|---|---|---|
+| `zm_DT-01-01-34` | Text | DT-01-01-34 Usługa ICT? |
+| `zm_DT-01-01-38` | Text | zm_DT-01-01-38 |
+| `zm_DT-01-02-01` | Text | zm_DT-01-02-01 |
 
 ## Pola odczytywane / zapisywane
 
@@ -245,3 +270,19 @@ DT-01-02-01: Ryzyko koncentracji: {WorkflowVariable:zm_DT-01-02-01}
 | Usługa krytyczna wg DORA? (DT.01.01.38) (Us_x0142_uga_x0020_krytyczna_x000) |  | X |
 | Usługa ICT wg DORA? (DT.01.01.34) (Us_x0142_uga_x0020_kwalifikowana) |  | X |
 | Ryzyko koncentracji? (DT.01.02.01) (Zwi_x0119_kszone_x0020_ryzyko_x0) |  | X |
+
+### Słownik pól i identyfikatory techniczne
+
+| Nazwa biznesowa | SharePoint InternalName | Typ | Odczyt | Zapis |
+|---|---|---|---|---|
+| Telefonia analogowa? (DT.01.01.31) | `DT_x002e_01` | Tekst/Ref | Tak | - |
+| Usługa cykliczna? (DT.01.01.33) | `DT_x002e_03` | Tekst/Ref | Tak | - |
+| Dostawca (DT.01.01.03) | `Dostawca_x0020__x0028_DT_x002e_0` | Tekst/Ref | Tak | - |
+| Czy usługa związana z funkcją krytyczną (DT.01.01.35) | `Funkcja_x0020_krytyczna` | Tekst/Ref | Tak | - |
+| Model kontraktowania (DT.01.01.10) | `Model_x0020_kontraktowy_x0020__x` | Tekst/Ref | Tak | - |
+| Są inne usł. krytyczne Dostawcy? (DT.01.02.16) | `S_x0105__x0020_inne_x0020_us_x01` | Tekst/Ref | Tak | - |
+| Typ usługi ICT (DT.01.01):Symbol usługi | `Typ_x0020_us_x0142_ugi_x0020_ICT0` | Tekst/Ref | Tak | - |
+| Usługa krytyczna wg EBA? (DT.01.01.37) | `Us_x0142_uga_x0020_krytyczna_x00` | Tekst/Ref | Tak | - |
+| Usługa krytyczna wg DORA? (DT.01.01.38) | `Us_x0142_uga_x0020_krytyczna_x000` | Tekst/Ref | - | Tak |
+| Usługa ICT wg DORA? (DT.01.01.34) | `Us_x0142_uga_x0020_kwalifikowana` | Tekst/Ref | - | Tak |
+| Ryzyko koncentracji? (DT.01.02.01) | `Zwi_x0119_kszone_x0020_ryzyko_x0` | Tekst/Ref | - | Tak |

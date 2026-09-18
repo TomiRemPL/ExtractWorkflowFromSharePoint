@@ -23,7 +23,8 @@ flowchart TD
 
 ## Kroki workflow
 
-- Start workflow 'DT01 Wypełnienie pól Nr RKU oraz Nazwa'. Uruchamiane: ręcznie, przy utworzeniu elementu, przy zmianie elementu.
+- `[n1]` Start workflow 'DT01 Wypełnienie pól Nr RKU oraz Nazwa'. Uruchamiane: ręcznie, przy utworzeniu elementu, przy zmianie elementu.
+  > **Wskazówka migracji**: Wyzwalacz procesu (Triggers: ręcznie, przy utworzeniu elementu, przy zmianie elementu). Punkt wejścia przyjmujący parametr itemId. (APEX: `Wywołanie z endpointu REST / ORDS lub trigger bazodanowy / start procesu w Flows for APEX.`)
   <details><summary>Szczegóły techniczne</summary>
 
   ```
@@ -56,8 +57,10 @@ flowchart TD
   UsesConditionalStart = false
   ```
   </details>
-    - Wykonaj poniższe kroki TYLKO JEŻELI wartość pola Nr RKU (DT.01.01) (Nr_x0020_RKU) z bieżącego elementu jest puste
+    - `[n2]` Wykonaj poniższe kroki TYLKO JEŻELI wartość pola Nr RKU (DT.01.01) (Nr_x0020_RKU) z bieżącego elementu jest puste
+      > **Wskazówka migracji**: Warunek wykonania bloku podrzędnego: IF (wartość pola Nr RKU (DT.01.01) (Nr_x0020_RKU) z bieżącego elementu jest puste). (APEX: `IF wartość pola Nr RKU (DT.01.01) (Nr_x0020_RKU) z bieżącego elementu jest puste THEN ... END IF;`)
         - Ustaw pole Nr RKU (DT.01.01) (Nr_x0020_RKU) na wartość: „RKU-{ItemProperty:ID}”.
+          > **Wskazówka migracji**: Ustawienie pola Nr RKU (DT.01.01) (Nr_x0020_RKU) = 'RKU-{ItemProperty:ID}'. (APEX: `UPDATE tabela SET Nr_x0020_RKU = 'RKU-{ItemProperty:ID}' WHERE id = :id;`)
           <details><summary>Szczegóły techniczne</summary>
 
           ```
@@ -66,8 +69,10 @@ flowchart TD
           LookupFieldValue = RKU-{ItemProperty:ID}
           ```
           </details>
-    - Wykonaj poniższe kroki TYLKO JEŻELI wartość pola Nazwa (Title) z bieżącego elementu jest puste
+    - `[n3]` Wykonaj poniższe kroki TYLKO JEŻELI wartość pola Nazwa (Title) z bieżącego elementu jest puste
+      > **Wskazówka migracji**: Warunek wykonania bloku podrzędnego: IF (wartość pola Nazwa (Title) z bieżącego elementu jest puste). (APEX: `IF wartość pola Nazwa (Title) z bieżącego elementu jest puste THEN ... END IF;`)
         - Ustaw pole Nazwa (Title) na wartość: „{ItemProperty:Nazwa_x0020_us_x0142_ugi_x0020__}”.
+          > **Wskazówka migracji**: Ustawienie pola Nazwa (Title) = '{ItemProperty:Nazwa_x0020_us_x0142_ugi_x0020__}'. (APEX: `UPDATE tabela SET Title = '{ItemProperty:Nazwa_x0020_us_x0142_ugi_x0020__}' WHERE id = :id;`)
           <details><summary>Szczegóły techniczne</summary>
 
           ```
@@ -83,3 +88,10 @@ flowchart TD
 |---|---|---|
 | Nr RKU (DT.01.01) (Nr_x0020_RKU) | X | X |
 | Nazwa (Title) | X | X |
+
+### Słownik pól i identyfikatory techniczne
+
+| Nazwa biznesowa | SharePoint InternalName | Typ | Odczyt | Zapis |
+|---|---|---|---|---|
+| Nr RKU (DT.01.01) | `Nr_x0020_RKU` | Tekst/Ref | Tak | Tak |
+| Nazwa | `Title` | Tekst/Ref | Tak | Tak |

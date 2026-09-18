@@ -139,3 +139,12 @@ class FieldResolver:
             return f"{col.title} ({internal_name})"
 
         return internal_name  # nierozpoznane - zwracamy nazwe techniczna bez tlumaczenia
+
+    def get_title(self, internal_name: str, list_hint: str = "") -> str:
+        """Zwraca sama czytelna nazwe pola (DisplayName), bez doklejonego (InternalName)."""
+        resolved = self.resolve(internal_name, list_hint)
+        suffix = f" ({internal_name})"
+        if resolved.endswith(suffix):
+            return resolved[:-len(suffix)]
+        return resolved
+

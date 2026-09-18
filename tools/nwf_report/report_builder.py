@@ -16,17 +16,6 @@ class Step:
     node_id: str
 
 
-def _collect_steps(actions: list[ActionNode], resolver: FieldResolver, counter: list[int], depth: int = 0) -> list[Step]:
-    steps: list[Step] = []
-    for node in actions:
-        counter[0] += 1
-        node_id = f"n{counter[0]}"
-        desc = describe_action(node, resolver)
-        steps.append(Step(node=node, desc=desc, depth=depth, node_id=node_id))
-        steps.extend(_collect_steps(node.children, resolver, counter, depth + 1))
-    return steps
-
-
 def _mermaid_label(text: str, max_len: int = 60) -> str:
     text = text.replace('"', "'").replace("\n", " ")
     if len(text) > max_len:
@@ -34,11 +23,12 @@ def _mermaid_label(text: str, max_len: int = 60) -> str:
     return text
 
 
-def _build_mermaid(actions: list[ActionNode], resolver: FieldResolver) -> str:
-    """Buduje diagram flowchart. Rekurencja zwraca liste 'otwartych koncow' (id wezlow
-    bez wychodzacej strzalki), do ktorych podlaczy sie kolejny krok w sekwencji."""
+def _build_mermaid_with_steps(actions: list[ActionNode], resolver: FieldResolver) -> tuple[str, list[Step]]:
+    """Buduje diagram flowchart oraz liste krokow Step z identycznymi identyfikatorami wezlow (n1, n2...)."""
     lines = ["flowchart TD", "  start((Start))"]
     counter = [0]
+    node_id_map: dict[int, str] = {}
+    steps: list[Step] = []
 
     def new_id() -> str:
         counter[0] += 1
@@ -53,6 +43,14 @@ def _build_mermaid(actions: list[ActionNode], resolver: FieldResolver) -> str:
         for fid in from_ids:
             lines.append(f"  {fid}{arrow} {to_id}")
 
+    def walk_tree_for_steps(nodes: list[ActionNode], depth: int = 0) -> None:
+        for node in nodes:
+            short_type = node.type.rsplit(".", 1)[-1]
+            desc = describe_action(node, resolver)
+            nid = node_id_map.get(id(node), "")
+            steps.append(Step(node=node, desc=desc, depth=depth, node_id=nid))
+            walk_tree_for_steps(node.children, depth + 1)
+
     def walk(nodes: list[ActionNode], entry_ids: list[str], entry_label: str = "") -> list[str]:
         current_ends = entry_ids
         current_label = entry_label
@@ -64,6 +62,7 @@ def _build_mermaid(actions: list[ActionNode], resolver: FieldResolver) -> str:
                 continue
             if short_type == "WFIfElseAdapter":
                 nid = new_id()
+                node_id_map[id(node)] = nid
                 lines.append(f'  {nid}{{"{label_for(node)}"}}')
                 connect(current_ends, nid, current_label)
                 current_label = ""
@@ -76,6 +75,7 @@ def _build_mermaid(actions: list[ActionNode], resolver: FieldResolver) -> str:
                 current_ends = branch_ends or [nid]
                 continue
             nid = new_id()
+            node_id_map[id(node)] = nid
             lines.append(f'  {nid}["{label_for(node)}"]')
             connect(current_ends, nid, current_label)
             current_label = ""
@@ -85,13 +85,198 @@ def _build_mermaid(actions: list[ActionNode], resolver: FieldResolver) -> str:
     final_ends = walk(actions, ["start"])
     lines.append("  stop((Koniec))")
     connect(final_ends, "stop")
-    return "\n".join(lines)
 
+    # Po zarejestrowaniu ID wezlow w node_id_map zbieramy pelne drzewo krokow
+    walk_tree_for_steps(actions, 0)
+
+    return "\n".join(lines), steps
+
+
+def _collect_steps(actions: list[ActionNode], resolver: FieldResolver, counter: list[int], depth: int = 0) -> list[Step]:
+    """Zachowane dla kompatybilnosci wstecznej z istniejacymi testami jednostkowymi."""
+    steps: list[Step] = []
+    for node in actions:
+        counter[0] += 1
+        node_id = f"n{counter[0]}"
+        desc = describe_action(node, resolver)
+        steps.append(Step(node=node, desc=desc, depth=depth, node_id=node_id))
+        steps.extend(_collect_steps(node.children, resolver, counter, depth + 1))
+    return steps
+
+
+def _build_mermaid(actions: list[ActionNode], resolver: FieldResolver) -> str:
+    """Buduje diagram flowchart. Zachowane dla kompatybilnosci wstecznej."""
+    mermaid_code, _ = _build_mermaid_with_steps(actions, resolver)
+    return mermaid_code
+
+
+def _extract_variables(actions: list[ActionNode]) -> list[dict[str, str]]:
+    """Wyszukuje definicje i uzycia zmiennych workflow w akcjach."""
+    variables: dict[str, dict[str, str]] = {}
+
+    def walk(nodes: list[ActionNode]):
+        for n in nodes:
+            if n.type.endswith("SPSetVariableAdapter"):
+                var_el = n.param_elements.get("VariableName")
+                if var_el is not None:
+                    name = var_el.get("Name", "")
+                    if name:
+                        variables[name] = {
+                            "name": name,
+                            "type": var_el.get("Type", "Text"),
+                            "description": var_el.get("Description", "") or n.t_label or "Zmienna robocza",
+                        }
+            for p_val in n.params.values():
+                if "{WorkflowVariable:" in p_val:
+                    for part in p_val.split("{WorkflowVariable:")[1:]:
+                        v_name = part.split("}")[0].strip()
+                        if v_name and v_name not in variables:
+                            variables[v_name] = {
+                                "name": v_name,
+                                "type": "Text",
+                                "description": "Używana w wyrażeniach warunkowych/komunikatach",
+                            }
+            walk(n.children)
+
+    walk(actions)
+    return [variables[k] for k in sorted(variables.keys())]
+
+
+def _extract_triggers_and_guid(actions: list[ActionNode]) -> tuple[list[str], str]:
+    triggers = []
+    guid = ""
+    for n in actions:
+        if n.type.endswith("NWWorkflowVariablesAdapter"):
+            if n.params.get("StartManually") == "true":
+                triggers.append("ręcznie")
+            if n.params.get("StartOnCreate") == "true":
+                triggers.append("utworzenie elementu")
+            if n.params.get("StartOnChange") == "true":
+                triggers.append("zmiana elementu")
+            guid = n.params.get("Id", "")
+            break
+    return triggers or ["ręcznie"], guid
+
+
+def build_workflow_data(wf: WorkflowModel, resolver: FieldResolver) -> dict:
+    """Buduje ustrukturyzowany slownik z danymi workflow do celow serializacji JSON / raportu HTML."""
+    mermaid_code, steps = _build_mermaid_with_steps(wf.actions, resolver)
+    triggers, guid = _extract_triggers_and_guid(wf.actions)
+    variables = _extract_variables(wf.actions)
+
+    src = wf.source_list
+    src_name = src.list_name if src else "(nieznana)"
+    src_id = src.list_id if src else ""
+    other_lists = [lr.list_name for lr in wf.list_references if not lr.is_source_list]
+
+    all_reads: dict[str, dict] = {}
+    all_writes: dict[str, dict] = {}
+
+    steps_data: list[dict] = []
+    for s in steps:
+        short_type = s.node.type.rsplit(".", 1)[-1]
+        reads_info = []
+        for r in s.desc.reads:
+            if not r.internal_name:
+                continue
+            title = resolver.get_title(r.internal_name, src_id)
+            reads_info.append({
+                "internal_name": r.internal_name,
+                "display_name": title,
+                "field_type": r.field_type,
+                "list_id": src_id,
+                "list_name": src_name,
+            })
+            all_reads[r.internal_name] = reads_info[-1]
+
+        writes_info = []
+        target_list_id = s.node.params.get("ListId") or src_id
+        target_list_name = src_name if target_list_id == src_id else target_list_id
+        for w in s.desc.writes:
+            if not w.internal_name:
+                continue
+            title = resolver.get_title(w.internal_name, target_list_id)
+            writes_info.append({
+                "internal_name": w.internal_name,
+                "display_name": title,
+                "field_type": w.field_type,
+                "list_id": target_list_id,
+                "list_name": target_list_name,
+            })
+            all_writes[w.internal_name] = writes_info[-1]
+
+        steps_data.append({
+            "node_id": s.node_id,
+            "label": s.desc.label or s.node.t_label or short_type,
+            "type": s.node.type,
+            "short_type": short_type,
+            "summary": s.desc.summary,
+            "branch_label": s.node.branch_label,
+            "depth": s.depth,
+            "condition_text": s.desc.condition_text,
+            "reads": reads_info,
+            "writes": writes_info,
+            "hint_universal": s.desc.hint_universal,
+            "hint_apex": s.desc.hint_apex,
+            "technical_lines": s.desc.technical_lines,
+            "is_structural": s.desc.is_structural,
+            "enabled": s.node.enabled,
+        })
+
+    # Zbiorczy slownik pol
+    fields_dict: dict[str, dict] = {}
+    for internal_name in set(all_reads) | set(all_writes):
+        read_obj = all_reads.get(internal_name)
+        write_obj = all_writes.get(internal_name)
+        base = read_obj or write_obj
+        fields_dict[internal_name] = {
+            "internal_name": internal_name,
+            "display_name": base["display_name"] if base else resolver.get_title(internal_name),
+            "list_name": base["list_name"] if base else src_name,
+            "list_id": base["list_id"] if base else src_id,
+            "field_type": base.get("field_type", "") if base else "",
+            "is_read": internal_name in all_reads,
+            "is_written": internal_name in all_writes,
+        }
+
+    # Dolaczenie pol ze zdefiniowanych list references
+    for lr in wf.list_references:
+        for f in lr.fields:
+            if f.internal_name and f.internal_name not in fields_dict:
+                fields_dict[f.internal_name] = {
+                    "internal_name": f.internal_name,
+                    "display_name": f.name or resolver.get_title(f.internal_name, lr.list_id),
+                    "list_name": lr.list_name,
+                    "list_id": lr.list_id,
+                    "field_type": f.field_type,
+                    "is_read": False,
+                    "is_written": False,
+                }
+
+    sorted_fields = [fields_dict[k] for k in sorted(fields_dict.keys(), key=lambda x: fields_dict[x]["display_name"].lower())]
+
+    key = "".join(c if c.isalnum() or c in " _-." else "_" for c in (wf.title or wf.source_path.stem)).strip()
+
+    return {
+        "key": key,
+        "title": wf.title or wf.source_path.stem,
+        "description": wf.description,
+        "source_file": wf.source_path.name,
+        "source_list_name": src_name,
+        "source_list_id": src_id,
+        "other_lists": other_lists,
+        "triggers": triggers,
+        "workflow_guid": guid,
+        "actions_count": len([s for s in steps_data if not s["is_structural"] and s["short_type"] != "NWWorkflowVariablesAdapter"]),
+        "mermaid_code": mermaid_code,
+        "steps": steps_data,
+        "fields": sorted_fields,
+        "variables": variables,
+    }
 
 
 def build_report(wf: WorkflowModel, resolver: FieldResolver) -> str:
-    counter = [0]
-    steps = _collect_steps(wf.actions, resolver, counter)
+    mermaid_code, steps = _build_mermaid_with_steps(wf.actions, resolver)
 
     lines: list[str] = []
     lines.append(f"# {wf.title}")
@@ -113,7 +298,7 @@ def build_report(wf: WorkflowModel, resolver: FieldResolver) -> str:
     lines.append("## Diagram przepływu")
     lines.append("")
     lines.append("```mermaid")
-    lines.append(_build_mermaid(wf.actions, resolver))
+    lines.append(mermaid_code)
     lines.append("```")
     lines.append("")
 
@@ -124,8 +309,11 @@ def build_report(wf: WorkflowModel, resolver: FieldResolver) -> str:
             continue
         indent = "  " * step.depth
         branch_prefix = f"**[{step.node.branch_label}]** " if step.node.branch_label else ""
+        node_id_badge = f"`[{step.node_id}]` " if step.node_id else ""
         status = "" if step.node.enabled else " _(wyłączona)_"
-        lines.append(f"{indent}- {branch_prefix}{step.desc.summary}{status}")
+        lines.append(f"{indent}- {node_id_badge}{branch_prefix}{step.desc.summary}{status}")
+        if step.desc.hint_universal or step.desc.hint_apex:
+            lines.append(f"{indent}  > **Wskazówka migracji**: {step.desc.hint_universal} (APEX: `{step.desc.hint_apex}`)")
         if step.desc.technical_lines:
             lines.append(f"{indent}  <details><summary>Szczegóły techniczne</summary>")
             lines.append("")
@@ -135,6 +323,16 @@ def build_report(wf: WorkflowModel, resolver: FieldResolver) -> str:
             lines.append(f"{indent}  ```")
             lines.append(f"{indent}  </details>")
     lines.append("")
+
+    variables = _extract_variables(wf.actions)
+    if variables:
+        lines.append("## Zmienne przepływu pracy")
+        lines.append("")
+        lines.append("| Zmienna | Typ | Opis / Rola |")
+        lines.append("|---|---|---|")
+        for v in variables:
+            lines.append(f"| `{v['name']}` | {v['type']} | {v['description']} |")
+        lines.append("")
 
     all_reads = {f.internal_name: f for s in steps for f in s.desc.reads if f.internal_name}
     all_writes = {f.internal_name: f for s in steps for f in s.desc.writes if f.internal_name}
@@ -148,4 +346,14 @@ def build_report(wf: WorkflowModel, resolver: FieldResolver) -> str:
         lines.append(f"| {readable} | {'X' if internal_name in all_reads else ''} | {'X' if internal_name in all_writes else ''} |")
     lines.append("")
 
+    lines.append("### Słownik pól i identyfikatory techniczne")
+    lines.append("")
+    lines.append("| Nazwa biznesowa | SharePoint InternalName | Typ | Odczyt | Zapis |")
+    lines.append("|---|---|---|---|---|")
+    for internal_name in sorted(set(all_reads) | set(all_writes)):
+        title = resolver.get_title(internal_name)
+        lines.append(f"| {title} | `{internal_name}` | Tekst/Ref | {'Tak' if internal_name in all_reads else '-'} | {'Tak' if internal_name in all_writes else '-'} |")
+    lines.append("")
+
     return "\n".join(lines)
+
