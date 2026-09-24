@@ -221,3 +221,51 @@ def test_build_workflow_data_extracts_migration_contract(sample_resolver: FieldR
     assert data["fields"][0]["internal_name"] == "Kwota"
     assert data["steps"][1]["hint_apex"]
 
+
+def test_workflow_data_has_inspector_data_for_visible_mermaid_nodes(sample_resolver: FieldResolver) -> None:
+    condition = ActionNode(
+        type="Nintex.Workflow.Activities.Adapters.WFIfElseAdapter",
+        enabled=True,
+        condition_use="Child",
+        params={},
+        param_elements={},
+        field_refs=[],
+        children=[],
+        t_label="Czy kwota jest poprawna?",
+    )
+    update = ActionNode(
+        type="Nintex.Workflow.Activities.Adapters.SPUpdateItemWithKeyAdapter",
+        enabled=True,
+        condition_use="None",
+        params={},
+        param_elements={},
+        field_refs=[FieldRef("Wartość Kwoty", "Kwota", "Number")],
+        children=[],
+        t_label="Zapisz kwotę",
+    )
+    wf = WorkflowModel(
+        title="Klikalny workflow",
+        description="",
+        list_references=[
+            ListReference(
+                "Lista Rejestr",
+                "{AAAAAAAA-1111-2222-3333-444444444444}",
+                True,
+                [FieldRef("Wartość Kwoty", "Kwota", "Number")],
+            )
+        ],
+        actions=[condition, update],
+        source_path=Path("DaneZeSkryptu/klikalny.nwf"),
+    )
+
+    data = build_workflow_data(wf, sample_resolver)
+
+    visible_node_ids = {"start", "stop"}
+    for line in data["mermaid_code"].splitlines():
+        line = line.strip()
+        if line.startswith("n") and ("[" in line or "{" in line):
+            visible_node_ids.add(line.split("[", 1)[0].split("{", 1)[0])
+
+    inspector_node_ids = {step["node_id"] for step in data["steps"]}
+    assert visible_node_ids <= inspector_node_ids
+

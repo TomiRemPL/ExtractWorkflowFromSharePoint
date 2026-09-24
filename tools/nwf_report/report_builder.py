@@ -173,6 +173,23 @@ def build_workflow_data(wf: WorkflowModel, resolver: FieldResolver) -> dict:
     all_writes: dict[str, dict] = {}
 
     steps_data: list[dict] = []
+    steps_data.append({
+        "node_id": "start",
+        "label": "Start",
+        "type": "WorkflowStart",
+        "short_type": "Start",
+        "summary": f"Uruchomienie workflow dla listy {src_name}.",
+        "branch_label": "",
+        "depth": 0,
+        "condition_text": "",
+        "reads": [],
+        "writes": [],
+        "hint_universal": "Odtwórz te same reguły uruchomienia w docelowym mechanizmie orkiestracji.",
+        "hint_apex": "Wywołaj proces APEX/ORDS zgodnie z triggerami workflow.",
+        "technical_lines": ["Triggery: " + ", ".join(triggers), f"Lista źródłowa: {src_name}", f"ID listy: {src_id}"],
+        "is_structural": True,
+        "enabled": True,
+    })
     for s in steps:
         short_type = s.node.type.rsplit(".", 1)[-1]
         reads_info = []
@@ -222,6 +239,23 @@ def build_workflow_data(wf: WorkflowModel, resolver: FieldResolver) -> dict:
             "is_structural": s.desc.is_structural,
             "enabled": s.node.enabled,
         })
+    steps_data.append({
+        "node_id": "stop",
+        "label": "Koniec",
+        "type": "WorkflowStop",
+        "short_type": "Koniec",
+        "summary": "Zakończenie ścieżki workflow po wykonaniu poprzednich akcji.",
+        "branch_label": "",
+        "depth": 0,
+        "condition_text": "",
+        "reads": [],
+        "writes": [],
+        "hint_universal": "Zamknij proces bez dodatkowej akcji, jeżeli wcześniejsze kroki zakończyły się poprawnie.",
+        "hint_apex": "Zwróć status końcowy procesu albo zapisz go w tabeli audytowej, jeśli wymaga tego projekt migracji.",
+        "technical_lines": ["Węzeł syntetyczny dodany przez generator raportu HTML."],
+        "is_structural": True,
+        "enabled": True,
+    })
 
     # Zbiorczy slownik pol
     fields_dict: dict[str, dict] = {}

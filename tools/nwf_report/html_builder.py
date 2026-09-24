@@ -263,10 +263,14 @@ def _generate_html(workflows_data: list[dict]) -> str:
     .wf-switcher {{
       display: flex;
       gap: 8px;
+      min-width: 0;
       overflow-x: auto;
+      overflow-y: hidden;
       padding-bottom: 12px;
       margin-bottom: 20px;
       border-bottom: 1px solid var(--border);
+      scrollbar-width: auto;
+      overscroll-behavior-inline: contain;
     }}
     .wf-tab {{
       padding: 10px 18px;
@@ -275,6 +279,7 @@ def _generate_html(workflows_data: list[dict]) -> str:
       color: var(--text-muted);
       border-radius: 8px;
       cursor: pointer;
+      flex: 0 0 auto;
       font-weight: 600;
       font-size: 0.92rem;
       white-space: nowrap;
@@ -309,36 +314,80 @@ def _generate_html(workflows_data: list[dict]) -> str:
       border-radius: 12px;
       padding: 24px;
       position: relative;
-      overflow: visible;
       min-height: 520px;
       box-shadow: var(--shadow);
+      min-width: 0;
     }}
     .flow-toolbar {{
       display: flex;
       justify-content: space-between;
       align-items: center;
+      gap: 16px;
       margin-bottom: 16px;
       padding-bottom: 12px;
       border-bottom: 1px solid var(--border);
     }}
     .flow-hint {{
+      min-width: 0;
       font-size: 0.85rem;
       color: var(--text-muted);
       display: flex;
       align-items: center;
       gap: 6px;
     }}
+    .flow-controls {{
+      display: inline-flex;
+      flex: 0 0 auto;
+      align-items: center;
+      gap: 4px;
+    }}
+    .flow-control {{
+      width: 32px;
+      height: 30px;
+      padding: 0;
+      background: var(--bg-surface-elevated);
+      border: 1px solid var(--border);
+      border-radius: 5px;
+      color: var(--text);
+      cursor: pointer;
+      font-size: 1rem;
+      line-height: 1;
+    }}
+    .flow-control:hover {{
+      color: var(--primary);
+      border-color: var(--primary);
+    }}
+    .flow-zoom-label {{
+      min-width: 48px;
+      color: var(--text-muted);
+      font-family: var(--font-mono);
+      font-size: 0.75rem;
+      text-align: center;
+    }}
     .mermaid-wrapper {{
-      overflow-x: auto;
-      overflow-y: hidden;
+      height: min(68vh, 720px);
+      min-height: 360px;
+      overflow: auto;
       padding: 12px 0;
       text-align: left;
       scrollbar-width: auto;
+      overscroll-behavior: contain;
+      touch-action: none;
+      cursor: grab;
+    }}
+    .mermaid-wrapper.is-panning {{
+      cursor: grabbing;
     }}
     .mermaid-wrapper svg {{
+      display: block;
       max-width: none;
-      min-width: 100%;
+      min-width: 0;
+      width: max-content;
       height: auto;
+      transform-origin: 0 0;
+      user-select: none;
+      pointer-events: auto;
+      overflow: visible;
     }}
     /* Mermaid interactive tile styling */
     .mermaid-wrapper .node {{
@@ -616,7 +665,13 @@ def _generate_html(workflows_data: list[dict]) -> str:
         <!-- Lewy panel: Diagram -->
         <div class="flow-container">
           <div class="flow-toolbar">
-            <span class="flow-hint">&#128070; Kliknij dowolny kafelek na schemacie, aby otworzyć szczegóły w inspektorze.</span>
+            <span class="flow-hint">&#128070; Kliknij węzeł, aby zobaczyć szczegóły. Przeciągnij diagram lub użyj zoomu.</span>
+            <div class="flow-controls" aria-label="Sterowanie diagramem">
+              <button id="flow-zoom-out" class="flow-control" type="button" title="Pomniejsz" aria-label="Pomniejsz diagram">−</button>
+              <span id="flow-zoom-label" class="flow-zoom-label">100%</span>
+              <button id="flow-zoom-in" class="flow-control" type="button" title="Powiększ" aria-label="Powiększ diagram">+</button>
+              <button id="flow-reset" class="flow-control" type="button" title="Resetuj widok" aria-label="Resetuj widok diagramu">↺</button>
+            </div>
             <span id="active-wf-tag" class="tag-badge tag-list"></span>
           </div>
           <div class="mermaid-wrapper">
@@ -830,6 +885,7 @@ end;</div>
 
       let activeIndex = 0;
       let activeNodeId = null;
+      let activeWorkflow = null;
 
       // Elementy UI
       const wfTabsContainer = document.getElementById('wf-tabs');
@@ -837,6 +893,140 @@ end;</div>
       const activeWfTag = document.getElementById('active-wf-tag');
       const fieldsTbody = document.querySelector('#fields-table tbody');
       const toast = document.getElementById('toast');
+      const mermaidWrapper = document.querySelector('.mermaid-wrapper');
+      const zoomLabel = document.getElementById('flow-zoom-label');
+
+      const viewState = {{
+        scale: 1,
+        minScale: 0.35,
+        maxScale: 2.5,
+        offsetX: 0,
+        offsetY: 0,
+        pointerId: null,
+        startX: 0,
+        startY: 0,
+        startOffsetX: 0,
+        startOffsetY: 0,
+        startNodeEl: null,
+        moved: false
+      }};
+
+      function updateZoomLabel() {{
+        zoomLabel.textContent = String(Math.round(viewState.scale * 100)) + '%';
+      }}
+
+      function applyViewTransform() {{
+        const svg = mermaidContainer.querySelector('svg');
+        if (!svg) return;
+        svg.style.transform = `translate(${{viewState.offsetX}}px, ${{viewState.offsetY}}px) scale(${{viewState.scale}})`;
+        updateZoomLabel();
+      }}
+
+      function resetDiagramView() {{
+        viewState.scale = 1;
+        viewState.offsetX = 0;
+        viewState.offsetY = 0;
+        mermaidWrapper.scrollLeft = 0;
+        mermaidWrapper.scrollTop = 0;
+        applyViewTransform();
+      }}
+
+      function fitDiagramToViewport() {{
+        const svg = mermaidContainer.querySelector('svg');
+        if (!svg) {{
+          resetDiagramView();
+          return;
+        }}
+        const viewBox = svg.viewBox && svg.viewBox.baseVal;
+        const diagramWidth = viewBox && viewBox.width ? viewBox.width : svg.getBoundingClientRect().width;
+        const diagramHeight = viewBox && viewBox.height ? viewBox.height : svg.getBoundingClientRect().height;
+        svg.style.width = Math.ceil(diagramWidth) + 'px';
+        svg.style.height = Math.ceil(diagramHeight) + 'px';
+        svg.style.overflow = 'visible';
+        const availableWidth = Math.max(1, mermaidWrapper.clientWidth - 24);
+        viewState.scale = Math.min(1, Math.max(viewState.minScale, availableWidth / Math.max(1, diagramWidth)));
+        viewState.offsetX = 0;
+        viewState.offsetY = 0;
+        mermaidWrapper.scrollLeft = 0;
+        mermaidWrapper.scrollTop = 0;
+        applyViewTransform();
+      }}
+
+      function zoomDiagram(delta, clientX, clientY) {{
+        const svg = mermaidContainer.querySelector('svg');
+        if (!svg) return;
+        const nextScale = Math.min(viewState.maxScale, Math.max(viewState.minScale, viewState.scale + delta));
+        if (nextScale === viewState.scale) return;
+        const rect = mermaidWrapper.getBoundingClientRect();
+        const focusX = clientX - rect.left;
+        const focusY = clientY - rect.top;
+        const ratio = nextScale / viewState.scale;
+        viewState.offsetX = focusX - (focusX - viewState.offsetX) * ratio;
+        viewState.offsetY = focusY - (focusY - viewState.offsetY) * ratio;
+        viewState.scale = nextScale;
+        applyViewTransform();
+      }}
+
+      document.getElementById('flow-zoom-in').addEventListener('click', () => zoomDiagram(0.1, mermaidWrapper.clientWidth / 2, mermaidWrapper.clientHeight / 2));
+      document.getElementById('flow-zoom-out').addEventListener('click', () => zoomDiagram(-0.1, mermaidWrapper.clientWidth / 2, mermaidWrapper.clientHeight / 2));
+      document.getElementById('flow-reset').addEventListener('click', resetDiagramView);
+
+      mermaidWrapper.addEventListener('wheel', (event) => {{
+        event.preventDefault();
+        zoomDiagram(event.deltaY < 0 ? 0.1 : -0.1, event.clientX, event.clientY);
+      }}, {{ passive: false }});
+
+      mermaidWrapper.addEventListener('pointerdown', (event) => {{
+        if (event.button !== 0) return;
+        viewState.pointerId = event.pointerId;
+        viewState.startX = event.clientX;
+        viewState.startY = event.clientY;
+        viewState.startOffsetX = viewState.offsetX;
+        viewState.startOffsetY = viewState.offsetY;
+        viewState.startNodeEl = event.target.closest ? event.target.closest('.node') : null;
+        viewState.moved = false;
+        mermaidWrapper.setPointerCapture(event.pointerId);
+      }});
+
+      mermaidWrapper.addEventListener('pointermove', (event) => {{
+        if (event.pointerId !== viewState.pointerId) return;
+        const deltaX = event.clientX - viewState.startX;
+        const deltaY = event.clientY - viewState.startY;
+        if (Math.abs(deltaX) + Math.abs(deltaY) > 4) viewState.moved = true;
+        viewState.offsetX = viewState.startOffsetX + deltaX;
+        viewState.offsetY = viewState.startOffsetY + deltaY;
+        mermaidWrapper.classList.toggle('is-panning', viewState.moved);
+        applyViewTransform();
+      }});
+
+      function stopPanning(event) {{
+        if (event.pointerId !== viewState.pointerId) return;
+        viewState.pointerId = null;
+        mermaidWrapper.classList.remove('is-panning');
+        setTimeout(() => {{ viewState.moved = false; }}, 0);
+      }}
+
+      mermaidWrapper.addEventListener('pointerup', (event) => {{
+        const wasPanning = viewState.moved;
+        const pointEl = document.elementFromPoint(event.clientX, event.clientY);
+        const nodeEl = (pointEl && pointEl.closest ? pointEl.closest('.node') : null) || viewState.startNodeEl;
+        stopPanning(event);
+        viewState.startNodeEl = null;
+        if (wasPanning || !activeWorkflow) return;
+        if (!nodeEl || !mermaidWrapper.contains(nodeEl)) return;
+        const nodeId = resolveMermaidNodeId(nodeEl, activeWorkflow);
+        if (!nodeId) {{
+          console.warn('Nie rozpoznano identyfikatora węzła Mermaid:', nodeEl.id || nodeEl.textContent);
+          return;
+        }}
+        mermaidWrapper.querySelectorAll('.node').forEach(n => n.classList.remove('selected'));
+        nodeEl.classList.add('selected');
+        inspectNode(activeWorkflow, nodeId);
+        if (window.matchMedia('(max-width: 1080px)').matches) {{
+          document.getElementById('inspector').scrollIntoView({{ behavior: 'smooth', block: 'start' }});
+        }}
+      }});
+      mermaidWrapper.addEventListener('pointercancel', stopPanning);
 
       // Metryki
       document.getElementById('metric-wf-count').textContent = workflows.length;
@@ -897,17 +1087,21 @@ end;</div>
       // Renderowanie aktywnego workflow
       async function renderActiveWorkflow() {{
         const wf = workflows[activeIndex];
+        activeWorkflow = wf;
         activeWfTag.textContent = 'Lista: ' + wf.source_list_name;
 
         // Render Mermaid
         if (window._mermaid) {{
+          mermaidContainer.replaceChildren();
           mermaidContainer.removeAttribute('data-processed');
           mermaidContainer.textContent = wf.mermaid_code;
           try {{
             await window._mermaid.run({{ nodes: [mermaidContainer] }});
+            fitDiagramToViewport();
             bindMermaidInteractivity(wf);
           }} catch (e) {{
             console.error('Mermaid render error:', e);
+            resetDiagramView();
           }}
         }}
 
@@ -919,24 +1113,36 @@ end;</div>
       }}
 
       // Podpinanie klikniec i dymkow w wygenerowanym SVG
+      function resolveMermaidNodeId(nodeEl, wf) {{
+        const knownIds = new Set((wf.steps || []).map(step => step.node_id).filter(Boolean));
+        const candidates = [
+          nodeEl.id || '',
+          nodeEl.getAttribute('data-id') || '',
+          nodeEl.getAttribute('data-node') || '',
+          nodeEl.getAttribute('aria-label') || '',
+        ].filter(Boolean);
+
+        for (const candidate of candidates) {{
+          if (knownIds.has(candidate)) return candidate;
+          const directMatch = candidate.match(/(?:^|[-_])(start|stop|n\\d+)(?:[-_]|$)/);
+          if (directMatch && knownIds.has(directMatch[1])) return directMatch[1];
+        }}
+
+        return Array.from(knownIds).find(id => candidates.some(candidate => candidate.includes(id))) || null;
+      }}
+
       function bindMermaidInteractivity(wf) {{
         const svg = mermaidContainer.querySelector('svg');
         if (!svg) return;
 
         const nodes = svg.querySelectorAll('.node');
         nodes.forEach(nodeEl => {{
-          const idAttr = nodeEl.id || '';
-          // Wykrywanie ID wezla (np. flowchart-n2-...)
-          const match = idAttr.match(/flowchart-(n\\d+)-/) || idAttr.match(/^(n\\d+)$/);
-          const nodeId = match ? match[1] : null;
+          const nodeId = resolveMermaidNodeId(nodeEl, wf);
 
           if (nodeId) {{
             nodeEl.style.cursor = 'pointer';
-            nodeEl.addEventListener('click', () => {{
-              nodes.forEach(n => n.classList.remove('selected'));
-              nodeEl.classList.add('selected');
-              inspectNode(wf, nodeId);
-            }});
+          }} else {{
+            console.warn('Nie rozpoznano identyfikatora węzła Mermaid:', nodeEl.id || nodeEl.textContent);
           }}
         }});
       }}
@@ -944,7 +1150,11 @@ end;</div>
       function inspectNode(wf, nodeId) {{
         activeNodeId = nodeId;
         const step = wf.steps.find(s => s.node_id === nodeId);
-        if (!step) return;
+        if (!step) {{
+          console.warn('Nie znaleziono danych dla węzła Mermaid:', nodeId);
+          showToast('Brak danych dla wybranego węzła');
+          return;
+        }}
 
         document.getElementById('ins-node-id').textContent = 'KROK ' + nodeId;
         document.getElementById('ins-type-badge').textContent = step.short_type || 'Akcja';
@@ -1059,11 +1269,25 @@ end;</div>
           r.style.display = (!q || text.includes(q)) ? '' : 'none';
         }});
 
+        // Nawigacja sekcji z uwzględnieniem sticky headera.
+        document.querySelectorAll('.nav-btn').forEach(btn => {{
+          btn.addEventListener('click', () => {{
+            const target = document.getElementById(btn.dataset.target);
+            if (!target) return;
+            document.querySelectorAll('.nav-btn').forEach(item => item.classList.remove('active'));
+            btn.classList.add('active');
+            target.scrollIntoView({{ behavior: 'smooth', block: 'start' }});
+          }});
+        }});
+
         if (q && matchingIndexes.length > 0 && !matchingIndexes.includes(activeIndex)) {{
           activeIndex = matchingIndexes[0];
           renderTabs();
           filterWorkflowTabs(q);
           renderActiveWorkflow();
+        }} else if (!q) {{
+          renderTabs();
+          renderFieldsTable(workflows[activeIndex]);
         }}
       }});
 
