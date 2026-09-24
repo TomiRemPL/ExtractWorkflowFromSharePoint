@@ -4,7 +4,7 @@
 
 - Read [PROJECT_CONTEXT.md](PROJECT_CONTEXT.md) before changing project code. It is the detailed source of truth for the `.nwf` format, verified behavior, implementation decisions, and open topics.
 - Use [manual-sharepoint-2019-dla-poczatkujacych-v3 (1).md](manual-sharepoint-2019-dla-poczatkujacych-v3%20(1).md) for the SharePoint export procedure and the naming conventions in `DaneZeSkryptu/`.
-- Current status (2026-09-17): the parser, metadata loader, action catalog, Markdown/Mermaid report builder, and CLI are implemented. Reports for four example workflows have been manually verified. Automated tests are still an open follow-up; do not claim that a test suite exists.
+- Current status (2026-09-19): the parser, metadata loader, action catalog, Markdown/Mermaid report builder, CLI, and generated interactive HTML portal are implemented. Reports for four example workflows have been manually verified. The Python test suite contains 24 passing tests; browser-level Playwright coverage for drag/zoom/SVG clicks/search/navigation remains an open follow-up.
 
 ## Context and tool usage
 

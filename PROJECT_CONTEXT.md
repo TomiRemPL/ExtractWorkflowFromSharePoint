@@ -2,7 +2,7 @@
 
 Ten plik jest przeznaczony dla modelu/agenta AI kontynuującego pracę nad tym projektem.
 Zawiera wszystkie ustalone fakty, decyzje i szczegóły techniczne, żeby nie trzeba było
-ich odkrywać/weryfikować od nowa. Aktualny na: 2026-09-17.
+ich odkrywać/weryfikować od nowa. Aktualny na: 2026-09-19.
 
 ## 1. Cel projektu
 
@@ -21,6 +21,12 @@ Utworzono również pojedynczy manual HTML `out/workflow-migration-manual.html` 
 docelową integrację z Oracle APEX. Manual zawiera karty wszystkich 4 workflow, diagramy
 Mermaid, źródło każdego diagramu, identyfikatory list i pól, legendę typów obiektów oraz
 kontrakt REST sync/async z przykładami APEX/ORDS.
+
+Portal jest generowany przez `tools/nwf_report/html_builder.py` i zawiera interaktywny
+przełącznik workflow, inspektor kroków, wyszukiwarkę oraz nawigację sekcji. Diagram ma
+ograniczony viewport z przesuwaniem pointer/touch, zoomem kółkiem/przyciskami i resetem;
+kliknięcie węzła mapuje identyfikator Mermaid do `steps[node_id]` i aktualizuje inspektor.
+Zmiany z 2026-09-19 zostały wygenerowane do `out/workflow-migration-manual.html`.
 
 ## 2. Jak uruchomić
 
@@ -358,7 +364,7 @@ do sieci. Kod diagramów pozostaje osadzony w HTML i można go odczytać bez sie
 jeszcze generowany automatycznie z raportów Markdown; przy zmianie parsera trzeba zaktualizować
 go świadomie i porównać z `out/*.md`.
 
-## 6. Wyniki weryfikacji (stan na 2026-09-17)
+## 6. Wyniki weryfikacji (stan na 2026-09-19)
 
 Wygenerowano `out/*.md` dla 4 plików z `DaneZeSkryptu`:
 1. `DT01 Mechanizm Kwalifikacji Usługi.md` (lista źródłowa: Kwalifikacja Usług) —
@@ -396,9 +402,11 @@ dedykowany handler.
 
 ## 8. Otwarte tematy / możliwe następne kroki (nieblokujące, do decyzji z użytkownikiem)
 
-- **Testy jednostkowe** (`pytest`) nie zostały jeszcze napisane — plan (Faza 4) to zakładał,
-  ale nie zostały utworzone. Warto dodać `tools/nwf_report/tests/` z fixture'ami z realnych
-  4 plików.
+- **Testy interakcji HTML w przeglądarce** nie są jeszcze automatyczne. `uv run pytest`
+  przechodzi (24 testy), ale testy sprawdzają generator i dane, nie rzeczywiste drag/zoom/
+  kliknięcia SVG ani scrollowanie sekcji. Warto dodać testy Playwright.
+- **Ręczna walidacja portalu** pozostaje do wykonania w Chromium/Edge na szerokim i wąskim
+  viewportcie: kliknięcia węzłów, przesuwanie, zoom, reset, wyszukiwarka i nawigacja górna.
 - **`Workflow-Inventory.csv`** (UTF-16) nie jest jeszcze wczytywany/wykorzystywany w raportach —
   jego układ został sprawdzony, a 4 rekordy odpowiadają 4 eksportom `.nwf`. Można go w przyszłości
   włączyć do `index.md` i manuala, aby dodać autora, wersję, datę modyfikacji, URL i GUID-y.
@@ -425,17 +433,23 @@ dedykowany handler.
   specjalnej obsługi cykli/pętli, potraktuje taki węzeł przez fallback jako zwykły krok
   sekwencyjny (bez strzałki powrotnej).
 
-## 10. Stan na koniec sesji 2026-09-17
+## 10. Stan na koniec sesji 2026-09-19
 
 - Dodano `AGENTS.md` z preferencją używania `lean-ctx` i regułami pracy z repozytorium.
 - Dodano `README.md` opisujący obecną funkcjonalność programu.
 - Utworzono i rozbudowano `out/workflow-migration-manual.html` o diagramy Mermaid dla każdego
   workflow, źródła diagramów, identyfikatory list/pól oraz legendę kolorów obiektów.
+- Rozbudowano `tools/nwf_report/html_builder.py`: diagram ma ograniczony viewport, panowanie
+  pointer/touch, zoom i reset; kliknięcia węzłów otwierają dane w inspektorze; działa nawigacja
+  sekcji oraz reset filtrowania po wyczyszczeniu wyszukiwarki.
+- `uv run pytest` przechodzi: 24 testy. Portal został ponownie wygenerowany dla 4 workflow.
+- Nie wykonano automatycznej walidacji Node.js, ponieważ Node nie jest dostępny w środowisku.
+  Diagnostyka pliku Python nie zgłasza błędów; pozostaje ręczna walidacja interakcji w Chromium/Edge.
 - Uruchomienie `py tools\nwf_report\generate_report.py --input DaneZeSkryptu --output out`
   zakończyło się poprawnie dla wszystkich 4 workflow.
 - Ostatni commit zsynchronizowany z GitHub: `acd6105 Document project and expand workflow manual`.
-- Na jutro: zacommitować dzisiejszą aktualizację dokumentacji, wypchnąć ją do `origin/master`,
-  a następnie zdecydować, czy dodać automatyczne generowanie manuala HTML i testy jednostkowe.
+- Na kolejną sesję: ręcznie zweryfikować portal w szerokim i wąskim viewportcie, a następnie
+  zdecydować, czy dodać testy Playwright dla drag/zoom, kliknięć SVG, wyszukiwania i nawigacji.
 
 ## 9. Powiązane pliki pamięci (memory tool)
 

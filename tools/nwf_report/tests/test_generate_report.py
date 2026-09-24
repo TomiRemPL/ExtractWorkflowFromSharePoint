@@ -78,6 +78,11 @@ def test_e2e_generate_report_sample_workflows(tmp_path: Path, monkeypatch: pytes
     assert "<!doctype html>" in html_content
     assert 'id="workflows-data"' in html_content
     assert 'id="inspector"' in html_content
+    assert 'function resolveMermaidNodeId(nodeEl, wf)' in html_content
+    assert 'viewState.startNodeEl' in html_content
+    assert 'document.elementFromPoint(event.clientX, event.clientY)' in html_content
+    assert '"node_id": "start"' in html_content
+    assert '"node_id": "stop"' in html_content
     assert "DT01 Mechanizm Kwalifikacji" in html_content
     assert "Oracle APEX Flow" in html_content
 
