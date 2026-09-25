@@ -463,3 +463,20 @@ dedykowany handler.
 - **Portal HTML**: Inspektor kafelka pokazuje dokładny kod wywołania `shp_api` dla wybranego kroku z przyciskiem „Kopiuj”, a pod diagramem dodano kartę prezentującą pełną procedurę PL/SQL wybranego workflow z przyciskiem „Kopiuj całą procedurę PL/SQL”.
 - **Testy**: Zestaw testów rozszerzono do 27 testów jednostkowych (`uv run pytest`), weryfikujących generowanie wywołań `shp_api` i procedury PL/SQL.
 
+## 12. Narzędzie automatycznej ekstrakcji metadanych z SharePoint 2019 (`sp_extractor`) (2026-09-25)
+
+- **Lokalizacja**: `tools/sp_extractor/` (`cli.py`, `client.py`, `extractor.py`, `naming.py`).
+- **Cel**: Automatyczne pobieranie metadanych list, kolumn globalnych, spisu procesów i definicji `.nwf` bezpośrednio z witryny SharePoint bez konieczności ręcznego wklejania skryptów JS w konsoli DevTools przeglądarki.
+- **Parametry CLI**:
+  - `URL` / `--url`: Adres URL witryny SharePoint (np. `https://sp.bank.local/sites/dora`).
+  - `-o` / `--output`: Katalog docelowy. W przypadku pominięcia narzędzie automatycznie skanuje katalog roboczy i tworzy kolejny folder z auto-inkrementacją: `DaneZeSkryptu_nnn` (`DaneZeSkryptu_001`, `DaneZeSkryptu_002`, ...).
+  - `-u` / `--username`, `-p` / `--password`, `-d` / `--domain`: Opcjonalne poświadczenia NTLM. W przypadku pominięcia narzędzie wykorzystuje bieżący kontekst użytkownika Windows (Single Sign-On / SSPI via `requests-negotiate-sspi`).
+  - `--include-data`: Opcjonalny zrzut wierszy danych list (`20_dane_*.json`).
+  - `--include-permissions`: Opcjonalny zrzut uprawnień (`30_*`).
+- **Protokoły**:
+  - SharePoint REST API (`application/json;odata=nometadata` z fallbackiem do `verbose`): pobieranie `00_kolumny_witryny.json`, `10_00_wszystkie_listy.json`, `10_lista_<Nazwa>.json` ze schematami `schemaXml`, kolumnami, typami zawartości i widokami.
+  - Nintex Workflow SOAP Web Service (`/_vti_bin/NintexWorkflow/Workflow.asmx` - `ExportWorkflow`): eksport czystych definicji procesów do plików `.nwf`.
+  - Inwentaryzacja: generowanie `Workflow-Inventory.csv` oraz `extraction_manifest.json`.
+- **Kompatybilność**: Struktura wygenerowanego katalogu jest w 100% kompatybilna z wejściem generatora raportów `tools/nwf_report/generate_report.py`.
+- **Testy**: Łączna liczba testów w projekcie wzrosła do 45 (wszystkie zielone w `uv run pytest`), w tym testy end-to-end zasilające raporty z wygenerowanych przez mock metadanych.
+

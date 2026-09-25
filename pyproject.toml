@@ -2,7 +2,11 @@
 name = "202609-dora"
 version = "0.1.0"
 requires-python = ">=3.14"
-dependencies = []
+dependencies = [
+    "requests>=2.34.2",
+    "requests-negotiate-sspi>=0.5.2",
+    "requests-ntlm>=1.3.0",
+]
 
 [dependency-groups]
 dev = [
@@ -11,5 +15,5 @@ dev = [
 
 [tool.pytest.ini_options]
 pythonpath = ["."]
-testpaths = ["tools/nwf_report/tests"]
+testpaths = ["tools/nwf_report/tests", "tools/sp_extractor/tests"]
 

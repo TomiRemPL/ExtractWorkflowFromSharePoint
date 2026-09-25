@@ -1,0 +1,12 @@
+{
+  "__metadata": {
+    "id": "https://teams.sp.creditagricole/team/ITMM/_api/Web",
+    "uri": "https://teams.sp.creditagricole/team/ITMM/_api/Web",
+    "type": "SP.Web"
+  },
+  "Created": "2013-10-14T09:28:21",
+  "ServerRelativeUrl": "/team/ITMM",
+  "Title": "System Informacji Zarządczej IT",
+  "Url": "https://teams.sp.creditagricole/team/ITMM",
+  "WebTemplate": "STS"
+}
