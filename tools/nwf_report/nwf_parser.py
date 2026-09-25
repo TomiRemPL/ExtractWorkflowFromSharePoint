@@ -42,6 +42,7 @@ class ActionNode:
     l_label: str = ""  # lewa etykieta galezi warunku
     r_label: str = ""  # prawa etykieta galezi warunku
     condition_el: ET.Element | None = None  # surowy XML <Condition> (dla akcji warunkowych)
+    raw_el: ET.Element | None = None  # caly surowy wezel XML <NWActionConfig>
 
 
 @dataclass
@@ -131,7 +132,9 @@ def _parse_action(action_el: ET.Element, branch_label: str = "") -> ActionNode:
         l_label=_text(action_el.find("LLabel")),
         r_label=_text(action_el.find("RLabel")),
         condition_el=action_el.find("Condition"),
+        raw_el=action_el,
     )
+
     # Zagniezdzone akcje (warunki, petle, action sety) zawsze siedza pod
     # bezposrednim elementem <ChildActivities><NWActionConfig>...</NWActionConfig></ChildActivities>.
     child_activities_el = action_el.find("ChildActivities")

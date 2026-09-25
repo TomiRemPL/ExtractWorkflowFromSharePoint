@@ -72,9 +72,34 @@ def _build_mermaid_with_steps(actions: list[ActionNode], resolver: FieldResolver
                         branch_ends.append(nid)  # pusta galaz - laczy sie bezposrednio dalej
                 current_ends = branch_ends or [nid]
                 continue
+            if short_type == "NWBusinessProcessAdapter":
+
+                nid = new_id()
+                node_id_map[id(node)] = nid
+                lines.append(f'  {nid}[["{label_for(node)}"]]')
+                connect(current_ends, nid, current_label)
+                current_label = ""
+                if node.children:
+                    current_ends = walk(node.children, [nid], "")
+                else:
+                    current_ends = [nid]
+                continue
+            if short_type == "NWForEachLoopAdapter":
+                nid = new_id()
+                node_id_map[id(node)] = nid
+                lines.append(f'  {nid}{{"{label_for(node)}"}}')
+                connect(current_ends, nid, current_label)
+                current_label = ""
+                if node.children:
+                    loop_ends = walk(node.children, [nid], "Kolejny element")
+                    connect(loop_ends, nid, "Następny")
+                current_ends = [nid]
+                current_label = "Koniec pętli"
+                continue
             nid = new_id()
             node_id_map[id(node)] = nid
             lines.append(f'  {nid}["{label_for(node)}"]')
+
             connect(current_ends, nid, current_label)
             current_label = ""
             current_ends = [nid]
@@ -197,6 +222,22 @@ def _generate_plsql_statements(nodes: list[ActionNode], resolver: FieldResolver,
                 lines.append(f"{indent}    NULL;")
             lines.append(f"{indent}END IF;")
             continue
+        if short_type == "NWBusinessProcessAdapter":
+            desc = describe_action(node, resolver)
+            for code_line in desc.plsql_code.splitlines():
+                lines.append(f"{indent}{code_line}")
+            if node.children:
+                lines.extend(_generate_plsql_statements(node.children, resolver, indent_level))
+            continue
+        if short_type == "NWForEachLoopAdapter":
+            desc = describe_action(node, resolver)
+            for code_line in desc.plsql_code.splitlines():
+                lines.append(f"{indent}{code_line}")
+            if node.children:
+                lines.extend(_generate_plsql_statements(node.children, resolver, indent_level + 1))
+            lines.append(f"{indent}END LOOP;")
+            continue
+
 
         desc = describe_action(node, resolver)
         if desc.is_structural:
