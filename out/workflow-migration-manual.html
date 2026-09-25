@@ -704,8 +704,11 @@
           </div>
 
           <div class="inspector-field-group">
-            <label>Wskazówka Oracle APEX / PL/SQL</label>
-            <div id="ins-hint-apex" class="code-box">-</div>
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
+              <label style="margin:0;">Implementacja PL/SQL (pakiet SHP_API)</label>
+              <button class="copy-btn" id="copy-step-plsql" type="button" style="padding:2px 8px; font-size:0.75rem;">Kopiuj</button>
+            </div>
+            <div id="ins-hint-apex" class="code-box" style="white-space:pre-wrap; font-family:Consolas,monospace; font-size:0.8rem; max-height:220px; overflow-y:auto;">-</div>
           </div>
 
           <details>
@@ -713,6 +716,20 @@
             <div id="ins-raw" class="code-box" style="margin-top:8px;">-</div>
           </details>
         </aside>
+      </div>
+
+      <!-- Karta: Kompletna procedura PL/SQL dla wybranego workflow -->
+      <div class="docs-card" style="margin-top:20px;">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; flex-wrap:wrap; gap:10px;">
+          <div>
+            <h3 style="margin:0 0 4px;" id="wf-plsql-title">Kompletna procedura orkiestracji PL/SQL (pakiet SHP_API)</h3>
+            <p style="color:var(--text-muted); font-size:0.88rem; margin:0;">
+              Gotowy do skompilowania w Oracle APEX szkielet procedury orkiestrujący wybrany workflow za pośrednictwem pakietu <code>SHP_API</code>.
+            </p>
+          </div>
+          <button class="copy-btn" id="copy-full-plsql-btn" type="button" style="padding:8px 16px; font-weight:600;">Kopiuj całą procedurę PL/SQL</button>
+        </div>
+        <pre id="wf-plsql-procedure" class="code-box" style="max-height:420px; overflow:auto; font-family:Consolas,monospace; font-size:0.82rem; line-height:1.45;"></pre>
       </div>
     </section>
 
@@ -780,45 +797,47 @@ Content-Type: application/json
 
     <!-- SEKCJA 5: ORACLE APEX / PL/SQL -->
     <section id="sec-apex">
-      <h2 class="section-title"><span class="number">05.</span> Architektura wdrożenia w Oracle APEX Flow &amp; PL/SQL</h2>
+      <h2 class="section-title"><span class="number">05.</span> Architektura wdrożenia w Oracle APEX &amp; pakiet SHP_API</h2>
       <div class="docs-card">
-        <h3>Wzorzec wykonania w Flows for APEX i pakietach bazodanowych</h3>
+        <h3>Wzorzec orkiestracji w Flows for APEX i pakietach PL/SQL</h3>
         <p style="color:var(--text-muted); margin:8px 0 16px;">
-          W środowisku Oracle APEX zalecane jest rozdzielenie orkiestracji (diagram BPMN w <em>Flows for APEX</em>) od właściwej logiki transakcyjnej realizowanej przez procedury PL/SQL oraz moduł <code>APEX_WEB_SERVICE</code>.
+          W środowisku Oracle APEX integracja z SharePoint SE 2019 realizowana jest bezpośrednio z bazy danych za pośrednictwem dedykowanego pakietu <code>SHP_API</code> (autoryzacja NTLMv2, obsługa transakcji REST MERGE/POST/GET).
         </p>
 
-        <div class="code-box">-- Przykładowy szkielet procedury obsługi w PL/SQL
+        <div class="code-box">-- Wzorzec orkiestracji procesu w PL/SQL za pomocą pakietu SHP_API
 create or replace procedure pkg_workflow_migration.execute_qualification(
-    p_item_id        in number,
-    p_correlation_id in varchar2
+    p_item_id in number
 ) is
-    l_item      t_qualification%rowtype;
-    l_is_ict    varchar2(3) := 'Nie';
-    l_is_crit   varchar2(3) := 'Nie';
-    l_risk      varchar2(3) := 'Nie';
+    c_site_url  constant varchar2(400) := 'https://sharepoint.domain.com/sites/...';
+    l_item_json clob;
+    l_resp      clob;
+    l_is_ict    varchar2(10) := 'Nie';
 begin
-    -- 1. Pobranie danych elementu z bazy / REST
-    select * into l_item from t_qualification where id = p_item_id;
+    apex_debug.info('Start kwalifikacji dla elementu: ' || p_item_id);
+
+    -- 1. Pobranie danych elementu z SharePoint przez pakiet SHP_API
+    l_item_json := shp_api.get_list_item(
+        p_site_url   => c_site_url,
+        p_list_title => 'Kwalifikacja Usług',
+        p_item_id    => p_item_id
+    );
 
     -- 2. Warunek bramki logicznej (odpowiednik DT01)
-    if (l_item.analog_phone = 'Tak' or l_item.contract_model = 'ATU') then
-        l_is_ict := 'Nie';
-    elsif (l_item.is_cyclic = 'Tak' and l_item.service_symbol = 'eba_TA:S00') then
-        l_is_ict := 'Nie';
-    elsif (l_item.is_cyclic = 'Tak') then
+    if json_value(l_item_json, '$.data.DT_x002e_01') = 'Tak' then
         l_is_ict := 'Tak';
     else
         l_is_ict := 'Nie';
     end if;
 
-    -- 3. Zapis wyniku z kontrolą współbieżności ETag
-    update t_qualification
-       set is_ict_dora       = l_is_ict,
-           last_modified_by  = 'APEX_FLOW',
-           last_modified_date = sysdate
-     where id = p_item_id;
+    -- 3. Zapis wyniku do SharePoint przez SHP_API (MERGE z kontrolą ETag)
+    l_resp := shp_api.update_list_item(
+        p_site_url    => c_site_url,
+        p_list_title  => 'Kwalifikacja Usług',
+        p_item_id     => p_item_id,
+        p_fields_json => json_object('Us_x0142_uga_x0020_kwalifikowana' value l_is_ict)
+    );
 
-    commit;
+    apex_debug.info('Zakończono kwalifikację dla elementu: ' || p_item_id);
 end;</div>
       </div>
     </section>
@@ -874,7 +893,8 @@ end;</div>
         "reads": [],
         "writes": [],
         "hint_universal": "Odtwórz te same reguły uruchomienia w docelowym mechanizmie orkiestracji.",
-        "hint_apex": "Wywołaj proces APEX/ORDS zgodnie z triggerami workflow.",
+        "hint_apex": "l_item_json := shp_api.get_list_item(c_site_url, 'Kwalifikacja Usług', p_item_id);",
+        "plsql_code": "-- Pobranie bieżącego elementu listy źródłowej:\nl_item_json := shp_api.get_list_item(\n    p_site_url   => c_site_url,\n    p_list_title => 'Kwalifikacja Usług',\n    p_item_id    => p_item_id\n);",
         "technical_lines": [
           "Triggery: ręcznie, utworzenie elementu, zmiana elementu",
           "Lista źródłowa: Kwalifikacja Usług",
@@ -895,7 +915,8 @@ end;</div>
         "reads": [],
         "writes": [],
         "hint_universal": "Wyzwalacz procesu (Triggers: ręcznie, przy utworzeniu elementu, przy zmianie elementu). Punkt wejścia przyjmujący parametr itemId.",
-        "hint_apex": "Wywołanie z endpointu REST / ORDS lub trigger bazodanowy / start procesu w Flows for APEX.",
+        "hint_apex": "l_item_json := shp_api.get_list_item(c_site_url, 'Kwalifikacja Usług', p_item_id);",
+        "plsql_code": "-- Pobranie bieżącego elementu przed rozpoczęciem logiki workflow:\nl_item_json := shp_api.get_list_item(\n    p_site_url   => c_site_url,\n    p_list_title => 'Kwalifikacja Usług',\n    p_item_id    => p_item_id\n);",
         "technical_lines": [
           "StartManually = true",
           "StartOnCreate = true",
@@ -955,7 +976,8 @@ end;</div>
         ],
         "writes": [],
         "hint_universal": "Bramka decyzyjna (Exclusive Gateway / IF): sprawdzenie warunku logicznego: (wartość pola Telefonia analogowa? (DT.01.01.31) (DT_x002e_01) z bieżącego elementu jest równe Tak) LUB (wartość pola Model kontraktowania (DT.01.01.10) (Model_x0020_kontraktowy_x0020__x) z bieżącego elementu jest równe ATU).",
-        "hint_apex": "Instrukcja IF ... THEN ... ELSIF w PL/SQL lub Exclusive Gateway w Flows for APEX.",
+        "hint_apex": "IF (json_value(l_item_json, '$.data.DT_x002e_01') = 'Tak') OR (json_value(l_item_json, '$.data.Model_x0020_kontraktowy_x0020__x') = 'ATU') THEN ... ELSE ... END IF;",
+        "plsql_code": "IF (json_value(l_item_json, '$.data.DT_x002e_01') = 'Tak') OR (json_value(l_item_json, '$.data.Model_x0020_kontraktowy_x0020__x') = 'ATU') THEN\n    -- Gałąź Tak\nELSE\n    -- Gałąź Nie\nEND IF;",
         "technical_lines": [
           "ConditionUse=Child"
         ],
@@ -975,6 +997,7 @@ end;</div>
         "writes": [],
         "hint_universal": "",
         "hint_apex": "",
+        "plsql_code": "",
         "technical_lines": [],
         "is_structural": true,
         "enabled": true
@@ -999,7 +1022,8 @@ end;</div>
         ],
         "writes": [],
         "hint_universal": "Bramka decyzyjna (Exclusive Gateway / IF): sprawdzenie warunku logicznego: wartość pola Usługa cykliczna? (DT.01.01.33) (DT_x002e_03) z bieżącego elementu jest równe Tak.",
-        "hint_apex": "Instrukcja IF ... THEN ... ELSIF w PL/SQL lub Exclusive Gateway w Flows for APEX.",
+        "hint_apex": "IF json_value(l_item_json, '$.data.DT_x002e_03') = 'Tak' THEN ... ELSE ... END IF;",
+        "plsql_code": "IF json_value(l_item_json, '$.data.DT_x002e_03') = 'Tak' THEN\n    -- Gałąź Tak\nELSE\n    -- Gałąź Nie\nEND IF;",
         "technical_lines": [
           "ConditionUse=Child"
         ],
@@ -1019,6 +1043,7 @@ end;</div>
         "writes": [],
         "hint_universal": "",
         "hint_apex": "",
+        "plsql_code": "",
         "technical_lines": [],
         "is_structural": true,
         "enabled": true
@@ -1035,7 +1060,8 @@ end;</div>
         "reads": [],
         "writes": [],
         "hint_universal": "Obliczenie/odczyt i zapis do zmiennej lokalnej 'zm_DT-01-01-34'.",
-        "hint_apex": "l_zm_DT_01_01_34 := Nie; lub flow_process.set_var(p_process_id, 'zm_DT-01-01-34', ...);",
+        "hint_apex": "l_zm_dt_01_01_34 := 'Nie';",
+        "plsql_code": "l_zm_dt_01_01_34 := 'Nie';",
         "technical_lines": [
           "ValueType = Text",
           "VariableName = ",
@@ -1057,6 +1083,7 @@ end;</div>
         "writes": [],
         "hint_universal": "",
         "hint_apex": "",
+        "plsql_code": "",
         "technical_lines": [],
         "is_structural": true,
         "enabled": true
@@ -1081,7 +1108,8 @@ end;</div>
         ],
         "writes": [],
         "hint_universal": "Bramka decyzyjna (Exclusive Gateway / IF): sprawdzenie warunku logicznego: wartość pola Typ usługi ICT (DT.01.01):Symbol usługi (Typ_x0020_us_x0142_ugi_x0020_ICT0) z bieżącego elementu jest równe eba_TA:S00.",
-        "hint_apex": "Instrukcja IF ... THEN ... ELSIF w PL/SQL lub Exclusive Gateway w Flows for APEX.",
+        "hint_apex": "IF json_value(l_item_json, '$.data.Typ_x0020_us_x0142_ugi_x0020_ICT0') = 'eba_TA:S00' THEN ... ELSE ... END IF;",
+        "plsql_code": "IF json_value(l_item_json, '$.data.Typ_x0020_us_x0142_ugi_x0020_ICT0') = 'eba_TA:S00' THEN\n    -- Gałąź Tak\nELSE\n    -- Gałąź Nie\nEND IF;",
         "technical_lines": [
           "ConditionUse=Child"
         ],
@@ -1101,6 +1129,7 @@ end;</div>
         "writes": [],
         "hint_universal": "",
         "hint_apex": "",
+        "plsql_code": "",
         "technical_lines": [],
         "is_structural": true,
         "enabled": true
@@ -1117,7 +1146,8 @@ end;</div>
         "reads": [],
         "writes": [],
         "hint_universal": "Obliczenie/odczyt i zapis do zmiennej lokalnej 'zm_DT-01-01-34'.",
-        "hint_apex": "l_zm_DT_01_01_34 := Tak; lub flow_process.set_var(p_process_id, 'zm_DT-01-01-34', ...);",
+        "hint_apex": "l_zm_dt_01_01_34 := 'Tak';",
+        "plsql_code": "l_zm_dt_01_01_34 := 'Tak';",
         "technical_lines": [
           "ValueType = Text",
           "VariableName = ",
@@ -1139,6 +1169,7 @@ end;</div>
         "writes": [],
         "hint_universal": "",
         "hint_apex": "",
+        "plsql_code": "",
         "technical_lines": [],
         "is_structural": true,
         "enabled": true
@@ -1155,7 +1186,8 @@ end;</div>
         "reads": [],
         "writes": [],
         "hint_universal": "Obliczenie/odczyt i zapis do zmiennej lokalnej 'zm_DT-01-01-34'.",
-        "hint_apex": "l_zm_DT_01_01_34 := Nie; lub flow_process.set_var(p_process_id, 'zm_DT-01-01-34', ...);",
+        "hint_apex": "l_zm_dt_01_01_34 := 'Nie';",
+        "plsql_code": "l_zm_dt_01_01_34 := 'Nie';",
         "technical_lines": [
           "ValueType = Text",
           "VariableName = ",
@@ -1177,6 +1209,7 @@ end;</div>
         "writes": [],
         "hint_universal": "",
         "hint_apex": "",
+        "plsql_code": "",
         "technical_lines": [],
         "is_structural": true,
         "enabled": true
@@ -1193,7 +1226,8 @@ end;</div>
         "reads": [],
         "writes": [],
         "hint_universal": "Obliczenie/odczyt i zapis do zmiennej lokalnej 'zm_DT-01-01-34'.",
-        "hint_apex": "l_zm_DT_01_01_34 := Nie; lub flow_process.set_var(p_process_id, 'zm_DT-01-01-34', ...);",
+        "hint_apex": "l_zm_dt_01_01_34 := 'Nie';",
+        "plsql_code": "l_zm_dt_01_01_34 := 'Nie';",
         "technical_lines": [
           "ValueType = Text",
           "VariableName = ",
@@ -1214,7 +1248,8 @@ end;</div>
         "reads": [],
         "writes": [],
         "hint_universal": "Bramka decyzyjna (Exclusive Gateway / IF): sprawdzenie warunku logicznego: {WorkflowVariable:zm_DT-01-01-34} jest równe Tak.",
-        "hint_apex": "Instrukcja IF ... THEN ... ELSIF w PL/SQL lub Exclusive Gateway w Flows for APEX.",
+        "hint_apex": "IF l_zm_dt_01_01_34 = 'Tak' THEN ... ELSE ... END IF;",
+        "plsql_code": "IF l_zm_dt_01_01_34 = 'Tak' THEN\n    -- Gałąź Tak\nELSE\n    -- Gałąź Nie\nEND IF;",
         "technical_lines": [
           "ConditionUse=Child"
         ],
@@ -1234,6 +1269,7 @@ end;</div>
         "writes": [],
         "hint_universal": "",
         "hint_apex": "",
+        "plsql_code": "",
         "technical_lines": [],
         "is_structural": true,
         "enabled": true
@@ -1250,7 +1286,8 @@ end;</div>
         "reads": [],
         "writes": [],
         "hint_universal": "Obliczenie/odczyt i zapis do zmiennej lokalnej 'zm_DT-01-01-38'.",
-        "hint_apex": "l_zm_DT_01_01_38 := Nie; lub flow_process.set_var(p_process_id, 'zm_DT-01-01-38', ...);",
+        "hint_apex": "l_zm_dt_01_01_38 := 'Nie';",
+        "plsql_code": "l_zm_dt_01_01_38 := 'Nie';",
         "technical_lines": [
           "ValueType = Text",
           "VariableName = ",
@@ -1272,6 +1309,7 @@ end;</div>
         "writes": [],
         "hint_universal": "",
         "hint_apex": "",
+        "plsql_code": "",
         "technical_lines": [],
         "is_structural": true,
         "enabled": true
@@ -1303,7 +1341,8 @@ end;</div>
         ],
         "writes": [],
         "hint_universal": "Bramka decyzyjna (Exclusive Gateway / IF): sprawdzenie warunku logicznego: (wartość pola Usługa krytyczna wg EBA? (DT.01.01.37) (Us_x0142_uga_x0020_krytyczna_x00) z bieżącego elementu jest równe Tak) LUB (wartość pola Czy usługa związana z funkcją krytyczną (DT.01.01.35) (Funkcja_x0020_krytyczna) z bieżącego elementu nie zawiera F0).",
-        "hint_apex": "Instrukcja IF ... THEN ... ELSIF w PL/SQL lub Exclusive Gateway w Flows for APEX.",
+        "hint_apex": "IF (json_value(l_item_json, '$.data.Us_x0142_uga_x0020_krytyczna_x00') = 'Tak') OR (json_value(l_item_json, '$.data.Funkcja_x0020_krytyczna') NOT LIKE '%' || 'F0' || '%') THEN ... ELSE ... END IF;",
+        "plsql_code": "IF (json_value(l_item_json, '$.data.Us_x0142_uga_x0020_krytyczna_x00') = 'Tak') OR (json_value(l_item_json, '$.data.Funkcja_x0020_krytyczna') NOT LIKE '%' || 'F0' || '%') THEN\n    -- Gałąź Tak\nELSE\n    -- Gałąź Nie\nEND IF;",
         "technical_lines": [
           "ConditionUse=Child"
         ],
@@ -1323,6 +1362,7 @@ end;</div>
         "writes": [],
         "hint_universal": "",
         "hint_apex": "",
+        "plsql_code": "",
         "technical_lines": [],
         "is_structural": true,
         "enabled": true
@@ -1339,7 +1379,8 @@ end;</div>
         "reads": [],
         "writes": [],
         "hint_universal": "Obliczenie/odczyt i zapis do zmiennej lokalnej 'zm_DT-01-01-38'.",
-        "hint_apex": "l_zm_DT_01_01_38 := Nie; lub flow_process.set_var(p_process_id, 'zm_DT-01-01-38', ...);",
+        "hint_apex": "l_zm_dt_01_01_38 := 'Nie';",
+        "plsql_code": "l_zm_dt_01_01_38 := 'Nie';",
         "technical_lines": [
           "ValueType = Text",
           "VariableName = ",
@@ -1361,6 +1402,7 @@ end;</div>
         "writes": [],
         "hint_universal": "",
         "hint_apex": "",
+        "plsql_code": "",
         "technical_lines": [],
         "is_structural": true,
         "enabled": true
@@ -1377,7 +1419,8 @@ end;</div>
         "reads": [],
         "writes": [],
         "hint_universal": "Obliczenie/odczyt i zapis do zmiennej lokalnej 'zm_DT-01-01-38'.",
-        "hint_apex": "l_zm_DT_01_01_38 := Tak; lub flow_process.set_var(p_process_id, 'zm_DT-01-01-38', ...);",
+        "hint_apex": "l_zm_dt_01_01_38 := 'Tak';",
+        "plsql_code": "l_zm_dt_01_01_38 := 'Tak';",
         "technical_lines": [
           "ValueType = Text",
           "VariableName = ",
@@ -1413,7 +1456,8 @@ end;</div>
         ],
         "writes": [],
         "hint_universal": "Bramka decyzyjna (Exclusive Gateway / IF): sprawdzenie warunku logicznego: (wartość pola Dostawca (DT.01.01.03) (Dostawca_x0020__x0028_DT_x002e_0) z bieżącego elementu) ORAZ (wartość pola Są inne usł. krytyczne Dostawcy? (DT.01.02.16) (S_x0105__x0020_inne_x0020_us_x01) z bieżącego elementu jest równe Tak).",
-        "hint_apex": "Instrukcja IF ... THEN ... ELSIF w PL/SQL lub Exclusive Gateway w Flows for APEX.",
+        "hint_apex": "IF (json_value(l_item_json, '$.data.Dostawca_x0020__x0028_DT_x002e_0') = NULL) AND (json_value(l_item_json, '$.data.S_x0105__x0020_inne_x0020_us_x01') = 'Tak') THEN ... ELSE ... END IF;",
+        "plsql_code": "IF (json_value(l_item_json, '$.data.Dostawca_x0020__x0028_DT_x002e_0') = NULL) AND (json_value(l_item_json, '$.data.S_x0105__x0020_inne_x0020_us_x01') = 'Tak') THEN\n    -- Gałąź Tak\nELSE\n    -- Gałąź Nie\nEND IF;",
         "technical_lines": [
           "ConditionUse=Child"
         ],
@@ -1433,6 +1477,7 @@ end;</div>
         "writes": [],
         "hint_universal": "",
         "hint_apex": "",
+        "plsql_code": "",
         "technical_lines": [],
         "is_structural": true,
         "enabled": true
@@ -1450,6 +1495,7 @@ end;</div>
         "writes": [],
         "hint_universal": "",
         "hint_apex": "",
+        "plsql_code": "",
         "technical_lines": [],
         "is_structural": true,
         "enabled": true
@@ -1466,7 +1512,8 @@ end;</div>
         "reads": [],
         "writes": [],
         "hint_universal": "Obliczenie/odczyt i zapis do zmiennej lokalnej 'zm_DT-01-02-01'.",
-        "hint_apex": "l_zm_DT_01_02_01 := Tak; lub flow_process.set_var(p_process_id, 'zm_DT-01-02-01', ...);",
+        "hint_apex": "l_zm_dt_01_02_01 := 'Tak';",
+        "plsql_code": "l_zm_dt_01_02_01 := 'Tak';",
         "technical_lines": [
           "ValueType = Text",
           "VariableName = ",
@@ -1487,7 +1534,8 @@ end;</div>
         "reads": [],
         "writes": [],
         "hint_universal": "Zapis audytowy do dziennika zdarzeń (Audit Log).",
-        "hint_apex": "APEX_DEBUG.INFO() lub INSERT INTO t_workflow_history(run_id, item_id, message, created_at);",
+        "hint_apex": "apex_debug.info('Workflow: ' || 'DT-01-01-34 Usługa DORA ICT: ' || l_zm_dt_01_01_34 || '\nDT-01-01-38 Usługa DORA ICT Krytyczna: ' || l_zm_dt_01_01_38 || '\nDT-01-02-01: Ryzyko koncentracji: ' || l_zm_dt_01_02_01);",
+        "plsql_code": "apex_debug.info('Workflow: ' || 'DT-01-01-34 Usługa DORA ICT: ' || l_zm_dt_01_01_34 || '\nDT-01-01-38 Usługa DORA ICT Krytyczna: ' || l_zm_dt_01_01_38 || '\nDT-01-02-01: Ryzyko koncentracji: ' || l_zm_dt_01_02_01);",
         "technical_lines": [
           "Message = DT-01-01-34 Usługa DORA ICT: {WorkflowVariable:zm_DT-01-01-34}\nDT-01-01-38 Usługa DORA ICT Krytyczna: {WorkflowVariable:zm_DT-01-01-38}\nDT-01-02-01: Ryzyko koncentracji: {WorkflowVariable:zm_DT-01-02-01}"
         ],
@@ -1528,7 +1576,8 @@ end;</div>
           }
         ],
         "hint_universal": "Aktualizacja danych elementu (Usługa ICT wg DORA? (DT.01.01.34) (Us_x0142_uga_x0020_kwalifikowana), Usługa krytyczna wg DORA? (DT.01.01.38) (Us_x0142_uga_x0020_krytyczna_x000), Ryzyko koncentracji? (DT.01.02.01) (Zwi_x0119_kszone_x0020_ryzyko_x0)). W systemie docelowym UPDATE lub REST PATCH/MERGE.",
-        "hint_apex": "UPDATE tabela SET ... WHERE id = :id; lub REST MERGE z nagłówkiem If-Match (weryfikacja ETag).",
+        "hint_apex": "l_resp := shp_api.update_list_item(c_site_url, 'Kwalifikacja Usług', p_item_id, json_object(...));",
+        "plsql_code": "l_resp := shp_api.update_list_item(\n    p_site_url    => c_site_url,\n    p_list_title  => 'Kwalifikacja Usług',\n    p_item_id     => p_item_id,\n    p_fields_json => json_object(\n        'Us_x0142_uga_x0020_kwalifikowana' value l_us_uga_ict_wg_dora_dt_01_01_34,\n        'Us_x0142_uga_x0020_krytyczna_x000' value l_us_uga_krytyczna_wg_dora_dt_01_01_38,\n        'Zwi_x0119_kszone_x0020_ryzyko_x0' value l_ryzyko_koncentracji_dt_01_02_01\n    )\n);",
         "technical_lines": [
           "ListId = {45763939-B649-439D-9A1B-39D6AB430FBF}",
           "ThisItem = True"
@@ -1548,7 +1597,8 @@ end;</div>
         "reads": [],
         "writes": [],
         "hint_universal": "Zamknij proces bez dodatkowej akcji, jeżeli wcześniejsze kroki zakończyły się poprawnie.",
-        "hint_apex": "Zwróć status końcowy procesu albo zapisz go w tabeli audytowej, jeśli wymaga tego projekt migracji.",
+        "hint_apex": "apex_debug.info('Koniec workflow: ' || p_item_id);",
+        "plsql_code": "apex_debug.info('Koniec workflow: ' || p_item_id);",
         "technical_lines": [
           "Węzeł syntetyczny dodany przez generator raportu HTML."
         ],
@@ -2213,7 +2263,8 @@ end;</div>
         "type": "Text",
         "description": "zm_DT-01-02-01"
       }
-    ]
+    ],
+    "plsql_procedure": "CREATE OR REPLACE PROCEDURE process_wf_dt01_mechanizm_kwalifikacji_us_ugi (\n    p_item_id IN NUMBER\n) AS\n    c_site_url CONSTANT VARCHAR2(400) := 'https://sharepoint.domain.com/sites/...';\n    l_item_json CLOB;\n    l_resp      CLOB;\n    l_ref_json  CLOB;\n    -- Zmienne workflow:\n    l_zm_dt_01_01_34               VARCHAR2(4000);\n    l_zm_dt_01_01_38               VARCHAR2(4000);\n    l_zm_dt_01_02_01               VARCHAR2(4000);\nBEGIN\n    apex_debug.info('Start workflow: DT01 Mechanizm Kwalifikacji Usługi, item_id: ' || p_item_id);\n\n    -- 1. Pobranie danych biezacego elementu\n    l_item_json := shp_api.get_list_item(\n        p_site_url   => c_site_url,\n        p_list_title => 'Kwalifikacja Usług',\n        p_item_id    => p_item_id\n    );\n\n    -- 2. Logika biznesowa workflow\n    IF (json_value(l_item_json, '$.data.DT_x002e_01') = 'Tak') OR (json_value(l_item_json, '$.data.Model_x0020_kontraktowy_x0020__x') = 'ATU') THEN\n        l_zm_dt_01_01_34 := 'Nie';\n    ELSE\n        IF json_value(l_item_json, '$.data.DT_x002e_03') = 'Tak' THEN\n            IF json_value(l_item_json, '$.data.Typ_x0020_us_x0142_ugi_x0020_ICT0') = 'eba_TA:S00' THEN\n                l_zm_dt_01_01_34 := 'Nie';\n            ELSE\n                l_zm_dt_01_01_34 := 'Tak';\n            END IF;\n        ELSE\n            l_zm_dt_01_01_34 := 'Nie';\n        END IF;\n    END IF;\n    IF l_zm_dt_01_01_34 = 'Tak' THEN\n        IF (json_value(l_item_json, '$.data.Us_x0142_uga_x0020_krytyczna_x00') = 'Tak') OR (json_value(l_item_json, '$.data.Funkcja_x0020_krytyczna') NOT LIKE '%' || 'F0' || '%') THEN\n            l_zm_dt_01_01_38 := 'Tak';\n            IF (json_value(l_item_json, '$.data.Dostawca_x0020__x0028_DT_x002e_0') = NULL) AND (json_value(l_item_json, '$.data.S_x0105__x0020_inne_x0020_us_x01') = 'Tak') THEN\n                l_zm_dt_01_02_01 := 'Tak';\n            END IF;\n        ELSE\n            l_zm_dt_01_01_38 := 'Nie';\n        END IF;\n    ELSE\n        l_zm_dt_01_01_38 := 'Nie';\n    END IF;\n    apex_debug.info('Workflow: ' || 'DT-01-01-34 Usługa DORA ICT: ' || l_zm_dt_01_01_34 || '\n    DT-01-01-38 Usługa DORA ICT Krytyczna: ' || l_zm_dt_01_01_38 || '\n    DT-01-02-01: Ryzyko koncentracji: ' || l_zm_dt_01_02_01);\n    l_resp := shp_api.update_list_item(\n        p_site_url    => c_site_url,\n        p_list_title  => 'Kwalifikacja Usług',\n        p_item_id     => p_item_id,\n        p_fields_json => json_object(\n            'Us_x0142_uga_x0020_kwalifikowana' value l_us_uga_ict_wg_dora_dt_01_01_34,\n            'Us_x0142_uga_x0020_krytyczna_x000' value l_us_uga_krytyczna_wg_dora_dt_01_01_38,\n            'Zwi_x0119_kszone_x0020_ryzyko_x0' value l_ryzyko_koncentracji_dt_01_02_01\n        )\n    );\n\n    apex_debug.info('Koniec workflow: DT01 Mechanizm Kwalifikacji Usługi, item_id: ' || p_item_id);\nEND process_wf_dt01_mechanizm_kwalifikacji_us_ugi;\n/"
   },
   {
     "key": "DT01 Wypełnienie pól Nr RKU oraz Nazwa",
@@ -2246,7 +2297,8 @@ end;</div>
         "reads": [],
         "writes": [],
         "hint_universal": "Odtwórz te same reguły uruchomienia w docelowym mechanizmie orkiestracji.",
-        "hint_apex": "Wywołaj proces APEX/ORDS zgodnie z triggerami workflow.",
+        "hint_apex": "l_item_json := shp_api.get_list_item(c_site_url, 'Kwalifikacja Usług', p_item_id);",
+        "plsql_code": "-- Pobranie bieżącego elementu listy źródłowej:\nl_item_json := shp_api.get_list_item(\n    p_site_url   => c_site_url,\n    p_list_title => 'Kwalifikacja Usług',\n    p_item_id    => p_item_id\n);",
         "technical_lines": [
           "Triggery: ręcznie, utworzenie elementu, zmiana elementu",
           "Lista źródłowa: Kwalifikacja Usług",
@@ -2267,7 +2319,8 @@ end;</div>
         "reads": [],
         "writes": [],
         "hint_universal": "Wyzwalacz procesu (Triggers: ręcznie, przy utworzeniu elementu, przy zmianie elementu). Punkt wejścia przyjmujący parametr itemId.",
-        "hint_apex": "Wywołanie z endpointu REST / ORDS lub trigger bazodanowy / start procesu w Flows for APEX.",
+        "hint_apex": "l_item_json := shp_api.get_list_item(c_site_url, 'Kwalifikacja Usług', p_item_id);",
+        "plsql_code": "-- Pobranie bieżącego elementu przed rozpoczęciem logiki workflow:\nl_item_json := shp_api.get_list_item(\n    p_site_url   => c_site_url,\n    p_list_title => 'Kwalifikacja Usług',\n    p_item_id    => p_item_id\n);",
         "technical_lines": [
           "StartManually = true",
           "StartOnCreate = true",
@@ -2313,6 +2366,7 @@ end;</div>
         "writes": [],
         "hint_universal": "",
         "hint_apex": "",
+        "plsql_code": "",
         "technical_lines": [],
         "is_structural": true,
         "enabled": true
@@ -2330,6 +2384,7 @@ end;</div>
         "writes": [],
         "hint_universal": "",
         "hint_apex": "",
+        "plsql_code": "",
         "technical_lines": [],
         "is_structural": true,
         "enabled": true
@@ -2354,7 +2409,8 @@ end;</div>
         ],
         "writes": [],
         "hint_universal": "Warunek wykonania bloku podrzędnego: IF (wartość pola Nr RKU (DT.01.01) (Nr_x0020_RKU) z bieżącego elementu jest puste).",
-        "hint_apex": "IF wartość pola Nr RKU (DT.01.01) (Nr_x0020_RKU) z bieżącego elementu jest puste THEN ... END IF;",
+        "hint_apex": "IF json_value(l_item_json, '$.data.Nr_x0020_RKU') IS NULL THEN ... END IF;",
+        "plsql_code": "IF json_value(l_item_json, '$.data.Nr_x0020_RKU') IS NULL THEN\n    -- Akcje warunkowe\nEND IF;",
         "technical_lines": [],
         "is_structural": false,
         "enabled": true
@@ -2372,6 +2428,7 @@ end;</div>
         "writes": [],
         "hint_universal": "",
         "hint_apex": "",
+        "plsql_code": "",
         "technical_lines": [],
         "is_structural": true,
         "enabled": true
@@ -2396,7 +2453,8 @@ end;</div>
           }
         ],
         "hint_universal": "Ustawienie pola Nr RKU (DT.01.01) (Nr_x0020_RKU) = 'RKU-{ItemProperty:ID}'.",
-        "hint_apex": "UPDATE tabela SET Nr_x0020_RKU = 'RKU-{ItemProperty:ID}' WHERE id = :id;",
+        "hint_apex": "l_resp := shp_api.update_list_item(c_site_url, 'Kwalifikacja Usług', p_item_id, json_object('Nr_x0020_RKU' value 'RKU-' || TO_CHAR(p_item_id)));",
+        "plsql_code": "l_resp := shp_api.update_list_item(\n    p_site_url    => c_site_url,\n    p_list_title  => 'Kwalifikacja Usług',\n    p_item_id     => p_item_id,\n    p_fields_json => json_object('Nr_x0020_RKU' value 'RKU-' || TO_CHAR(p_item_id))\n);",
         "technical_lines": [
           "LookupField = Nr_x0020_RKU",
           "LookupFieldType = Text",
@@ -2418,6 +2476,7 @@ end;</div>
         "writes": [],
         "hint_universal": "",
         "hint_apex": "",
+        "plsql_code": "",
         "technical_lines": [],
         "is_structural": true,
         "enabled": true
@@ -2442,7 +2501,8 @@ end;</div>
         ],
         "writes": [],
         "hint_universal": "Warunek wykonania bloku podrzędnego: IF (wartość pola Nazwa (Title) z bieżącego elementu jest puste).",
-        "hint_apex": "IF wartość pola Nazwa (Title) z bieżącego elementu jest puste THEN ... END IF;",
+        "hint_apex": "IF json_value(l_item_json, '$.data.Title') IS NULL THEN ... END IF;",
+        "plsql_code": "IF json_value(l_item_json, '$.data.Title') IS NULL THEN\n    -- Akcje warunkowe\nEND IF;",
         "technical_lines": [],
         "is_structural": false,
         "enabled": true
@@ -2460,6 +2520,7 @@ end;</div>
         "writes": [],
         "hint_universal": "",
         "hint_apex": "",
+        "plsql_code": "",
         "technical_lines": [],
         "is_structural": true,
         "enabled": true
@@ -2484,7 +2545,8 @@ end;</div>
           }
         ],
         "hint_universal": "Ustawienie pola Nazwa (Title) = '{ItemProperty:Nazwa_x0020_us_x0142_ugi_x0020__}'.",
-        "hint_apex": "UPDATE tabela SET Title = '{ItemProperty:Nazwa_x0020_us_x0142_ugi_x0020__}' WHERE id = :id;",
+        "hint_apex": "l_resp := shp_api.update_list_item(c_site_url, 'Kwalifikacja Usług', p_item_id, json_object('Title' value json_value(l_item_json, '$.data.Nazwa_x0020_us_x0142_ugi_x0020__')));",
+        "plsql_code": "l_resp := shp_api.update_list_item(\n    p_site_url    => c_site_url,\n    p_list_title  => 'Kwalifikacja Usług',\n    p_item_id     => p_item_id,\n    p_fields_json => json_object('Title' value json_value(l_item_json, '$.data.Nazwa_x0020_us_x0142_ugi_x0020__'))\n);",
         "technical_lines": [
           "LookupField = Title",
           "LookupFieldType = Text",
@@ -2505,7 +2567,8 @@ end;</div>
         "reads": [],
         "writes": [],
         "hint_universal": "Zamknij proces bez dodatkowej akcji, jeżeli wcześniejsze kroki zakończyły się poprawnie.",
-        "hint_apex": "Zwróć status końcowy procesu albo zapisz go w tabeli audytowej, jeśli wymaga tego projekt migracji.",
+        "hint_apex": "apex_debug.info('Koniec workflow: ' || p_item_id);",
+        "plsql_code": "apex_debug.info('Koniec workflow: ' || p_item_id);",
         "technical_lines": [
           "Węzeł syntetyczny dodany przez generator raportu HTML."
         ],
@@ -3154,7 +3217,8 @@ end;</div>
         "is_written": false
       }
     ],
-    "variables": []
+    "variables": [],
+    "plsql_procedure": "CREATE OR REPLACE PROCEDURE process_wf_dt01_wype_nienie_p_l_nr_rku_oraz_nazwa (\n    p_item_id IN NUMBER\n) AS\n    c_site_url CONSTANT VARCHAR2(400) := 'https://sharepoint.domain.com/sites/...';\n    l_item_json CLOB;\n    l_resp      CLOB;\n    l_ref_json  CLOB;\nBEGIN\n    apex_debug.info('Start workflow: DT01 Wypełnienie pól Nr RKU oraz Nazwa, item_id: ' || p_item_id);\n\n    -- 1. Pobranie danych biezacego elementu\n    l_item_json := shp_api.get_list_item(\n        p_site_url   => c_site_url,\n        p_list_title => 'Kwalifikacja Usług',\n        p_item_id    => p_item_id\n    );\n\n    -- 2. Logika biznesowa workflow\n    IF json_value(l_item_json, '$.data.Nr_x0020_RKU') IS NULL THEN\n        l_resp := shp_api.update_list_item(\n            p_site_url    => c_site_url,\n            p_list_title  => 'Kwalifikacja Usług',\n            p_item_id     => p_item_id,\n            p_fields_json => json_object('Nr_x0020_RKU' value 'RKU-' || TO_CHAR(p_item_id))\n        );\n    END IF;\n    IF json_value(l_item_json, '$.data.Title') IS NULL THEN\n        l_resp := shp_api.update_list_item(\n            p_site_url    => c_site_url,\n            p_list_title  => 'Kwalifikacja Usług',\n            p_item_id     => p_item_id,\n            p_fields_json => json_object('Title' value json_value(l_item_json, '$.data.Nazwa_x0020_us_x0142_ugi_x0020__'))\n        );\n    END IF;\n\n    apex_debug.info('Koniec workflow: DT01 Wypełnienie pól Nr RKU oraz Nazwa, item_id: ' || p_item_id);\nEND process_wf_dt01_wype_nienie_p_l_nr_rku_oraz_nazwa;\n/"
   },
   {
     "key": "RT0202 Pobranie danych z Kwalifikacji Usługi",
@@ -3188,7 +3252,8 @@ end;</div>
         "reads": [],
         "writes": [],
         "hint_universal": "Odtwórz te same reguły uruchomienia w docelowym mechanizmie orkiestracji.",
-        "hint_apex": "Wywołaj proces APEX/ORDS zgodnie z triggerami workflow.",
+        "hint_apex": "l_item_json := shp_api.get_list_item(c_site_url, 'Rejestr Usług ICT', p_item_id);",
+        "plsql_code": "-- Pobranie bieżącego elementu listy źródłowej:\nl_item_json := shp_api.get_list_item(\n    p_site_url   => c_site_url,\n    p_list_title => 'Rejestr Usług ICT',\n    p_item_id    => p_item_id\n);",
         "technical_lines": [
           "Triggery: ręcznie, utworzenie elementu, zmiana elementu",
           "Lista źródłowa: Rejestr Usług ICT",
@@ -3209,7 +3274,8 @@ end;</div>
         "reads": [],
         "writes": [],
         "hint_universal": "Wyzwalacz procesu (Triggers: ręcznie, przy utworzeniu elementu, przy zmianie elementu). Punkt wejścia przyjmujący parametr itemId.",
-        "hint_apex": "Wywołanie z endpointu REST / ORDS lub trigger bazodanowy / start procesu w Flows for APEX.",
+        "hint_apex": "l_item_json := shp_api.get_list_item(c_site_url, 'Rejestr Usług ICT', p_item_id);",
+        "plsql_code": "-- Pobranie bieżącego elementu przed rozpoczęciem logiki workflow:\nl_item_json := shp_api.get_list_item(\n    p_site_url   => c_site_url,\n    p_list_title => 'Rejestr Usług ICT',\n    p_item_id    => p_item_id\n);",
         "technical_lines": [
           "StartManually = true",
           "StartOnCreate = true",
@@ -3262,7 +3328,8 @@ end;</div>
           }
         ],
         "hint_universal": "Ustawienie pola Symbol usługi ICT (02.02.01) (Symbol_x0020_us_x0142_ugi_x0020_) = 'ICT-{ItemProperty:ID}'.",
-        "hint_apex": "UPDATE tabela SET Symbol_x0020_us_x0142_ugi_x0020_ = 'ICT-{ItemProperty:ID}' WHERE id = :id;",
+        "hint_apex": "l_resp := shp_api.update_list_item(c_site_url, 'Rejestr Usług ICT', p_item_id, json_object('Symbol_x0020_us_x0142_ugi_x0020_' value 'ICT-' || TO_CHAR(p_item_id)));",
+        "plsql_code": "l_resp := shp_api.update_list_item(\n    p_site_url    => c_site_url,\n    p_list_title  => 'Rejestr Usług ICT',\n    p_item_id     => p_item_id,\n    p_fields_json => json_object('Symbol_x0020_us_x0142_ugi_x0020_' value 'ICT-' || TO_CHAR(p_item_id))\n);",
         "technical_lines": [
           "LookupField = Symbol_x0020_us_x0142_ugi_x0020_",
           "LookupFieldType = Text",
@@ -3298,7 +3365,8 @@ end;</div>
         ],
         "writes": [],
         "hint_universal": "Obliczenie/odczyt i zapis do zmiennej lokalnej 'zm_DT-01-01-01'.",
-        "hint_apex": "l_zm_DT_01_01_01 := wartość pola Nazwa usługi (DT.01.01.01) (Nazwa_x0020_us_x0142_ugi_x0020__) z elementu wyszukanego po Kwalifikacja Usług (DT.01.01) (Us_x0142_uga_x0020_kwalifikowana) (dopasowanie po ID); lub flow_process.set_var(p_process_id, 'zm_DT-01-01-01', ...);",
+        "hint_apex": "l_zm_dt_01_01_01 := json_value(shp_api.get_list_item(c_site_url, 'Kwalifikacja Usług', ...), '$.data.Nazwa_x0020_us_x0142_ugi_x0020__');",
+        "plsql_code": "-- Pobranie powiązanego rekordu z Kwalifikacja Usług:\nl_ref_json := shp_api.get_list_item(\n    p_site_url   => c_site_url,\n    p_list_title => 'Kwalifikacja Usług',\n    p_item_id    => json_value(l_item_json, '$.data.Us_x0142_uga_x0020_kwalifikowana')\n);\nl_zm_dt_01_01_01 := json_value(l_ref_json, '$.data.Nazwa_x0020_us_x0142_ugi_x0020__');",
         "technical_lines": [
           "ValueType = Text",
           "VariableName = ",
@@ -3319,7 +3387,8 @@ end;</div>
         "reads": [],
         "writes": [],
         "hint_universal": "Zapis audytowy do dziennika zdarzeń (Audit Log).",
-        "hint_apex": "APEX_DEBUG.INFO() lub INSERT INTO t_workflow_history(run_id, item_id, message, created_at);",
+        "hint_apex": "apex_debug.info('Workflow: ' || 'Lista zmiennych:\nzm_DT-01-01-01: ' || l_zm_dt_01_01_01 || '\n');",
+        "plsql_code": "apex_debug.info('Workflow: ' || 'Lista zmiennych:\nzm_DT-01-01-01: ' || l_zm_dt_01_01_01 || '\n');",
         "technical_lines": [
           "Message = Lista zmiennych:\nzm_DT-01-01-01: {WorkflowVariable:zm_DT-01-01-01}\n"
         ],
@@ -3346,7 +3415,8 @@ end;</div>
           }
         ],
         "hint_universal": "Aktualizacja danych elementu (Nazwa usługi ICT (02.02.02) (Title)). W systemie docelowym UPDATE lub REST PATCH/MERGE.",
-        "hint_apex": "UPDATE tabela SET ... WHERE id = :id; lub REST MERGE z nagłówkiem If-Match (weryfikacja ETag).",
+        "hint_apex": "l_resp := shp_api.update_list_item(c_site_url, 'Rejestr Usług ICT', p_item_id, json_object(...));",
+        "plsql_code": "l_resp := shp_api.update_list_item(\n    p_site_url    => c_site_url,\n    p_list_title  => 'Rejestr Usług ICT',\n    p_item_id     => p_item_id,\n    p_fields_json => json_object(\n        'Title' value l_nazwa_us_ugi_ict_02_02_02\n    )\n);",
         "technical_lines": [
           "ListId = {D7273010-E4C3-4D13-8006-F60B440402E8}",
           "ThisItem = True"
@@ -3366,7 +3436,8 @@ end;</div>
         "reads": [],
         "writes": [],
         "hint_universal": "Zatwierdzenie bieżącego stanu transakcji (COMMIT).",
-        "hint_apex": "COMMIT; lub przejście etapu procesu BPMN.",
+        "hint_apex": "-- Zmiany zatwierdzone przez shp_api.update_list_item",
+        "plsql_code": "-- Zmiany zatwierdzone przez shp_api.update_list_item",
         "technical_lines": [],
         "is_structural": false,
         "enabled": true
@@ -3384,6 +3455,7 @@ end;</div>
         "writes": [],
         "hint_universal": "",
         "hint_apex": "",
+        "plsql_code": "",
         "technical_lines": [],
         "is_structural": true,
         "enabled": true
@@ -3401,6 +3473,7 @@ end;</div>
         "writes": [],
         "hint_universal": "",
         "hint_apex": "",
+        "plsql_code": "",
         "technical_lines": [],
         "is_structural": true,
         "enabled": true
@@ -3432,7 +3505,8 @@ end;</div>
         ],
         "writes": [],
         "hint_universal": "Obliczenie/odczyt i zapis do zmiennej lokalnej 'zm_DT-01-01-02'.",
-        "hint_apex": "l_zm_DT_01_01_02 := wartość pola Nr CRK (DT.01.01.02) (Umowa_x0020__x0028_DT_x002e_01_x) z elementu wyszukanego po Kwalifikacja Usług (DT.01.01) (Us_x0142_uga_x0020_kwalifikowana) (dopasowanie po ID); lub flow_process.set_var(p_process_id, 'zm_DT-01-01-02', ...);",
+        "hint_apex": "l_zm_dt_01_01_02 := json_value(shp_api.get_list_item(c_site_url, 'Kwalifikacja Usług', ...), '$.data.Umowa_x0020__x0028_DT_x002e_01_x');",
+        "plsql_code": "-- Pobranie powiązanego rekordu z Kwalifikacja Usług:\nl_ref_json := shp_api.get_list_item(\n    p_site_url   => c_site_url,\n    p_list_title => 'Kwalifikacja Usług',\n    p_item_id    => json_value(l_item_json, '$.data.Us_x0142_uga_x0020_kwalifikowana')\n);\nl_zm_dt_01_01_02 := json_value(l_ref_json, '$.data.Umowa_x0020__x0028_DT_x002e_01_x');",
         "technical_lines": [
           "ValueType = Text",
           "VariableName = ",
@@ -3454,6 +3528,7 @@ end;</div>
         "writes": [],
         "hint_universal": "",
         "hint_apex": "",
+        "plsql_code": "",
         "technical_lines": [],
         "is_structural": true,
         "enabled": true
@@ -3485,7 +3560,8 @@ end;</div>
         ],
         "writes": [],
         "hint_universal": "Obliczenie/odczyt i zapis do zmiennej lokalnej 'zm_DT-01-01-03'.",
-        "hint_apex": "l_zm_DT_01_01_03 := wartość pola Dostawca (DT.01.01.03) (Dostawca_x0020__x0028_DT_x002e_0) z elementu wyszukanego po Kwalifikacja Usług (DT.01.01) (Us_x0142_uga_x0020_kwalifikowana) (dopasowanie po ID); lub flow_process.set_var(p_process_id, 'zm_DT-01-01-03', ...);",
+        "hint_apex": "l_zm_dt_01_01_03 := json_value(shp_api.get_list_item(c_site_url, 'Kwalifikacja Usług', ...), '$.data.Dostawca_x0020__x0028_DT_x002e_0');",
+        "plsql_code": "-- Pobranie powiązanego rekordu z Kwalifikacja Usług:\nl_ref_json := shp_api.get_list_item(\n    p_site_url   => c_site_url,\n    p_list_title => 'Kwalifikacja Usług',\n    p_item_id    => json_value(l_item_json, '$.data.Us_x0142_uga_x0020_kwalifikowana')\n);\nl_zm_dt_01_01_03 := json_value(l_ref_json, '$.data.Dostawca_x0020__x0028_DT_x002e_0');",
         "technical_lines": [
           "ValueType = Text",
           "VariableName = ",
@@ -3507,6 +3583,7 @@ end;</div>
         "writes": [],
         "hint_universal": "",
         "hint_apex": "",
+        "plsql_code": "",
         "technical_lines": [],
         "is_structural": true,
         "enabled": true
@@ -3538,7 +3615,8 @@ end;</div>
         ],
         "writes": [],
         "hint_universal": "Obliczenie/odczyt i zapis do zmiennej lokalnej 'zm_DT-01-01-32'.",
-        "hint_apex": "l_zm_DT_01_01_32 := wartość pola Typ usługi ICT (DT.01.01.32) (Typ_x0020_us_x0142_ugi_x0020_ICT) z elementu wyszukanego po Kwalifikacja Usług (DT.01.01) (Us_x0142_uga_x0020_kwalifikowana) (dopasowanie po ID); lub flow_process.set_var(p_process_id, 'zm_DT-01-01-32', ...);",
+        "hint_apex": "l_zm_dt_01_01_32 := json_value(shp_api.get_list_item(c_site_url, 'Kwalifikacja Usług', ...), '$.data.Typ_x0020_us_x0142_ugi_x0020_ICT');",
+        "plsql_code": "-- Pobranie powiązanego rekordu z Kwalifikacja Usług:\nl_ref_json := shp_api.get_list_item(\n    p_site_url   => c_site_url,\n    p_list_title => 'Kwalifikacja Usług',\n    p_item_id    => json_value(l_item_json, '$.data.Us_x0142_uga_x0020_kwalifikowana')\n);\nl_zm_dt_01_01_32 := json_value(l_ref_json, '$.data.Typ_x0020_us_x0142_ugi_x0020_ICT');",
         "technical_lines": [
           "ValueType = Text",
           "VariableName = ",
@@ -3560,6 +3638,7 @@ end;</div>
         "writes": [],
         "hint_universal": "",
         "hint_apex": "",
+        "plsql_code": "",
         "technical_lines": [],
         "is_structural": true,
         "enabled": true
@@ -3591,7 +3670,8 @@ end;</div>
         ],
         "writes": [],
         "hint_universal": "Obliczenie/odczyt i zapis do zmiennej lokalnej 'zm_DT-01-01-35'.",
-        "hint_apex": "l_zm_DT_01_01_35 := wartość pola Czy usługa związana z funkcją krytyczną (DT.01.01.35) (Funkcja_x0020_krytyczna) z elementu wyszukanego po Kwalifikacja Usług (DT.01.01) (Us_x0142_uga_x0020_kwalifikowana) (dopasowanie po ID); lub flow_process.set_var(p_process_id, 'zm_DT-01-01-35', ...);",
+        "hint_apex": "l_zm_dt_01_01_35 := json_value(shp_api.get_list_item(c_site_url, 'Kwalifikacja Usług', ...), '$.data.Funkcja_x0020_krytyczna');",
+        "plsql_code": "-- Pobranie powiązanego rekordu z Kwalifikacja Usług:\nl_ref_json := shp_api.get_list_item(\n    p_site_url   => c_site_url,\n    p_list_title => 'Kwalifikacja Usług',\n    p_item_id    => json_value(l_item_json, '$.data.Us_x0142_uga_x0020_kwalifikowana')\n);\nl_zm_dt_01_01_35 := json_value(l_ref_json, '$.data.Funkcja_x0020_krytyczna');",
         "technical_lines": [
           "ValueType = Text",
           "VariableName = ",
@@ -3612,7 +3692,8 @@ end;</div>
         "reads": [],
         "writes": [],
         "hint_universal": "Zapis audytowy do dziennika zdarzeń (Audit Log).",
-        "hint_apex": "APEX_DEBUG.INFO() lub INSERT INTO t_workflow_history(run_id, item_id, message, created_at);",
+        "hint_apex": "apex_debug.info('Workflow: ' || 'Lista zmiennych:\nzm_DT-01-01-02: ' || l_zm_dt_01_01_02 || '\nzm_DT-01-01-03: ' || l_zm_dt_01_01_03 || '\nzm_DT-01-01-32: ' || l_zm_dt_01_01_32 || '\nzm_DT-01-01-35: ' || l_zm_dt_01_01_35 || '\n');",
+        "plsql_code": "apex_debug.info('Workflow: ' || 'Lista zmiennych:\nzm_DT-01-01-02: ' || l_zm_dt_01_01_02 || '\nzm_DT-01-01-03: ' || l_zm_dt_01_01_03 || '\nzm_DT-01-01-32: ' || l_zm_dt_01_01_32 || '\nzm_DT-01-01-35: ' || l_zm_dt_01_01_35 || '\n');",
         "technical_lines": [
           "Message = Lista zmiennych:\nzm_DT-01-01-02: {WorkflowVariable:zm_DT-01-01-02}\nzm_DT-01-01-03: {WorkflowVariable:zm_DT-01-01-03}\nzm_DT-01-01-32: {WorkflowVariable:zm_DT-01-01-32}\nzm_DT-01-01-35: {WorkflowVariable:zm_DT-01-01-35}\n"
         ],
@@ -3660,7 +3741,8 @@ end;</div>
           }
         ],
         "hint_universal": "Aktualizacja danych elementu (Typ usługi ICT (02.02) (Typ_x0020_us_x0142_ugi_x0020_ICT), Dostawca usług ICT (02.02.0030) (Kod_x0020_dostawcy_x0020_us_x014), Funkcja (06.01) (Id_x002e__x0020_funkcji_x0020__x), Nr CRK (02.02.0010) (Ustalenie_x0020_umowne_x0020__x0)). W systemie docelowym UPDATE lub REST PATCH/MERGE.",
-        "hint_apex": "UPDATE tabela SET ... WHERE id = :id; lub REST MERGE z nagłówkiem If-Match (weryfikacja ETag).",
+        "hint_apex": "l_resp := shp_api.update_list_item(c_site_url, 'Rejestr Usług ICT', p_item_id, json_object(...));",
+        "plsql_code": "l_resp := shp_api.update_list_item(\n    p_site_url    => c_site_url,\n    p_list_title  => 'Rejestr Usług ICT',\n    p_item_id     => p_item_id,\n    p_fields_json => json_object(\n        'Typ_x0020_us_x0142_ugi_x0020_ICT' value l_typ_us_ugi_ict_02_02,\n        'Kod_x0020_dostawcy_x0020_us_x014' value l_dostawca_us_ug_ict_02_02_0030,\n        'Id_x002e__x0020_funkcji_x0020__x' value l_funkcja_06_01,\n        'Ustalenie_x0020_umowne_x0020__x0' value l_nr_crk_02_02_0010\n    )\n);",
         "technical_lines": [
           "ListId = {D7273010-E4C3-4D13-8006-F60B440402E8}",
           "ThisItem = True"
@@ -3680,7 +3762,8 @@ end;</div>
         "reads": [],
         "writes": [],
         "hint_universal": "Zamknij proces bez dodatkowej akcji, jeżeli wcześniejsze kroki zakończyły się poprawnie.",
-        "hint_apex": "Zwróć status końcowy procesu albo zapisz go w tabeli audytowej, jeśli wymaga tego projekt migracji.",
+        "hint_apex": "apex_debug.info('Koniec workflow: ' || p_item_id);",
+        "plsql_code": "apex_debug.info('Koniec workflow: ' || p_item_id);",
         "technical_lines": [
           "Węzeł syntetyczny dodany przez generator raportu HTML."
         ],
@@ -4580,7 +4663,8 @@ end;</div>
         "type": "SPItemKey",
         "description": "Funkcja (DT.01.01.35)"
       }
-    ]
+    ],
+    "plsql_procedure": "CREATE OR REPLACE PROCEDURE process_wf_rt0202_pobranie_danych_z_kwalifikacji_us_ugi (\n    p_item_id IN NUMBER\n) AS\n    c_site_url CONSTANT VARCHAR2(400) := 'https://sharepoint.domain.com/sites/...';\n    l_item_json CLOB;\n    l_resp      CLOB;\n    l_ref_json  CLOB;\n    -- Zmienne workflow:\n    l_zm_dt_01_01_01               VARCHAR2(4000);\n    l_zm_dt_01_01_02               VARCHAR2(4000);\n    l_zm_dt_01_01_03               VARCHAR2(4000);\n    l_zm_dt_01_01_32               VARCHAR2(4000);\n    l_zm_dt_01_01_35               VARCHAR2(4000);\nBEGIN\n    apex_debug.info('Start workflow: RT0202 Pobranie danych z Kwalifikacji Usługi, item_id: ' || p_item_id);\n\n    -- 1. Pobranie danych biezacego elementu\n    l_item_json := shp_api.get_list_item(\n        p_site_url   => c_site_url,\n        p_list_title => 'Rejestr Usług ICT',\n        p_item_id    => p_item_id\n    );\n\n    -- 2. Logika biznesowa workflow\n    l_resp := shp_api.update_list_item(\n        p_site_url    => c_site_url,\n        p_list_title  => 'Rejestr Usług ICT',\n        p_item_id     => p_item_id,\n        p_fields_json => json_object('Symbol_x0020_us_x0142_ugi_x0020_' value 'ICT-' || TO_CHAR(p_item_id))\n    );\n    -- Pobranie powiązanego rekordu z Kwalifikacja Usług:\n    l_ref_json := shp_api.get_list_item(\n        p_site_url   => c_site_url,\n        p_list_title => 'Kwalifikacja Usług',\n        p_item_id    => json_value(l_item_json, '$.data.Us_x0142_uga_x0020_kwalifikowana')\n    );\n    l_zm_dt_01_01_01 := json_value(l_ref_json, '$.data.Nazwa_x0020_us_x0142_ugi_x0020__');\n    apex_debug.info('Workflow: ' || 'Lista zmiennych:\n    zm_DT-01-01-01: ' || l_zm_dt_01_01_01 || '\n    ');\n    l_resp := shp_api.update_list_item(\n        p_site_url    => c_site_url,\n        p_list_title  => 'Rejestr Usług ICT',\n        p_item_id     => p_item_id,\n        p_fields_json => json_object(\n            'Title' value l_nazwa_us_ugi_ict_02_02_02\n        )\n    );\n    -- Zmiany zatwierdzone przez shp_api.update_list_item\n    -- Pobranie powiązanego rekordu z Kwalifikacja Usług:\n    l_ref_json := shp_api.get_list_item(\n        p_site_url   => c_site_url,\n        p_list_title => 'Kwalifikacja Usług',\n        p_item_id    => json_value(l_item_json, '$.data.Us_x0142_uga_x0020_kwalifikowana')\n    );\n    l_zm_dt_01_01_02 := json_value(l_ref_json, '$.data.Umowa_x0020__x0028_DT_x002e_01_x');\n    -- Pobranie powiązanego rekordu z Kwalifikacja Usług:\n    l_ref_json := shp_api.get_list_item(\n        p_site_url   => c_site_url,\n        p_list_title => 'Kwalifikacja Usług',\n        p_item_id    => json_value(l_item_json, '$.data.Us_x0142_uga_x0020_kwalifikowana')\n    );\n    l_zm_dt_01_01_03 := json_value(l_ref_json, '$.data.Dostawca_x0020__x0028_DT_x002e_0');\n    -- Pobranie powiązanego rekordu z Kwalifikacja Usług:\n    l_ref_json := shp_api.get_list_item(\n        p_site_url   => c_site_url,\n        p_list_title => 'Kwalifikacja Usług',\n        p_item_id    => json_value(l_item_json, '$.data.Us_x0142_uga_x0020_kwalifikowana')\n    );\n    l_zm_dt_01_01_32 := json_value(l_ref_json, '$.data.Typ_x0020_us_x0142_ugi_x0020_ICT');\n    -- Pobranie powiązanego rekordu z Kwalifikacja Usług:\n    l_ref_json := shp_api.get_list_item(\n        p_site_url   => c_site_url,\n        p_list_title => 'Kwalifikacja Usług',\n        p_item_id    => json_value(l_item_json, '$.data.Us_x0142_uga_x0020_kwalifikowana')\n    );\n    l_zm_dt_01_01_35 := json_value(l_ref_json, '$.data.Funkcja_x0020_krytyczna');\n    apex_debug.info('Workflow: ' || 'Lista zmiennych:\n    zm_DT-01-01-02: ' || l_zm_dt_01_01_02 || '\n    zm_DT-01-01-03: ' || l_zm_dt_01_01_03 || '\n    zm_DT-01-01-32: ' || l_zm_dt_01_01_32 || '\n    zm_DT-01-01-35: ' || l_zm_dt_01_01_35 || '\n    ');\n    l_resp := shp_api.update_list_item(\n        p_site_url    => c_site_url,\n        p_list_title  => 'Rejestr Usług ICT',\n        p_item_id     => p_item_id,\n        p_fields_json => json_object(\n            'Typ_x0020_us_x0142_ugi_x0020_ICT' value l_typ_us_ugi_ict_02_02,\n            'Kod_x0020_dostawcy_x0020_us_x014' value l_dostawca_us_ug_ict_02_02_0030,\n            'Id_x002e__x0020_funkcji_x0020__x' value l_funkcja_06_01,\n            'Ustalenie_x0020_umowne_x0020__x0' value l_nr_crk_02_02_0010\n        )\n    );\n\n    apex_debug.info('Koniec workflow: RT0202 Pobranie danych z Kwalifikacji Usługi, item_id: ' || p_item_id);\nEND process_wf_rt0202_pobranie_danych_z_kwalifikacji_us_ugi;\n/"
   },
   {
     "key": "RT0701 Pobranie danych z Kwalifikacji Usługi do RT0701",
@@ -4614,7 +4698,8 @@ end;</div>
         "reads": [],
         "writes": [],
         "hint_universal": "Odtwórz te same reguły uruchomienia w docelowym mechanizmie orkiestracji.",
-        "hint_apex": "Wywołaj proces APEX/ORDS zgodnie z triggerami workflow.",
+        "hint_apex": "l_item_json := shp_api.get_list_item(c_site_url, 'Rejestr Ocen', p_item_id);",
+        "plsql_code": "-- Pobranie bieżącego elementu listy źródłowej:\nl_item_json := shp_api.get_list_item(\n    p_site_url   => c_site_url,\n    p_list_title => 'Rejestr Ocen',\n    p_item_id    => p_item_id\n);",
         "technical_lines": [
           "Triggery: ręcznie, utworzenie elementu, zmiana elementu",
           "Lista źródłowa: Rejestr Ocen",
@@ -4635,7 +4720,8 @@ end;</div>
         "reads": [],
         "writes": [],
         "hint_universal": "Wyzwalacz procesu (Triggers: ręcznie, przy utworzeniu elementu, przy zmianie elementu). Punkt wejścia przyjmujący parametr itemId.",
-        "hint_apex": "Wywołanie z endpointu REST / ORDS lub trigger bazodanowy / start procesu w Flows for APEX.",
+        "hint_apex": "l_item_json := shp_api.get_list_item(c_site_url, 'Rejestr Ocen', p_item_id);",
+        "plsql_code": "-- Pobranie bieżącego elementu przed rozpoczęciem logiki workflow:\nl_item_json := shp_api.get_list_item(\n    p_site_url   => c_site_url,\n    p_list_title => 'Rejestr Ocen',\n    p_item_id    => p_item_id\n);",
         "technical_lines": [
           "StartManually = true",
           "StartOnCreate = true",
@@ -4688,7 +4774,8 @@ end;</div>
           }
         ],
         "hint_universal": "Ustawienie pola Nr ROC (Title) = 'ROC-{ItemProperty:ID}'.",
-        "hint_apex": "UPDATE tabela SET Title = 'ROC-{ItemProperty:ID}' WHERE id = :id;",
+        "hint_apex": "l_resp := shp_api.update_list_item(c_site_url, 'Rejestr Ocen', p_item_id, json_object('Title' value 'ROC-' || TO_CHAR(p_item_id)));",
+        "plsql_code": "l_resp := shp_api.update_list_item(\n    p_site_url    => c_site_url,\n    p_list_title  => 'Rejestr Ocen',\n    p_item_id     => p_item_id,\n    p_fields_json => json_object('Title' value 'ROC-' || TO_CHAR(p_item_id))\n);",
         "technical_lines": [
           "LookupField = Title",
           "LookupFieldType = Text",
@@ -4710,6 +4797,7 @@ end;</div>
         "writes": [],
         "hint_universal": "",
         "hint_apex": "",
+        "plsql_code": "",
         "technical_lines": [],
         "is_structural": true,
         "enabled": true
@@ -4727,6 +4815,7 @@ end;</div>
         "writes": [],
         "hint_universal": "",
         "hint_apex": "",
+        "plsql_code": "",
         "technical_lines": [],
         "is_structural": true,
         "enabled": true
@@ -4758,7 +4847,8 @@ end;</div>
         ],
         "writes": [],
         "hint_universal": "Obliczenie/odczyt i zapis do zmiennej lokalnej 'zm_DT_01_01_02'.",
-        "hint_apex": "l_zm_DT_01_01_02 := wartość pola Nr CRK (DT.01.01.02) (Umowa_x0020__x0028_DT_x002e_01_x) z elementu wyszukanego po Kwalifikacja usług (07.01) (Kwalifikacja_x0020_us_x0142_ug_x) (dopasowanie po ID); lub flow_process.set_var(p_process_id, 'zm_DT_01_01_02', ...);",
+        "hint_apex": "l_zm_dt_01_01_02 := json_value(shp_api.get_list_item(c_site_url, 'Kwalifikacja Usług', ...), '$.data.Umowa_x0020__x0028_DT_x002e_01_x');",
+        "plsql_code": "-- Pobranie powiązanego rekordu z Kwalifikacja Usług:\nl_ref_json := shp_api.get_list_item(\n    p_site_url   => c_site_url,\n    p_list_title => 'Kwalifikacja Usług',\n    p_item_id    => json_value(l_item_json, '$.data.Kwalifikacja_x0020_us_x0142_ug_x')\n);\nl_zm_dt_01_01_02 := json_value(l_ref_json, '$.data.Umowa_x0020__x0028_DT_x002e_01_x');",
         "technical_lines": [
           "ValueType = Text",
           "VariableName = ",
@@ -4780,6 +4870,7 @@ end;</div>
         "writes": [],
         "hint_universal": "",
         "hint_apex": "",
+        "plsql_code": "",
         "technical_lines": [],
         "is_structural": true,
         "enabled": true
@@ -4811,7 +4902,8 @@ end;</div>
         ],
         "writes": [],
         "hint_universal": "Obliczenie/odczyt i zapis do zmiennej lokalnej 'zm_DT-01-01-32'.",
-        "hint_apex": "l_zm_DT_01_01_32 := wartość pola Typ usługi ICT (DT.01.01.32) (Typ_x0020_us_x0142_ugi_x0020_ICT) z elementu wyszukanego po Kwalifikacja usług (07.01) (Kwalifikacja_x0020_us_x0142_ug_x) (dopasowanie po ID); lub flow_process.set_var(p_process_id, 'zm_DT-01-01-32', ...);",
+        "hint_apex": "l_zm_dt_01_01_32 := json_value(shp_api.get_list_item(c_site_url, 'Kwalifikacja Usług', ...), '$.data.Typ_x0020_us_x0142_ugi_x0020_ICT');",
+        "plsql_code": "-- Pobranie powiązanego rekordu z Kwalifikacja Usług:\nl_ref_json := shp_api.get_list_item(\n    p_site_url   => c_site_url,\n    p_list_title => 'Kwalifikacja Usług',\n    p_item_id    => json_value(l_item_json, '$.data.Kwalifikacja_x0020_us_x0142_ug_x')\n);\nl_zm_dt_01_01_32 := json_value(l_ref_json, '$.data.Typ_x0020_us_x0142_ugi_x0020_ICT');",
         "technical_lines": [
           "ValueType = Text",
           "VariableName = ",
@@ -4833,6 +4925,7 @@ end;</div>
         "writes": [],
         "hint_universal": "",
         "hint_apex": "",
+        "plsql_code": "",
         "technical_lines": [],
         "is_structural": true,
         "enabled": true
@@ -4864,7 +4957,8 @@ end;</div>
         ],
         "writes": [],
         "hint_universal": "Obliczenie/odczyt i zapis do zmiennej lokalnej 'zm_DT-01-01-03'.",
-        "hint_apex": "l_zm_DT_01_01_03 := wartość pola Dostawca (DT.01.01.03) (Dostawca_x0020__x0028_DT_x002e_0) z elementu wyszukanego po Kwalifikacja usług (07.01) (Kwalifikacja_x0020_us_x0142_ug_x) (dopasowanie po ID); lub flow_process.set_var(p_process_id, 'zm_DT-01-01-03', ...);",
+        "hint_apex": "l_zm_dt_01_01_03 := json_value(shp_api.get_list_item(c_site_url, 'Kwalifikacja Usług', ...), '$.data.Dostawca_x0020__x0028_DT_x002e_0');",
+        "plsql_code": "-- Pobranie powiązanego rekordu z Kwalifikacja Usług:\nl_ref_json := shp_api.get_list_item(\n    p_site_url   => c_site_url,\n    p_list_title => 'Kwalifikacja Usług',\n    p_item_id    => json_value(l_item_json, '$.data.Kwalifikacja_x0020_us_x0142_ug_x')\n);\nl_zm_dt_01_01_03 := json_value(l_ref_json, '$.data.Dostawca_x0020__x0028_DT_x002e_0');",
         "technical_lines": [
           "ValueType = Text",
           "VariableName = ",
@@ -4907,7 +5001,8 @@ end;</div>
           }
         ],
         "hint_universal": "Aktualizacja danych elementu (Nr CRK (07.01.0010) (Numer_x0020_referencyjny_x0020__), Typ usług ICT (07.01) (Typ_x0020_us_x0142_ug_x0020_ICT_), Dostawca usług ICT (02.02.0030) (Kod_x0020_dostawcy_x0020_us_x014)). W systemie docelowym UPDATE lub REST PATCH/MERGE.",
-        "hint_apex": "UPDATE tabela SET ... WHERE id = :id; lub REST MERGE z nagłówkiem If-Match (weryfikacja ETag).",
+        "hint_apex": "l_resp := shp_api.update_list_item(c_site_url, 'Rejestr Ocen', p_item_id, json_object(...));",
+        "plsql_code": "l_resp := shp_api.update_list_item(\n    p_site_url    => c_site_url,\n    p_list_title  => 'Rejestr Ocen',\n    p_item_id     => p_item_id,\n    p_fields_json => json_object(\n        'Numer_x0020_referencyjny_x0020__' value l_nr_crk_07_01_0010,\n        'Typ_x0020_us_x0142_ug_x0020_ICT_' value l_typ_us_ug_ict_07_01,\n        'Kod_x0020_dostawcy_x0020_us_x014' value l_dostawca_us_ug_ict_02_02_0030\n    )\n);",
         "technical_lines": [
           "ListId = {EA9F2CE5-D851-4AA4-9925-1DF84AB6D7B6}",
           "ThisItem = True"
@@ -4927,7 +5022,8 @@ end;</div>
         "reads": [],
         "writes": [],
         "hint_universal": "Zatwierdzenie bieżącego stanu transakcji (COMMIT).",
-        "hint_apex": "COMMIT; lub przejście etapu procesu BPMN.",
+        "hint_apex": "-- Zmiany zatwierdzone przez shp_api.update_list_item",
+        "plsql_code": "-- Zmiany zatwierdzone przez shp_api.update_list_item",
         "technical_lines": [],
         "is_structural": false,
         "enabled": true
@@ -4945,6 +5041,7 @@ end;</div>
         "writes": [],
         "hint_universal": "",
         "hint_apex": "",
+        "plsql_code": "",
         "technical_lines": [],
         "is_structural": true,
         "enabled": true
@@ -4962,6 +5059,7 @@ end;</div>
         "writes": [],
         "hint_universal": "",
         "hint_apex": "",
+        "plsql_code": "",
         "technical_lines": [],
         "is_structural": true,
         "enabled": true
@@ -4993,7 +5091,8 @@ end;</div>
         ],
         "writes": [],
         "hint_universal": "Obliczenie/odczyt i zapis do zmiennej lokalnej 'zm_DT-01-02-13'.",
-        "hint_apex": "l_zm_DT_01_02_13 := wartość pola Zastępowalność Dostawcy (DT.01.02.13) (Zast_x0119_powalno_x015b__x0107_) z elementu wyszukanego po Kwalifikacja usług (07.01) (Kwalifikacja_x0020_us_x0142_ug_x) (dopasowanie po ID); lub flow_process.set_var(p_process_id, 'zm_DT-01-02-13', ...);",
+        "hint_apex": "l_zm_dt_01_02_13 := json_value(shp_api.get_list_item(c_site_url, 'Kwalifikacja Usług', ...), '$.data.Zast_x0119_powalno_x015b__x0107_');",
+        "plsql_code": "-- Pobranie powiązanego rekordu z Kwalifikacja Usług:\nl_ref_json := shp_api.get_list_item(\n    p_site_url   => c_site_url,\n    p_list_title => 'Kwalifikacja Usług',\n    p_item_id    => json_value(l_item_json, '$.data.Kwalifikacja_x0020_us_x0142_ug_x')\n);\nl_zm_dt_01_02_13 := json_value(l_ref_json, '$.data.Zast_x0119_powalno_x015b__x0107_');",
         "technical_lines": [
           "ValueType = Text",
           "VariableName = ",
@@ -5015,6 +5114,7 @@ end;</div>
         "writes": [],
         "hint_universal": "",
         "hint_apex": "",
+        "plsql_code": "",
         "technical_lines": [],
         "is_structural": true,
         "enabled": true
@@ -5046,7 +5146,8 @@ end;</div>
         ],
         "writes": [],
         "hint_universal": "Obliczenie/odczyt i zapis do zmiennej lokalnej 'zm_DT-01-02-14'.",
-        "hint_apex": "l_zm_DT_01_02_14 := wartość pola Możliwość reintegracji usług (DT.01.02.14) (Mo_x017c_liwo_x015b__x0107__x002) z elementu wyszukanego po Kwalifikacja usług (07.01) (Kwalifikacja_x0020_us_x0142_ug_x) (dopasowanie po ID); lub flow_process.set_var(p_process_id, 'zm_DT-01-02-14', ...);",
+        "hint_apex": "l_zm_dt_01_02_14 := json_value(shp_api.get_list_item(c_site_url, 'Kwalifikacja Usług', ...), '$.data.Mo_x017c_liwo_x015b__x0107__x002');",
+        "plsql_code": "-- Pobranie powiązanego rekordu z Kwalifikacja Usług:\nl_ref_json := shp_api.get_list_item(\n    p_site_url   => c_site_url,\n    p_list_title => 'Kwalifikacja Usług',\n    p_item_id    => json_value(l_item_json, '$.data.Kwalifikacja_x0020_us_x0142_ug_x')\n);\nl_zm_dt_01_02_14 := json_value(l_ref_json, '$.data.Mo_x017c_liwo_x015b__x0107__x002');",
         "technical_lines": [
           "ValueType = Text",
           "VariableName = ",
@@ -5068,6 +5169,7 @@ end;</div>
         "writes": [],
         "hint_universal": "",
         "hint_apex": "",
+        "plsql_code": "",
         "technical_lines": [],
         "is_structural": true,
         "enabled": true
@@ -5099,7 +5201,8 @@ end;</div>
         ],
         "writes": [],
         "hint_universal": "Obliczenie/odczyt i zapis do zmiennej lokalnej 'zm_DT-01-02-15'.",
-        "hint_apex": "l_zm_DT_01_02_15 := wartość pola Skutek zaprzestania świadczenia usł. (DT.01.02.15) (Skutki_x0020_zaprzestania_x0020_) z elementu wyszukanego po Kwalifikacja usług (07.01) (Kwalifikacja_x0020_us_x0142_ug_x) (dopasowanie po ID); lub flow_process.set_var(p_process_id, 'zm_DT-01-02-15', ...);",
+        "hint_apex": "l_zm_dt_01_02_15 := json_value(shp_api.get_list_item(c_site_url, 'Kwalifikacja Usług', ...), '$.data.Skutki_x0020_zaprzestania_x0020_');",
+        "plsql_code": "-- Pobranie powiązanego rekordu z Kwalifikacja Usług:\nl_ref_json := shp_api.get_list_item(\n    p_site_url   => c_site_url,\n    p_list_title => 'Kwalifikacja Usług',\n    p_item_id    => json_value(l_item_json, '$.data.Kwalifikacja_x0020_us_x0142_ug_x')\n);\nl_zm_dt_01_02_15 := json_value(l_ref_json, '$.data.Skutki_x0020_zaprzestania_x0020_');",
         "technical_lines": [
           "ValueType = Text",
           "VariableName = ",
@@ -5142,7 +5245,8 @@ end;</div>
           }
         ],
         "hint_universal": "Aktualizacja danych elementu (Zastępowalność Dostawcy (07.01.0050) (Zast_x0119_powalno_x015b__x0107_), Możliwość reintegracji usług (07.01.0090) (Mo_x017c_liwo_x015b__x0107__x002), Skutki zaprzestania świadczenia usł. (07.01.00100) (_x0030_0100_x0020_Skutki_x0020_z)). W systemie docelowym UPDATE lub REST PATCH/MERGE.",
-        "hint_apex": "UPDATE tabela SET ... WHERE id = :id; lub REST MERGE z nagłówkiem If-Match (weryfikacja ETag).",
+        "hint_apex": "l_resp := shp_api.update_list_item(c_site_url, 'Rejestr Ocen', p_item_id, json_object(...));",
+        "plsql_code": "l_resp := shp_api.update_list_item(\n    p_site_url    => c_site_url,\n    p_list_title  => 'Rejestr Ocen',\n    p_item_id     => p_item_id,\n    p_fields_json => json_object(\n        'Zast_x0119_powalno_x015b__x0107_' value l_zast_powalno_dostawcy_07_01_0050,\n        'Mo_x017c_liwo_x015b__x0107__x002' value l_mo_liwo_reintegracji_us_ug_07_01_0090,\n        '_x0030_0100_x0020_Skutki_x0020_z' value l_skutki_zaprzestania_wiadczenia_us_07_01_00100\n    )\n);",
         "technical_lines": [
           "ListId = {EA9F2CE5-D851-4AA4-9925-1DF84AB6D7B6}",
           "ThisItem = True"
@@ -5162,7 +5266,8 @@ end;</div>
         "reads": [],
         "writes": [],
         "hint_universal": "Zatwierdzenie bieżącego stanu transakcji (COMMIT).",
-        "hint_apex": "COMMIT; lub przejście etapu procesu BPMN.",
+        "hint_apex": "-- Zmiany zatwierdzone przez shp_api.update_list_item",
+        "plsql_code": "-- Zmiany zatwierdzone przez shp_api.update_list_item",
         "technical_lines": [],
         "is_structural": false,
         "enabled": true
@@ -5179,7 +5284,8 @@ end;</div>
         "reads": [],
         "writes": [],
         "hint_universal": "Zapis audytowy do dziennika zdarzeń (Audit Log).",
-        "hint_apex": "APEX_DEBUG.INFO() lub INSERT INTO t_workflow_history(run_id, item_id, message, created_at);",
+        "hint_apex": "apex_debug.info('Workflow: ' || 'Nr CRK (zm_DT-01-01-02): ' || l_zm_dt_01_01_02 || '\nTyp usług ICT (zm_DT-01-01-32): ' || l_zm_dt_01_01_32 || '\nDostawca (zm_DT-01-01-03):' || l_zm_dt_01_01_03 || '\nZastępowalność Dostawcy (zm_DT-01-02-13): ' || l_zm_dt_01_02_13 || '\nMożliwość reintegracji usług (zm_DT-01-02-14): ' || l_zm_dt_01_02_14 || '\nSkutki zaprzestania świadczenia usł. (zm_DT-01-02-15): ' || l_zm_dt_01_02_15);",
+        "plsql_code": "apex_debug.info('Workflow: ' || 'Nr CRK (zm_DT-01-01-02): ' || l_zm_dt_01_01_02 || '\nTyp usług ICT (zm_DT-01-01-32): ' || l_zm_dt_01_01_32 || '\nDostawca (zm_DT-01-01-03):' || l_zm_dt_01_01_03 || '\nZastępowalność Dostawcy (zm_DT-01-02-13): ' || l_zm_dt_01_02_13 || '\nMożliwość reintegracji usług (zm_DT-01-02-14): ' || l_zm_dt_01_02_14 || '\nSkutki zaprzestania świadczenia usł. (zm_DT-01-02-15): ' || l_zm_dt_01_02_15);",
         "technical_lines": [
           "Message = Nr CRK (zm_DT-01-01-02): {WorkflowVariable:zm_DT_01_01_02}\nTyp usług ICT (zm_DT-01-01-32): {WorkflowVariable:zm_DT-01-01-32}\nDostawca (zm_DT-01-01-03):{WorkflowVariable:zm_DT-01-01-03}\nZastępowalność Dostawcy (zm_DT-01-02-13): {WorkflowVariable:zm_DT-01-02-13}\nMożliwość reintegracji usług (zm_DT-01-02-14): {WorkflowVariable:zm_DT-01-02-14}\nSkutki zaprzestania świadczenia usł. (zm_DT-01-02-15): {WorkflowVariable:zm_DT-01-02-15}"
         ],
@@ -5198,7 +5304,8 @@ end;</div>
         "reads": [],
         "writes": [],
         "hint_universal": "Zamknij proces bez dodatkowej akcji, jeżeli wcześniejsze kroki zakończyły się poprawnie.",
-        "hint_apex": "Zwróć status końcowy procesu albo zapisz go w tabeli audytowej, jeśli wymaga tego projekt migracji.",
+        "hint_apex": "apex_debug.info('Koniec workflow: ' || p_item_id);",
+        "plsql_code": "apex_debug.info('Koniec workflow: ' || p_item_id);",
         "technical_lines": [
           "Węzeł syntetyczny dodany przez generator raportu HTML."
         ],
@@ -6040,7 +6147,8 @@ end;</div>
         "type": "SPItemKey",
         "description": "Ustaw zmienną zm_DT_01_01_02"
       }
-    ]
+    ],
+    "plsql_procedure": "CREATE OR REPLACE PROCEDURE process_wf_rt0701_pobranie_danych_z_kwalifikacji_us_ugi_do_rt0701 (\n    p_item_id IN NUMBER\n) AS\n    c_site_url CONSTANT VARCHAR2(400) := 'https://sharepoint.domain.com/sites/...';\n    l_item_json CLOB;\n    l_resp      CLOB;\n    l_ref_json  CLOB;\n    -- Zmienne workflow:\n    l_zm_dt_01_01_03               VARCHAR2(4000);\n    l_zm_dt_01_01_32               VARCHAR2(4000);\n    l_zm_dt_01_02_13               VARCHAR2(4000);\n    l_zm_dt_01_02_14               VARCHAR2(4000);\n    l_zm_dt_01_02_15               VARCHAR2(4000);\n    l_zm_dt_01_01_02               VARCHAR2(4000);\nBEGIN\n    apex_debug.info('Start workflow: RT0701 Pobranie danych z Kwalifikacji Usługi do RT0701, item_id: ' || p_item_id);\n\n    -- 1. Pobranie danych biezacego elementu\n    l_item_json := shp_api.get_list_item(\n        p_site_url   => c_site_url,\n        p_list_title => 'Rejestr Ocen',\n        p_item_id    => p_item_id\n    );\n\n    -- 2. Logika biznesowa workflow\n    l_resp := shp_api.update_list_item(\n        p_site_url    => c_site_url,\n        p_list_title  => 'Rejestr Ocen',\n        p_item_id     => p_item_id,\n        p_fields_json => json_object('Title' value 'ROC-' || TO_CHAR(p_item_id))\n    );\n    -- Pobranie powiązanego rekordu z Kwalifikacja Usług:\n    l_ref_json := shp_api.get_list_item(\n        p_site_url   => c_site_url,\n        p_list_title => 'Kwalifikacja Usług',\n        p_item_id    => json_value(l_item_json, '$.data.Kwalifikacja_x0020_us_x0142_ug_x')\n    );\n    l_zm_dt_01_01_02 := json_value(l_ref_json, '$.data.Umowa_x0020__x0028_DT_x002e_01_x');\n    -- Pobranie powiązanego rekordu z Kwalifikacja Usług:\n    l_ref_json := shp_api.get_list_item(\n        p_site_url   => c_site_url,\n        p_list_title => 'Kwalifikacja Usług',\n        p_item_id    => json_value(l_item_json, '$.data.Kwalifikacja_x0020_us_x0142_ug_x')\n    );\n    l_zm_dt_01_01_32 := json_value(l_ref_json, '$.data.Typ_x0020_us_x0142_ugi_x0020_ICT');\n    -- Pobranie powiązanego rekordu z Kwalifikacja Usług:\n    l_ref_json := shp_api.get_list_item(\n        p_site_url   => c_site_url,\n        p_list_title => 'Kwalifikacja Usług',\n        p_item_id    => json_value(l_item_json, '$.data.Kwalifikacja_x0020_us_x0142_ug_x')\n    );\n    l_zm_dt_01_01_03 := json_value(l_ref_json, '$.data.Dostawca_x0020__x0028_DT_x002e_0');\n    l_resp := shp_api.update_list_item(\n        p_site_url    => c_site_url,\n        p_list_title  => 'Rejestr Ocen',\n        p_item_id     => p_item_id,\n        p_fields_json => json_object(\n            'Numer_x0020_referencyjny_x0020__' value l_nr_crk_07_01_0010,\n            'Typ_x0020_us_x0142_ug_x0020_ICT_' value l_typ_us_ug_ict_07_01,\n            'Kod_x0020_dostawcy_x0020_us_x014' value l_dostawca_us_ug_ict_02_02_0030\n        )\n    );\n    -- Zmiany zatwierdzone przez shp_api.update_list_item\n    -- Pobranie powiązanego rekordu z Kwalifikacja Usług:\n    l_ref_json := shp_api.get_list_item(\n        p_site_url   => c_site_url,\n        p_list_title => 'Kwalifikacja Usług',\n        p_item_id    => json_value(l_item_json, '$.data.Kwalifikacja_x0020_us_x0142_ug_x')\n    );\n    l_zm_dt_01_02_13 := json_value(l_ref_json, '$.data.Zast_x0119_powalno_x015b__x0107_');\n    -- Pobranie powiązanego rekordu z Kwalifikacja Usług:\n    l_ref_json := shp_api.get_list_item(\n        p_site_url   => c_site_url,\n        p_list_title => 'Kwalifikacja Usług',\n        p_item_id    => json_value(l_item_json, '$.data.Kwalifikacja_x0020_us_x0142_ug_x')\n    );\n    l_zm_dt_01_02_14 := json_value(l_ref_json, '$.data.Mo_x017c_liwo_x015b__x0107__x002');\n    -- Pobranie powiązanego rekordu z Kwalifikacja Usług:\n    l_ref_json := shp_api.get_list_item(\n        p_site_url   => c_site_url,\n        p_list_title => 'Kwalifikacja Usług',\n        p_item_id    => json_value(l_item_json, '$.data.Kwalifikacja_x0020_us_x0142_ug_x')\n    );\n    l_zm_dt_01_02_15 := json_value(l_ref_json, '$.data.Skutki_x0020_zaprzestania_x0020_');\n    l_resp := shp_api.update_list_item(\n        p_site_url    => c_site_url,\n        p_list_title  => 'Rejestr Ocen',\n        p_item_id     => p_item_id,\n        p_fields_json => json_object(\n            'Zast_x0119_powalno_x015b__x0107_' value l_zast_powalno_dostawcy_07_01_0050,\n            'Mo_x017c_liwo_x015b__x0107__x002' value l_mo_liwo_reintegracji_us_ug_07_01_0090,\n            '_x0030_0100_x0020_Skutki_x0020_z' value l_skutki_zaprzestania_wiadczenia_us_07_01_00100\n        )\n    );\n    -- Zmiany zatwierdzone przez shp_api.update_list_item\n    apex_debug.info('Workflow: ' || 'Nr CRK (zm_DT-01-01-02): ' || l_zm_dt_01_01_02 || '\n    Typ usług ICT (zm_DT-01-01-32): ' || l_zm_dt_01_01_32 || '\n    Dostawca (zm_DT-01-01-03):' || l_zm_dt_01_01_03 || '\n    Zastępowalność Dostawcy (zm_DT-01-02-13): ' || l_zm_dt_01_02_13 || '\n    Możliwość reintegracji usług (zm_DT-01-02-14): ' || l_zm_dt_01_02_14 || '\n    Skutki zaprzestania świadczenia usł. (zm_DT-01-02-15): ' || l_zm_dt_01_02_15);\n\n    apex_debug.info('Koniec workflow: RT0701 Pobranie danych z Kwalifikacji Usługi do RT0701, item_id: ' || p_item_id);\nEND process_wf_rt0701_pobranie_danych_z_kwalifikacji_us_ugi_do_rt0701;\n/"
   }
 ]
   </script>
@@ -6297,6 +6405,12 @@ end;</div>
         // Renderowanie tabeli pol
         renderFieldsTable(wf);
 
+        // Aktualizacja kompletnej procedury PL/SQL
+        const wfPlsqlTitle = document.getElementById('wf-plsql-title');
+        if (wfPlsqlTitle) wfPlsqlTitle.textContent = 'Kompletna procedura PL/SQL: ' + wf.title;
+        const wfPlsqlProc = document.getElementById('wf-plsql-procedure');
+        if (wfPlsqlProc) wfPlsqlProc.textContent = wf.plsql_procedure || '-- Brak kodu procedury';
+
         // Reset inspektora
         resetInspector();
       }
@@ -6380,7 +6494,7 @@ end;</div>
 
         // Hints
         document.getElementById('ins-hint-univ').textContent = step.hint_universal || 'Brak dedykowanej wskazówki.';
-        document.getElementById('ins-hint-apex').textContent = step.hint_apex || 'Standardowa procedura PL/SQL.';
+        document.getElementById('ins-hint-apex').textContent = step.plsql_code || step.hint_apex || '-- Standardowa procedura PL/SQL.';
 
         // Raw
         document.getElementById('ins-raw').textContent = (step.technical_lines && step.technical_lines.length > 0)
@@ -6425,6 +6539,31 @@ end;</div>
             });
           });
         });
+
+        // Obsluga kopiowania procedury i kroku PL/SQL
+        const copyStepBtn = document.getElementById('copy-step-plsql');
+        if (copyStepBtn) {
+          copyStepBtn.addEventListener('click', () => {
+            const code = document.getElementById('ins-hint-apex').textContent;
+            if (code && code !== '-') {
+              navigator.clipboard.writeText(code).then(() => {
+                showToast('Skopiowano kod kroku PL/SQL!');
+              });
+            }
+          });
+        }
+
+        const copyFullBtn = document.getElementById('copy-full-plsql-btn');
+        if (copyFullBtn) {
+          copyFullBtn.addEventListener('click', () => {
+            const code = document.getElementById('wf-plsql-procedure').textContent;
+            if (code) {
+              navigator.clipboard.writeText(code).then(() => {
+                showToast('Skopiowano całą procedurę PL/SQL!');
+              });
+            }
+          });
+        }
       }
 
       function showToast(msg) {

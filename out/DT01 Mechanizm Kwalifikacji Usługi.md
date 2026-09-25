@@ -63,7 +63,15 @@ flowchart TD
 ## Kroki workflow
 
 - `[n1]` Start workflow 'DT01 Mechanizm Kwalifikacji Usługi'. Uruchamiane: ręcznie, przy utworzeniu elementu, przy zmianie elementu.
-  > **Wskazówka migracji**: Wyzwalacz procesu (Triggers: ręcznie, przy utworzeniu elementu, przy zmianie elementu). Punkt wejścia przyjmujący parametr itemId. (APEX: `Wywołanie z endpointu REST / ORDS lub trigger bazodanowy / start procesu w Flows for APEX.`)
+  > **Wskazówka migracji**: Wyzwalacz procesu (Triggers: ręcznie, przy utworzeniu elementu, przy zmianie elementu). Punkt wejścia przyjmujący parametr itemId.
+  ```plsql
+  -- Pobranie bieżącego elementu przed rozpoczęciem logiki workflow:
+  l_item_json := shp_api.get_list_item(
+      p_site_url   => c_site_url,
+      p_list_title => 'Kwalifikacja Usług',
+      p_item_id    => p_item_id
+  );
+  ```
   <details><summary>Szczegóły techniczne</summary>
 
   ```
@@ -100,7 +108,14 @@ flowchart TD
   ```
   </details>
 - `[n2]` Warunek: JEŻELI (wartość pola Telefonia analogowa? (DT.01.01.31) (DT_x002e_01) z bieżącego elementu jest równe Tak) LUB (wartość pola Model kontraktowania (DT.01.01.10) (Model_x0020_kontraktowy_x0020__x) z bieżącego elementu jest równe ATU)
-  > **Wskazówka migracji**: Bramka decyzyjna (Exclusive Gateway / IF): sprawdzenie warunku logicznego: (wartość pola Telefonia analogowa? (DT.01.01.31) (DT_x002e_01) z bieżącego elementu jest równe Tak) LUB (wartość pola Model kontraktowania (DT.01.01.10) (Model_x0020_kontraktowy_x0020__x) z bieżącego elementu jest równe ATU). (APEX: `Instrukcja IF ... THEN ... ELSIF w PL/SQL lub Exclusive Gateway w Flows for APEX.`)
+  > **Wskazówka migracji**: Bramka decyzyjna (Exclusive Gateway / IF): sprawdzenie warunku logicznego: (wartość pola Telefonia analogowa? (DT.01.01.31) (DT_x002e_01) z bieżącego elementu jest równe Tak) LUB (wartość pola Model kontraktowania (DT.01.01.10) (Model_x0020_kontraktowy_x0020__x) z bieżącego elementu jest równe ATU).
+  ```plsql
+  IF (json_value(l_item_json, '$.data.DT_x002e_01') = 'Tak') OR (json_value(l_item_json, '$.data.Model_x0020_kontraktowy_x0020__x') = 'ATU') THEN
+      -- Gałąź Tak
+  ELSE
+      -- Gałąź Nie
+  END IF;
+  ```
   <details><summary>Szczegóły techniczne</summary>
 
   ```
@@ -108,7 +123,14 @@ flowchart TD
   ```
   </details>
     - `[n3]` Warunek: JEŻELI wartość pola Usługa cykliczna? (DT.01.01.33) (DT_x002e_03) z bieżącego elementu jest równe Tak
-      > **Wskazówka migracji**: Bramka decyzyjna (Exclusive Gateway / IF): sprawdzenie warunku logicznego: wartość pola Usługa cykliczna? (DT.01.01.33) (DT_x002e_03) z bieżącego elementu jest równe Tak. (APEX: `Instrukcja IF ... THEN ... ELSIF w PL/SQL lub Exclusive Gateway w Flows for APEX.`)
+      > **Wskazówka migracji**: Bramka decyzyjna (Exclusive Gateway / IF): sprawdzenie warunku logicznego: wartość pola Usługa cykliczna? (DT.01.01.33) (DT_x002e_03) z bieżącego elementu jest równe Tak.
+      ```plsql
+      IF json_value(l_item_json, '$.data.DT_x002e_03') = 'Tak' THEN
+          -- Gałąź Tak
+      ELSE
+          -- Gałąź Nie
+      END IF;
+      ```
       <details><summary>Szczegóły techniczne</summary>
 
       ```
@@ -116,7 +138,10 @@ flowchart TD
       ```
       </details>
         - `[n4]` DT-01-01-34 Usługa ICT?: Zapisz w zmiennej 'zm_DT-01-01-34' wartość: Nie.
-          > **Wskazówka migracji**: Obliczenie/odczyt i zapis do zmiennej lokalnej 'zm_DT-01-01-34'. (APEX: `l_zm_DT_01_01_34 := Nie; lub flow_process.set_var(p_process_id, 'zm_DT-01-01-34', ...);`)
+          > **Wskazówka migracji**: Obliczenie/odczyt i zapis do zmiennej lokalnej 'zm_DT-01-01-34'.
+          ```plsql
+          l_zm_dt_01_01_34 := 'Nie';
+          ```
           <details><summary>Szczegóły techniczne</summary>
 
           ```
@@ -126,7 +151,14 @@ flowchart TD
           ```
           </details>
         - `[n5]` Warunek: JEŻELI wartość pola Typ usługi ICT (DT.01.01):Symbol usługi (Typ_x0020_us_x0142_ugi_x0020_ICT0) z bieżącego elementu jest równe eba_TA:S00
-          > **Wskazówka migracji**: Bramka decyzyjna (Exclusive Gateway / IF): sprawdzenie warunku logicznego: wartość pola Typ usługi ICT (DT.01.01):Symbol usługi (Typ_x0020_us_x0142_ugi_x0020_ICT0) z bieżącego elementu jest równe eba_TA:S00. (APEX: `Instrukcja IF ... THEN ... ELSIF w PL/SQL lub Exclusive Gateway w Flows for APEX.`)
+          > **Wskazówka migracji**: Bramka decyzyjna (Exclusive Gateway / IF): sprawdzenie warunku logicznego: wartość pola Typ usługi ICT (DT.01.01):Symbol usługi (Typ_x0020_us_x0142_ugi_x0020_ICT0) z bieżącego elementu jest równe eba_TA:S00.
+          ```plsql
+          IF json_value(l_item_json, '$.data.Typ_x0020_us_x0142_ugi_x0020_ICT0') = 'eba_TA:S00' THEN
+              -- Gałąź Tak
+          ELSE
+              -- Gałąź Nie
+          END IF;
+          ```
           <details><summary>Szczegóły techniczne</summary>
 
           ```
@@ -134,7 +166,10 @@ flowchart TD
           ```
           </details>
             - `[n6]` DT-01-01-34 Usługa ICT?: Zapisz w zmiennej 'zm_DT-01-01-34' wartość: Tak.
-              > **Wskazówka migracji**: Obliczenie/odczyt i zapis do zmiennej lokalnej 'zm_DT-01-01-34'. (APEX: `l_zm_DT_01_01_34 := Tak; lub flow_process.set_var(p_process_id, 'zm_DT-01-01-34', ...);`)
+              > **Wskazówka migracji**: Obliczenie/odczyt i zapis do zmiennej lokalnej 'zm_DT-01-01-34'.
+              ```plsql
+              l_zm_dt_01_01_34 := 'Tak';
+              ```
               <details><summary>Szczegóły techniczne</summary>
 
               ```
@@ -144,7 +179,10 @@ flowchart TD
               ```
               </details>
             - `[n7]` DT-01-01-34 Usługa ICT?: Zapisz w zmiennej 'zm_DT-01-01-34' wartość: Nie.
-              > **Wskazówka migracji**: Obliczenie/odczyt i zapis do zmiennej lokalnej 'zm_DT-01-01-34'. (APEX: `l_zm_DT_01_01_34 := Nie; lub flow_process.set_var(p_process_id, 'zm_DT-01-01-34', ...);`)
+              > **Wskazówka migracji**: Obliczenie/odczyt i zapis do zmiennej lokalnej 'zm_DT-01-01-34'.
+              ```plsql
+              l_zm_dt_01_01_34 := 'Nie';
+              ```
               <details><summary>Szczegóły techniczne</summary>
 
               ```
@@ -154,7 +192,10 @@ flowchart TD
               ```
               </details>
     - `[n8]` DT-01-01-34 Usługa ICT?: Zapisz w zmiennej 'zm_DT-01-01-34' wartość: Nie.
-      > **Wskazówka migracji**: Obliczenie/odczyt i zapis do zmiennej lokalnej 'zm_DT-01-01-34'. (APEX: `l_zm_DT_01_01_34 := Nie; lub flow_process.set_var(p_process_id, 'zm_DT-01-01-34', ...);`)
+      > **Wskazówka migracji**: Obliczenie/odczyt i zapis do zmiennej lokalnej 'zm_DT-01-01-34'.
+      ```plsql
+      l_zm_dt_01_01_34 := 'Nie';
+      ```
       <details><summary>Szczegóły techniczne</summary>
 
       ```
@@ -164,7 +205,14 @@ flowchart TD
       ```
       </details>
 - `[n9]` Warunek: JEŻELI {WorkflowVariable:zm_DT-01-01-34} jest równe Tak
-  > **Wskazówka migracji**: Bramka decyzyjna (Exclusive Gateway / IF): sprawdzenie warunku logicznego: {WorkflowVariable:zm_DT-01-01-34} jest równe Tak. (APEX: `Instrukcja IF ... THEN ... ELSIF w PL/SQL lub Exclusive Gateway w Flows for APEX.`)
+  > **Wskazówka migracji**: Bramka decyzyjna (Exclusive Gateway / IF): sprawdzenie warunku logicznego: {WorkflowVariable:zm_DT-01-01-34} jest równe Tak.
+  ```plsql
+  IF l_zm_dt_01_01_34 = 'Tak' THEN
+      -- Gałąź Tak
+  ELSE
+      -- Gałąź Nie
+  END IF;
+  ```
   <details><summary>Szczegóły techniczne</summary>
 
   ```
@@ -172,7 +220,10 @@ flowchart TD
   ```
   </details>
     - `[n10]` zm_DT-01-01-38: Zapisz w zmiennej 'zm_DT-01-01-38' wartość: Nie.
-      > **Wskazówka migracji**: Obliczenie/odczyt i zapis do zmiennej lokalnej 'zm_DT-01-01-38'. (APEX: `l_zm_DT_01_01_38 := Nie; lub flow_process.set_var(p_process_id, 'zm_DT-01-01-38', ...);`)
+      > **Wskazówka migracji**: Obliczenie/odczyt i zapis do zmiennej lokalnej 'zm_DT-01-01-38'.
+      ```plsql
+      l_zm_dt_01_01_38 := 'Nie';
+      ```
       <details><summary>Szczegóły techniczne</summary>
 
       ```
@@ -182,7 +233,14 @@ flowchart TD
       ```
       </details>
     - `[n11]` Warunek: JEŻELI (wartość pola Usługa krytyczna wg EBA? (DT.01.01.37) (Us_x0142_uga_x0020_krytyczna_x00) z bieżącego elementu jest równe Tak) LUB (wartość pola Czy usługa związana z funkcją krytyczną (DT.01.01.35) (Funkcja_x0020_krytyczna) z bieżącego elementu nie zawiera F0)
-      > **Wskazówka migracji**: Bramka decyzyjna (Exclusive Gateway / IF): sprawdzenie warunku logicznego: (wartość pola Usługa krytyczna wg EBA? (DT.01.01.37) (Us_x0142_uga_x0020_krytyczna_x00) z bieżącego elementu jest równe Tak) LUB (wartość pola Czy usługa związana z funkcją krytyczną (DT.01.01.35) (Funkcja_x0020_krytyczna) z bieżącego elementu nie zawiera F0). (APEX: `Instrukcja IF ... THEN ... ELSIF w PL/SQL lub Exclusive Gateway w Flows for APEX.`)
+      > **Wskazówka migracji**: Bramka decyzyjna (Exclusive Gateway / IF): sprawdzenie warunku logicznego: (wartość pola Usługa krytyczna wg EBA? (DT.01.01.37) (Us_x0142_uga_x0020_krytyczna_x00) z bieżącego elementu jest równe Tak) LUB (wartość pola Czy usługa związana z funkcją krytyczną (DT.01.01.35) (Funkcja_x0020_krytyczna) z bieżącego elementu nie zawiera F0).
+      ```plsql
+      IF (json_value(l_item_json, '$.data.Us_x0142_uga_x0020_krytyczna_x00') = 'Tak') OR (json_value(l_item_json, '$.data.Funkcja_x0020_krytyczna') NOT LIKE '%' || 'F0' || '%') THEN
+          -- Gałąź Tak
+      ELSE
+          -- Gałąź Nie
+      END IF;
+      ```
       <details><summary>Szczegóły techniczne</summary>
 
       ```
@@ -190,7 +248,10 @@ flowchart TD
       ```
       </details>
         - `[n12]` zm_DT-01-01-38: Zapisz w zmiennej 'zm_DT-01-01-38' wartość: Nie.
-          > **Wskazówka migracji**: Obliczenie/odczyt i zapis do zmiennej lokalnej 'zm_DT-01-01-38'. (APEX: `l_zm_DT_01_01_38 := Nie; lub flow_process.set_var(p_process_id, 'zm_DT-01-01-38', ...);`)
+          > **Wskazówka migracji**: Obliczenie/odczyt i zapis do zmiennej lokalnej 'zm_DT-01-01-38'.
+          ```plsql
+          l_zm_dt_01_01_38 := 'Nie';
+          ```
           <details><summary>Szczegóły techniczne</summary>
 
           ```
@@ -200,7 +261,10 @@ flowchart TD
           ```
           </details>
         - `[n13]` zm_DT-01-01-38: Zapisz w zmiennej 'zm_DT-01-01-38' wartość: Tak.
-          > **Wskazówka migracji**: Obliczenie/odczyt i zapis do zmiennej lokalnej 'zm_DT-01-01-38'. (APEX: `l_zm_DT_01_01_38 := Tak; lub flow_process.set_var(p_process_id, 'zm_DT-01-01-38', ...);`)
+          > **Wskazówka migracji**: Obliczenie/odczyt i zapis do zmiennej lokalnej 'zm_DT-01-01-38'.
+          ```plsql
+          l_zm_dt_01_01_38 := 'Tak';
+          ```
           <details><summary>Szczegóły techniczne</summary>
 
           ```
@@ -210,7 +274,14 @@ flowchart TD
           ```
           </details>
         - `[n14]` Warunek: JEŻELI (wartość pola Dostawca (DT.01.01.03) (Dostawca_x0020__x0028_DT_x002e_0) z bieżącego elementu) ORAZ (wartość pola Są inne usł. krytyczne Dostawcy? (DT.01.02.16) (S_x0105__x0020_inne_x0020_us_x01) z bieżącego elementu jest równe Tak)
-          > **Wskazówka migracji**: Bramka decyzyjna (Exclusive Gateway / IF): sprawdzenie warunku logicznego: (wartość pola Dostawca (DT.01.01.03) (Dostawca_x0020__x0028_DT_x002e_0) z bieżącego elementu) ORAZ (wartość pola Są inne usł. krytyczne Dostawcy? (DT.01.02.16) (S_x0105__x0020_inne_x0020_us_x01) z bieżącego elementu jest równe Tak). (APEX: `Instrukcja IF ... THEN ... ELSIF w PL/SQL lub Exclusive Gateway w Flows for APEX.`)
+          > **Wskazówka migracji**: Bramka decyzyjna (Exclusive Gateway / IF): sprawdzenie warunku logicznego: (wartość pola Dostawca (DT.01.01.03) (Dostawca_x0020__x0028_DT_x002e_0) z bieżącego elementu) ORAZ (wartość pola Są inne usł. krytyczne Dostawcy? (DT.01.02.16) (S_x0105__x0020_inne_x0020_us_x01) z bieżącego elementu jest równe Tak).
+          ```plsql
+          IF (json_value(l_item_json, '$.data.Dostawca_x0020__x0028_DT_x002e_0') = NULL) AND (json_value(l_item_json, '$.data.S_x0105__x0020_inne_x0020_us_x01') = 'Tak') THEN
+              -- Gałąź Tak
+          ELSE
+              -- Gałąź Nie
+          END IF;
+          ```
           <details><summary>Szczegóły techniczne</summary>
 
           ```
@@ -218,7 +289,10 @@ flowchart TD
           ```
           </details>
             - `[n15]` zm_DT-01-02-01: Zapisz w zmiennej 'zm_DT-01-02-01' wartość: Tak.
-              > **Wskazówka migracji**: Obliczenie/odczyt i zapis do zmiennej lokalnej 'zm_DT-01-02-01'. (APEX: `l_zm_DT_01_02_01 := Tak; lub flow_process.set_var(p_process_id, 'zm_DT-01-02-01', ...);`)
+              > **Wskazówka migracji**: Obliczenie/odczyt i zapis do zmiennej lokalnej 'zm_DT-01-02-01'.
+              ```plsql
+              l_zm_dt_01_02_01 := 'Tak';
+              ```
               <details><summary>Szczegóły techniczne</summary>
 
               ```
@@ -228,7 +302,12 @@ flowchart TD
               ```
               </details>
 - `[n16]` Zapisz wpis w historii przepływu: „DT-01-01-34 Usługa DORA ICT: {WorkflowVariable:zm_DT-01-01-34}” (…)
-  > **Wskazówka migracji**: Zapis audytowy do dziennika zdarzeń (Audit Log). (APEX: `APEX_DEBUG.INFO() lub INSERT INTO t_workflow_history(run_id, item_id, message, created_at);`)
+  > **Wskazówka migracji**: Zapis audytowy do dziennika zdarzeń (Audit Log).
+  ```plsql
+  apex_debug.info('Workflow: ' || 'DT-01-01-34 Usługa DORA ICT: ' || l_zm_dt_01_01_34 || '
+  DT-01-01-38 Usługa DORA ICT Krytyczna: ' || l_zm_dt_01_01_38 || '
+  DT-01-02-01: Ryzyko koncentracji: ' || l_zm_dt_01_02_01);
+  ```
   <details><summary>Szczegóły techniczne</summary>
 
   ```
@@ -238,7 +317,19 @@ DT-01-02-01: Ryzyko koncentracji: {WorkflowVariable:zm_DT-01-02-01}
   ```
   </details>
 - `[n17]` Zaktualizuj element w bieżącym elemencie: ustaw pola Usługa ICT wg DORA? (DT.01.01.34) (Us_x0142_uga_x0020_kwalifikowana), Usługa krytyczna wg DORA? (DT.01.01.38) (Us_x0142_uga_x0020_krytyczna_x000), Ryzyko koncentracji? (DT.01.02.01) (Zwi_x0119_kszone_x0020_ryzyko_x0).
-  > **Wskazówka migracji**: Aktualizacja danych elementu (Usługa ICT wg DORA? (DT.01.01.34) (Us_x0142_uga_x0020_kwalifikowana), Usługa krytyczna wg DORA? (DT.01.01.38) (Us_x0142_uga_x0020_krytyczna_x000), Ryzyko koncentracji? (DT.01.02.01) (Zwi_x0119_kszone_x0020_ryzyko_x0)). W systemie docelowym UPDATE lub REST PATCH/MERGE. (APEX: `UPDATE tabela SET ... WHERE id = :id; lub REST MERGE z nagłówkiem If-Match (weryfikacja ETag).`)
+  > **Wskazówka migracji**: Aktualizacja danych elementu (Usługa ICT wg DORA? (DT.01.01.34) (Us_x0142_uga_x0020_kwalifikowana), Usługa krytyczna wg DORA? (DT.01.01.38) (Us_x0142_uga_x0020_krytyczna_x000), Ryzyko koncentracji? (DT.01.02.01) (Zwi_x0119_kszone_x0020_ryzyko_x0)). W systemie docelowym UPDATE lub REST PATCH/MERGE.
+  ```plsql
+  l_resp := shp_api.update_list_item(
+      p_site_url    => c_site_url,
+      p_list_title  => 'Kwalifikacja Usług',
+      p_item_id     => p_item_id,
+      p_fields_json => json_object(
+          'Us_x0142_uga_x0020_kwalifikowana' value l_us_uga_ict_wg_dora_dt_01_01_34,
+          'Us_x0142_uga_x0020_krytyczna_x000' value l_us_uga_krytyczna_wg_dora_dt_01_01_38,
+          'Zwi_x0119_kszone_x0020_ryzyko_x0' value l_ryzyko_koncentracji_dt_01_02_01
+      )
+  );
+  ```
   <details><summary>Szczegóły techniczne</summary>
 
   ```
@@ -286,3 +377,74 @@ DT-01-02-01: Ryzyko koncentracji: {WorkflowVariable:zm_DT-01-02-01}
 | Usługa krytyczna wg DORA? (DT.01.01.38) | `Us_x0142_uga_x0020_krytyczna_x000` | Tekst/Ref | - | Tak |
 | Usługa ICT wg DORA? (DT.01.01.34) | `Us_x0142_uga_x0020_kwalifikowana` | Tekst/Ref | - | Tak |
 | Ryzyko koncentracji? (DT.01.02.01) | `Zwi_x0119_kszone_x0020_ryzyko_x0` | Tekst/Ref | - | Tak |
+
+## Kompletna procedura orkiestracji PL/SQL (Oracle APEX / SHP_API)
+
+Poniższy kod stanowi gotowy, kompletny szkielet procedury PL/SQL do wdrożenia w Oracle APEX, realizujący całą logikę workflow za pośrednictwem pakietu `SHP_API`:
+
+```plsql
+CREATE OR REPLACE PROCEDURE process_wf_dt01_mechanizm_kwalifikacji_us_ugi (
+    p_item_id IN NUMBER
+) AS
+    c_site_url CONSTANT VARCHAR2(400) := 'https://sharepoint.domain.com/sites/...';
+    l_item_json CLOB;
+    l_resp      CLOB;
+    l_ref_json  CLOB;
+    -- Zmienne workflow:
+    l_zm_dt_01_01_34               VARCHAR2(4000);
+    l_zm_dt_01_01_38               VARCHAR2(4000);
+    l_zm_dt_01_02_01               VARCHAR2(4000);
+BEGIN
+    apex_debug.info('Start workflow: DT01 Mechanizm Kwalifikacji Usługi, item_id: ' || p_item_id);
+
+    -- 1. Pobranie danych biezacego elementu
+    l_item_json := shp_api.get_list_item(
+        p_site_url   => c_site_url,
+        p_list_title => 'Kwalifikacja Usług',
+        p_item_id    => p_item_id
+    );
+
+    -- 2. Logika biznesowa workflow
+    IF (json_value(l_item_json, '$.data.DT_x002e_01') = 'Tak') OR (json_value(l_item_json, '$.data.Model_x0020_kontraktowy_x0020__x') = 'ATU') THEN
+        l_zm_dt_01_01_34 := 'Nie';
+    ELSE
+        IF json_value(l_item_json, '$.data.DT_x002e_03') = 'Tak' THEN
+            IF json_value(l_item_json, '$.data.Typ_x0020_us_x0142_ugi_x0020_ICT0') = 'eba_TA:S00' THEN
+                l_zm_dt_01_01_34 := 'Nie';
+            ELSE
+                l_zm_dt_01_01_34 := 'Tak';
+            END IF;
+        ELSE
+            l_zm_dt_01_01_34 := 'Nie';
+        END IF;
+    END IF;
+    IF l_zm_dt_01_01_34 = 'Tak' THEN
+        IF (json_value(l_item_json, '$.data.Us_x0142_uga_x0020_krytyczna_x00') = 'Tak') OR (json_value(l_item_json, '$.data.Funkcja_x0020_krytyczna') NOT LIKE '%' || 'F0' || '%') THEN
+            l_zm_dt_01_01_38 := 'Tak';
+            IF (json_value(l_item_json, '$.data.Dostawca_x0020__x0028_DT_x002e_0') = NULL) AND (json_value(l_item_json, '$.data.S_x0105__x0020_inne_x0020_us_x01') = 'Tak') THEN
+                l_zm_dt_01_02_01 := 'Tak';
+            END IF;
+        ELSE
+            l_zm_dt_01_01_38 := 'Nie';
+        END IF;
+    ELSE
+        l_zm_dt_01_01_38 := 'Nie';
+    END IF;
+    apex_debug.info('Workflow: ' || 'DT-01-01-34 Usługa DORA ICT: ' || l_zm_dt_01_01_34 || '
+    DT-01-01-38 Usługa DORA ICT Krytyczna: ' || l_zm_dt_01_01_38 || '
+    DT-01-02-01: Ryzyko koncentracji: ' || l_zm_dt_01_02_01);
+    l_resp := shp_api.update_list_item(
+        p_site_url    => c_site_url,
+        p_list_title  => 'Kwalifikacja Usług',
+        p_item_id     => p_item_id,
+        p_fields_json => json_object(
+            'Us_x0142_uga_x0020_kwalifikowana' value l_us_uga_ict_wg_dora_dt_01_01_34,
+            'Us_x0142_uga_x0020_krytyczna_x000' value l_us_uga_krytyczna_wg_dora_dt_01_01_38,
+            'Zwi_x0119_kszone_x0020_ryzyko_x0' value l_ryzyko_koncentracji_dt_01_02_01
+        )
+    );
+
+    apex_debug.info('Koniec workflow: DT01 Mechanizm Kwalifikacji Usługi, item_id: ' || p_item_id);
+END process_wf_dt01_mechanizm_kwalifikacji_us_ugi;
+/
+```

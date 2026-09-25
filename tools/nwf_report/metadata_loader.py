@@ -95,8 +95,14 @@ class FieldResolver:
     def __init__(self, list_references, site_metadata: SiteMetadata | None = None, source_list_id: str = ""):
         self._by_list_and_name: dict[str, dict[str, str]] = {}  # list_id/list_name (lower) -> {internal_name: title}
         self._by_internal_name: dict[str, str] = {}  # fallback bez kontekstu listy (gdy nazwa jednoznaczna)
+        self._list_id_to_name: dict[str, str] = {}
         self.source_list_id = source_list_id
+        self.source_list_name = ""
         for lr in list_references:
+            if lr.list_id and lr.list_name:
+                self._list_id_to_name[_norm_guid(lr.list_id)] = lr.list_name
+            if lr.is_source_list and lr.list_name:
+                self.source_list_name = lr.list_name
             per_list: dict[str, str] = {}
             for f in lr.fields:
                 if not f.internal_name:
@@ -109,6 +115,23 @@ class FieldResolver:
             if lr.list_name:
                 self._by_list_and_name[lr.list_name.lower()] = per_list
         self._site_metadata = site_metadata or SiteMetadata()
+
+    def get_list_name(self, list_hint: str = "") -> str:
+        """Zwraca czytelną nazwę listy na podstawie GUID-a lub podpowiedzi listy."""
+        if not list_hint:
+            list_hint = self.source_list_id
+        if not list_hint:
+            return self.source_list_name or "Lista_Docelowa"
+        norm = _norm_guid(list_hint)
+        if norm in self._list_id_to_name:
+            return self._list_id_to_name[norm]
+        list_info = self._site_metadata.lists_by_id.get(norm)
+        if list_info and list_info.title:
+            return list_info.title
+        list_info = self._site_metadata.lists_by_title.get(list_hint.lower())
+        if list_info and list_info.title:
+            return list_info.title
+        return self.source_list_name or list_hint
 
     def resolve(self, internal_name: str, list_hint: str = "") -> str:
         if not internal_name:

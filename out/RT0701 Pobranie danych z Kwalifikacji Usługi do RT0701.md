@@ -44,7 +44,15 @@ flowchart TD
 ## Kroki workflow
 
 - `[n1]` Start workflow 'RT0701 Pobranie danych z Kwalifikacji Usługi do RT0701'. Uruchamiane: ręcznie, przy utworzeniu elementu, przy zmianie elementu.
-  > **Wskazówka migracji**: Wyzwalacz procesu (Triggers: ręcznie, przy utworzeniu elementu, przy zmianie elementu). Punkt wejścia przyjmujący parametr itemId. (APEX: `Wywołanie z endpointu REST / ORDS lub trigger bazodanowy / start procesu w Flows for APEX.`)
+  > **Wskazówka migracji**: Wyzwalacz procesu (Triggers: ręcznie, przy utworzeniu elementu, przy zmianie elementu). Punkt wejścia przyjmujący parametr itemId.
+  ```plsql
+  -- Pobranie bieżącego elementu przed rozpoczęciem logiki workflow:
+  l_item_json := shp_api.get_list_item(
+      p_site_url   => c_site_url,
+      p_list_title => 'Rejestr Ocen',
+      p_item_id    => p_item_id
+  );
+  ```
   <details><summary>Szczegóły techniczne</summary>
 
   ```
@@ -78,7 +86,15 @@ flowchart TD
   ```
   </details>
 - `[n2]` Ustaw pole Nr ROC (Title) na wartość: „ROC-{ItemProperty:ID}”.
-  > **Wskazówka migracji**: Ustawienie pola Nr ROC (Title) = 'ROC-{ItemProperty:ID}'. (APEX: `UPDATE tabela SET Title = 'ROC-{ItemProperty:ID}' WHERE id = :id;`)
+  > **Wskazówka migracji**: Ustawienie pola Nr ROC (Title) = 'ROC-{ItemProperty:ID}'.
+  ```plsql
+  l_resp := shp_api.update_list_item(
+      p_site_url    => c_site_url,
+      p_list_title  => 'Rejestr Ocen',
+      p_item_id     => p_item_id,
+      p_fields_json => json_object('Title' value 'ROC-' || TO_CHAR(p_item_id))
+  );
+  ```
   <details><summary>Szczegóły techniczne</summary>
 
   ```
@@ -88,7 +104,16 @@ flowchart TD
   ```
   </details>
     - `[n3]` Ustaw zmienną zm_DT_01_01_02: Zapisz w zmiennej 'zm_DT_01_01_02' wartość: wartość pola Nr CRK (DT.01.01.02) (Umowa_x0020__x0028_DT_x002e_01_x) z elementu wyszukanego po Kwalifikacja usług (07.01) (Kwalifikacja_x0020_us_x0142_ug_x) (dopasowanie po ID).
-      > **Wskazówka migracji**: Obliczenie/odczyt i zapis do zmiennej lokalnej 'zm_DT_01_01_02'. (APEX: `l_zm_DT_01_01_02 := wartość pola Nr CRK (DT.01.01.02) (Umowa_x0020__x0028_DT_x002e_01_x) z elementu wyszukanego po Kwalifikacja usług (07.01) (Kwalifikacja_x0020_us_x0142_ug_x) (dopasowanie po ID); lub flow_process.set_var(p_process_id, 'zm_DT_01_01_02', ...);`)
+      > **Wskazówka migracji**: Obliczenie/odczyt i zapis do zmiennej lokalnej 'zm_DT_01_01_02'.
+      ```plsql
+      -- Pobranie powiązanego rekordu z Kwalifikacja Usług:
+      l_ref_json := shp_api.get_list_item(
+          p_site_url   => c_site_url,
+          p_list_title => 'Kwalifikacja Usług',
+          p_item_id    => json_value(l_item_json, '$.data.Kwalifikacja_x0020_us_x0142_ug_x')
+      );
+      l_zm_dt_01_01_02 := json_value(l_ref_json, '$.data.Umowa_x0020__x0028_DT_x002e_01_x');
+      ```
       <details><summary>Szczegóły techniczne</summary>
 
       ```
@@ -98,7 +123,16 @@ flowchart TD
       ```
       </details>
     - `[n4]` Typ Usług ICT (07.01): Zapisz w zmiennej 'zm_DT-01-01-32' wartość: wartość pola Typ usługi ICT (DT.01.01.32) (Typ_x0020_us_x0142_ugi_x0020_ICT) z elementu wyszukanego po Kwalifikacja usług (07.01) (Kwalifikacja_x0020_us_x0142_ug_x) (dopasowanie po ID).
-      > **Wskazówka migracji**: Obliczenie/odczyt i zapis do zmiennej lokalnej 'zm_DT-01-01-32'. (APEX: `l_zm_DT_01_01_32 := wartość pola Typ usługi ICT (DT.01.01.32) (Typ_x0020_us_x0142_ugi_x0020_ICT) z elementu wyszukanego po Kwalifikacja usług (07.01) (Kwalifikacja_x0020_us_x0142_ug_x) (dopasowanie po ID); lub flow_process.set_var(p_process_id, 'zm_DT-01-01-32', ...);`)
+      > **Wskazówka migracji**: Obliczenie/odczyt i zapis do zmiennej lokalnej 'zm_DT-01-01-32'.
+      ```plsql
+      -- Pobranie powiązanego rekordu z Kwalifikacja Usług:
+      l_ref_json := shp_api.get_list_item(
+          p_site_url   => c_site_url,
+          p_list_title => 'Kwalifikacja Usług',
+          p_item_id    => json_value(l_item_json, '$.data.Kwalifikacja_x0020_us_x0142_ug_x')
+      );
+      l_zm_dt_01_01_32 := json_value(l_ref_json, '$.data.Typ_x0020_us_x0142_ugi_x0020_ICT');
+      ```
       <details><summary>Szczegóły techniczne</summary>
 
       ```
@@ -108,7 +142,16 @@ flowchart TD
       ```
       </details>
     - `[n5]` Dostawca (DT.01.01.03): Zapisz w zmiennej 'zm_DT-01-01-03' wartość: wartość pola Dostawca (DT.01.01.03) (Dostawca_x0020__x0028_DT_x002e_0) z elementu wyszukanego po Kwalifikacja usług (07.01) (Kwalifikacja_x0020_us_x0142_ug_x) (dopasowanie po ID).
-      > **Wskazówka migracji**: Obliczenie/odczyt i zapis do zmiennej lokalnej 'zm_DT-01-01-03'. (APEX: `l_zm_DT_01_01_03 := wartość pola Dostawca (DT.01.01.03) (Dostawca_x0020__x0028_DT_x002e_0) z elementu wyszukanego po Kwalifikacja usług (07.01) (Kwalifikacja_x0020_us_x0142_ug_x) (dopasowanie po ID); lub flow_process.set_var(p_process_id, 'zm_DT-01-01-03', ...);`)
+      > **Wskazówka migracji**: Obliczenie/odczyt i zapis do zmiennej lokalnej 'zm_DT-01-01-03'.
+      ```plsql
+      -- Pobranie powiązanego rekordu z Kwalifikacja Usług:
+      l_ref_json := shp_api.get_list_item(
+          p_site_url   => c_site_url,
+          p_list_title => 'Kwalifikacja Usług',
+          p_item_id    => json_value(l_item_json, '$.data.Kwalifikacja_x0020_us_x0142_ug_x')
+      );
+      l_zm_dt_01_01_03 := json_value(l_ref_json, '$.data.Dostawca_x0020__x0028_DT_x002e_0');
+      ```
       <details><summary>Szczegóły techniczne</summary>
 
       ```
@@ -118,7 +161,19 @@ flowchart TD
       ```
       </details>
 - `[n6]` Zaktualizuj element w bieżącym elemencie: ustaw pola Nr CRK (07.01.0010) (Numer_x0020_referencyjny_x0020__), Typ usług ICT (07.01) (Typ_x0020_us_x0142_ug_x0020_ICT_), Dostawca usług ICT (02.02.0030) (Kod_x0020_dostawcy_x0020_us_x014).
-  > **Wskazówka migracji**: Aktualizacja danych elementu (Nr CRK (07.01.0010) (Numer_x0020_referencyjny_x0020__), Typ usług ICT (07.01) (Typ_x0020_us_x0142_ug_x0020_ICT_), Dostawca usług ICT (02.02.0030) (Kod_x0020_dostawcy_x0020_us_x014)). W systemie docelowym UPDATE lub REST PATCH/MERGE. (APEX: `UPDATE tabela SET ... WHERE id = :id; lub REST MERGE z nagłówkiem If-Match (weryfikacja ETag).`)
+  > **Wskazówka migracji**: Aktualizacja danych elementu (Nr CRK (07.01.0010) (Numer_x0020_referencyjny_x0020__), Typ usług ICT (07.01) (Typ_x0020_us_x0142_ug_x0020_ICT_), Dostawca usług ICT (02.02.0030) (Kod_x0020_dostawcy_x0020_us_x014)). W systemie docelowym UPDATE lub REST PATCH/MERGE.
+  ```plsql
+  l_resp := shp_api.update_list_item(
+      p_site_url    => c_site_url,
+      p_list_title  => 'Rejestr Ocen',
+      p_item_id     => p_item_id,
+      p_fields_json => json_object(
+          'Numer_x0020_referencyjny_x0020__' value l_nr_crk_07_01_0010,
+          'Typ_x0020_us_x0142_ug_x0020_ICT_' value l_typ_us_ug_ict_07_01,
+          'Kod_x0020_dostawcy_x0020_us_x014' value l_dostawca_us_ug_ict_02_02_0030
+      )
+  );
+  ```
   <details><summary>Szczegóły techniczne</summary>
 
   ```
@@ -127,9 +182,21 @@ flowchart TD
   ```
   </details>
 - `[n7]` Zapisz (zatwierdź) zebrane zmiany w elemencie.
-  > **Wskazówka migracji**: Zatwierdzenie bieżącego stanu transakcji (COMMIT). (APEX: `COMMIT; lub przejście etapu procesu BPMN.`)
+  > **Wskazówka migracji**: Zatwierdzenie bieżącego stanu transakcji (COMMIT).
+  ```plsql
+  -- Zmiany zatwierdzone przez shp_api.update_list_item
+  ```
     - `[n8]` Zastępowalność Dostawcy (DT.01.02.13): Zapisz w zmiennej 'zm_DT-01-02-13' wartość: wartość pola Zastępowalność Dostawcy (DT.01.02.13) (Zast_x0119_powalno_x015b__x0107_) z elementu wyszukanego po Kwalifikacja usług (07.01) (Kwalifikacja_x0020_us_x0142_ug_x) (dopasowanie po ID).
-      > **Wskazówka migracji**: Obliczenie/odczyt i zapis do zmiennej lokalnej 'zm_DT-01-02-13'. (APEX: `l_zm_DT_01_02_13 := wartość pola Zastępowalność Dostawcy (DT.01.02.13) (Zast_x0119_powalno_x015b__x0107_) z elementu wyszukanego po Kwalifikacja usług (07.01) (Kwalifikacja_x0020_us_x0142_ug_x) (dopasowanie po ID); lub flow_process.set_var(p_process_id, 'zm_DT-01-02-13', ...);`)
+      > **Wskazówka migracji**: Obliczenie/odczyt i zapis do zmiennej lokalnej 'zm_DT-01-02-13'.
+      ```plsql
+      -- Pobranie powiązanego rekordu z Kwalifikacja Usług:
+      l_ref_json := shp_api.get_list_item(
+          p_site_url   => c_site_url,
+          p_list_title => 'Kwalifikacja Usług',
+          p_item_id    => json_value(l_item_json, '$.data.Kwalifikacja_x0020_us_x0142_ug_x')
+      );
+      l_zm_dt_01_02_13 := json_value(l_ref_json, '$.data.Zast_x0119_powalno_x015b__x0107_');
+      ```
       <details><summary>Szczegóły techniczne</summary>
 
       ```
@@ -139,7 +206,16 @@ flowchart TD
       ```
       </details>
     - `[n9]` Ustaw zmienną zm_DT-01-02-14: Zapisz w zmiennej 'zm_DT-01-02-14' wartość: wartość pola Możliwość reintegracji usług (DT.01.02.14) (Mo_x017c_liwo_x015b__x0107__x002) z elementu wyszukanego po Kwalifikacja usług (07.01) (Kwalifikacja_x0020_us_x0142_ug_x) (dopasowanie po ID).
-      > **Wskazówka migracji**: Obliczenie/odczyt i zapis do zmiennej lokalnej 'zm_DT-01-02-14'. (APEX: `l_zm_DT_01_02_14 := wartość pola Możliwość reintegracji usług (DT.01.02.14) (Mo_x017c_liwo_x015b__x0107__x002) z elementu wyszukanego po Kwalifikacja usług (07.01) (Kwalifikacja_x0020_us_x0142_ug_x) (dopasowanie po ID); lub flow_process.set_var(p_process_id, 'zm_DT-01-02-14', ...);`)
+      > **Wskazówka migracji**: Obliczenie/odczyt i zapis do zmiennej lokalnej 'zm_DT-01-02-14'.
+      ```plsql
+      -- Pobranie powiązanego rekordu z Kwalifikacja Usług:
+      l_ref_json := shp_api.get_list_item(
+          p_site_url   => c_site_url,
+          p_list_title => 'Kwalifikacja Usług',
+          p_item_id    => json_value(l_item_json, '$.data.Kwalifikacja_x0020_us_x0142_ug_x')
+      );
+      l_zm_dt_01_02_14 := json_value(l_ref_json, '$.data.Mo_x017c_liwo_x015b__x0107__x002');
+      ```
       <details><summary>Szczegóły techniczne</summary>
 
       ```
@@ -149,7 +225,16 @@ flowchart TD
       ```
       </details>
     - `[n10]` Ustaw zmienną zm_DT-01-02-15: Zapisz w zmiennej 'zm_DT-01-02-15' wartość: wartość pola Skutek zaprzestania świadczenia usł. (DT.01.02.15) (Skutki_x0020_zaprzestania_x0020_) z elementu wyszukanego po Kwalifikacja usług (07.01) (Kwalifikacja_x0020_us_x0142_ug_x) (dopasowanie po ID).
-      > **Wskazówka migracji**: Obliczenie/odczyt i zapis do zmiennej lokalnej 'zm_DT-01-02-15'. (APEX: `l_zm_DT_01_02_15 := wartość pola Skutek zaprzestania świadczenia usł. (DT.01.02.15) (Skutki_x0020_zaprzestania_x0020_) z elementu wyszukanego po Kwalifikacja usług (07.01) (Kwalifikacja_x0020_us_x0142_ug_x) (dopasowanie po ID); lub flow_process.set_var(p_process_id, 'zm_DT-01-02-15', ...);`)
+      > **Wskazówka migracji**: Obliczenie/odczyt i zapis do zmiennej lokalnej 'zm_DT-01-02-15'.
+      ```plsql
+      -- Pobranie powiązanego rekordu z Kwalifikacja Usług:
+      l_ref_json := shp_api.get_list_item(
+          p_site_url   => c_site_url,
+          p_list_title => 'Kwalifikacja Usług',
+          p_item_id    => json_value(l_item_json, '$.data.Kwalifikacja_x0020_us_x0142_ug_x')
+      );
+      l_zm_dt_01_02_15 := json_value(l_ref_json, '$.data.Skutki_x0020_zaprzestania_x0020_');
+      ```
       <details><summary>Szczegóły techniczne</summary>
 
       ```
@@ -159,7 +244,19 @@ flowchart TD
       ```
       </details>
 - `[n11]` Zaktualizuj element w bieżącym elemencie: ustaw pola Zastępowalność Dostawcy (07.01.0050) (Zast_x0119_powalno_x015b__x0107_), Możliwość reintegracji usług (07.01.0090) (Mo_x017c_liwo_x015b__x0107__x002), Skutki zaprzestania świadczenia usł. (07.01.00100) (_x0030_0100_x0020_Skutki_x0020_z).
-  > **Wskazówka migracji**: Aktualizacja danych elementu (Zastępowalność Dostawcy (07.01.0050) (Zast_x0119_powalno_x015b__x0107_), Możliwość reintegracji usług (07.01.0090) (Mo_x017c_liwo_x015b__x0107__x002), Skutki zaprzestania świadczenia usł. (07.01.00100) (_x0030_0100_x0020_Skutki_x0020_z)). W systemie docelowym UPDATE lub REST PATCH/MERGE. (APEX: `UPDATE tabela SET ... WHERE id = :id; lub REST MERGE z nagłówkiem If-Match (weryfikacja ETag).`)
+  > **Wskazówka migracji**: Aktualizacja danych elementu (Zastępowalność Dostawcy (07.01.0050) (Zast_x0119_powalno_x015b__x0107_), Możliwość reintegracji usług (07.01.0090) (Mo_x017c_liwo_x015b__x0107__x002), Skutki zaprzestania świadczenia usł. (07.01.00100) (_x0030_0100_x0020_Skutki_x0020_z)). W systemie docelowym UPDATE lub REST PATCH/MERGE.
+  ```plsql
+  l_resp := shp_api.update_list_item(
+      p_site_url    => c_site_url,
+      p_list_title  => 'Rejestr Ocen',
+      p_item_id     => p_item_id,
+      p_fields_json => json_object(
+          'Zast_x0119_powalno_x015b__x0107_' value l_zast_powalno_dostawcy_07_01_0050,
+          'Mo_x017c_liwo_x015b__x0107__x002' value l_mo_liwo_reintegracji_us_ug_07_01_0090,
+          '_x0030_0100_x0020_Skutki_x0020_z' value l_skutki_zaprzestania_wiadczenia_us_07_01_00100
+      )
+  );
+  ```
   <details><summary>Szczegóły techniczne</summary>
 
   ```
@@ -168,9 +265,20 @@ flowchart TD
   ```
   </details>
 - `[n12]` Zapisz (zatwierdź) zebrane zmiany w elemencie.
-  > **Wskazówka migracji**: Zatwierdzenie bieżącego stanu transakcji (COMMIT). (APEX: `COMMIT; lub przejście etapu procesu BPMN.`)
+  > **Wskazówka migracji**: Zatwierdzenie bieżącego stanu transakcji (COMMIT).
+  ```plsql
+  -- Zmiany zatwierdzone przez shp_api.update_list_item
+  ```
 - `[n13]` Zapisz wpis w historii przepływu: „Nr CRK (zm_DT-01-01-02): {WorkflowVariable:zm_DT_01_01_02}” (…)
-  > **Wskazówka migracji**: Zapis audytowy do dziennika zdarzeń (Audit Log). (APEX: `APEX_DEBUG.INFO() lub INSERT INTO t_workflow_history(run_id, item_id, message, created_at);`)
+  > **Wskazówka migracji**: Zapis audytowy do dziennika zdarzeń (Audit Log).
+  ```plsql
+  apex_debug.info('Workflow: ' || 'Nr CRK (zm_DT-01-01-02): ' || l_zm_dt_01_01_02 || '
+  Typ usług ICT (zm_DT-01-01-32): ' || l_zm_dt_01_01_32 || '
+  Dostawca (zm_DT-01-01-03):' || l_zm_dt_01_01_03 || '
+  Zastępowalność Dostawcy (zm_DT-01-02-13): ' || l_zm_dt_01_02_13 || '
+  Możliwość reintegracji usług (zm_DT-01-02-14): ' || l_zm_dt_01_02_14 || '
+  Skutki zaprzestania świadczenia usł. (zm_DT-01-02-15): ' || l_zm_dt_01_02_15);
+  ```
   <details><summary>Szczegóły techniczne</summary>
 
   ```
@@ -227,3 +335,115 @@ Skutki zaprzestania świadczenia usł. (zm_DT-01-02-15): {WorkflowVariable:zm_DT
 | Nr CRK (DT.01.01.02) | `Umowa_x0020__x0028_DT_x002e_01_x` | Tekst/Ref | Tak | - |
 | Zastępowalność Dostawcy (DT.01.02.13) | `Zast_x0119_powalno_x015b__x0107_` | Tekst/Ref | Tak | Tak |
 | Skutki zaprzestania świadczenia usł. (07.01.00100) | `_x0030_0100_x0020_Skutki_x0020_z` | Tekst/Ref | - | Tak |
+
+## Kompletna procedura orkiestracji PL/SQL (Oracle APEX / SHP_API)
+
+Poniższy kod stanowi gotowy, kompletny szkielet procedury PL/SQL do wdrożenia w Oracle APEX, realizujący całą logikę workflow za pośrednictwem pakietu `SHP_API`:
+
+```plsql
+CREATE OR REPLACE PROCEDURE process_wf_rt0701_pobranie_danych_z_kwalifikacji_us_ugi_do_rt0701 (
+    p_item_id IN NUMBER
+) AS
+    c_site_url CONSTANT VARCHAR2(400) := 'https://sharepoint.domain.com/sites/...';
+    l_item_json CLOB;
+    l_resp      CLOB;
+    l_ref_json  CLOB;
+    -- Zmienne workflow:
+    l_zm_dt_01_01_03               VARCHAR2(4000);
+    l_zm_dt_01_01_32               VARCHAR2(4000);
+    l_zm_dt_01_02_13               VARCHAR2(4000);
+    l_zm_dt_01_02_14               VARCHAR2(4000);
+    l_zm_dt_01_02_15               VARCHAR2(4000);
+    l_zm_dt_01_01_02               VARCHAR2(4000);
+BEGIN
+    apex_debug.info('Start workflow: RT0701 Pobranie danych z Kwalifikacji Usługi do RT0701, item_id: ' || p_item_id);
+
+    -- 1. Pobranie danych biezacego elementu
+    l_item_json := shp_api.get_list_item(
+        p_site_url   => c_site_url,
+        p_list_title => 'Rejestr Ocen',
+        p_item_id    => p_item_id
+    );
+
+    -- 2. Logika biznesowa workflow
+    l_resp := shp_api.update_list_item(
+        p_site_url    => c_site_url,
+        p_list_title  => 'Rejestr Ocen',
+        p_item_id     => p_item_id,
+        p_fields_json => json_object('Title' value 'ROC-' || TO_CHAR(p_item_id))
+    );
+    -- Pobranie powiązanego rekordu z Kwalifikacja Usług:
+    l_ref_json := shp_api.get_list_item(
+        p_site_url   => c_site_url,
+        p_list_title => 'Kwalifikacja Usług',
+        p_item_id    => json_value(l_item_json, '$.data.Kwalifikacja_x0020_us_x0142_ug_x')
+    );
+    l_zm_dt_01_01_02 := json_value(l_ref_json, '$.data.Umowa_x0020__x0028_DT_x002e_01_x');
+    -- Pobranie powiązanego rekordu z Kwalifikacja Usług:
+    l_ref_json := shp_api.get_list_item(
+        p_site_url   => c_site_url,
+        p_list_title => 'Kwalifikacja Usług',
+        p_item_id    => json_value(l_item_json, '$.data.Kwalifikacja_x0020_us_x0142_ug_x')
+    );
+    l_zm_dt_01_01_32 := json_value(l_ref_json, '$.data.Typ_x0020_us_x0142_ugi_x0020_ICT');
+    -- Pobranie powiązanego rekordu z Kwalifikacja Usług:
+    l_ref_json := shp_api.get_list_item(
+        p_site_url   => c_site_url,
+        p_list_title => 'Kwalifikacja Usług',
+        p_item_id    => json_value(l_item_json, '$.data.Kwalifikacja_x0020_us_x0142_ug_x')
+    );
+    l_zm_dt_01_01_03 := json_value(l_ref_json, '$.data.Dostawca_x0020__x0028_DT_x002e_0');
+    l_resp := shp_api.update_list_item(
+        p_site_url    => c_site_url,
+        p_list_title  => 'Rejestr Ocen',
+        p_item_id     => p_item_id,
+        p_fields_json => json_object(
+            'Numer_x0020_referencyjny_x0020__' value l_nr_crk_07_01_0010,
+            'Typ_x0020_us_x0142_ug_x0020_ICT_' value l_typ_us_ug_ict_07_01,
+            'Kod_x0020_dostawcy_x0020_us_x014' value l_dostawca_us_ug_ict_02_02_0030
+        )
+    );
+    -- Zmiany zatwierdzone przez shp_api.update_list_item
+    -- Pobranie powiązanego rekordu z Kwalifikacja Usług:
+    l_ref_json := shp_api.get_list_item(
+        p_site_url   => c_site_url,
+        p_list_title => 'Kwalifikacja Usług',
+        p_item_id    => json_value(l_item_json, '$.data.Kwalifikacja_x0020_us_x0142_ug_x')
+    );
+    l_zm_dt_01_02_13 := json_value(l_ref_json, '$.data.Zast_x0119_powalno_x015b__x0107_');
+    -- Pobranie powiązanego rekordu z Kwalifikacja Usług:
+    l_ref_json := shp_api.get_list_item(
+        p_site_url   => c_site_url,
+        p_list_title => 'Kwalifikacja Usług',
+        p_item_id    => json_value(l_item_json, '$.data.Kwalifikacja_x0020_us_x0142_ug_x')
+    );
+    l_zm_dt_01_02_14 := json_value(l_ref_json, '$.data.Mo_x017c_liwo_x015b__x0107__x002');
+    -- Pobranie powiązanego rekordu z Kwalifikacja Usług:
+    l_ref_json := shp_api.get_list_item(
+        p_site_url   => c_site_url,
+        p_list_title => 'Kwalifikacja Usług',
+        p_item_id    => json_value(l_item_json, '$.data.Kwalifikacja_x0020_us_x0142_ug_x')
+    );
+    l_zm_dt_01_02_15 := json_value(l_ref_json, '$.data.Skutki_x0020_zaprzestania_x0020_');
+    l_resp := shp_api.update_list_item(
+        p_site_url    => c_site_url,
+        p_list_title  => 'Rejestr Ocen',
+        p_item_id     => p_item_id,
+        p_fields_json => json_object(
+            'Zast_x0119_powalno_x015b__x0107_' value l_zast_powalno_dostawcy_07_01_0050,
+            'Mo_x017c_liwo_x015b__x0107__x002' value l_mo_liwo_reintegracji_us_ug_07_01_0090,
+            '_x0030_0100_x0020_Skutki_x0020_z' value l_skutki_zaprzestania_wiadczenia_us_07_01_00100
+        )
+    );
+    -- Zmiany zatwierdzone przez shp_api.update_list_item
+    apex_debug.info('Workflow: ' || 'Nr CRK (zm_DT-01-01-02): ' || l_zm_dt_01_01_02 || '
+    Typ usług ICT (zm_DT-01-01-32): ' || l_zm_dt_01_01_32 || '
+    Dostawca (zm_DT-01-01-03):' || l_zm_dt_01_01_03 || '
+    Zastępowalność Dostawcy (zm_DT-01-02-13): ' || l_zm_dt_01_02_13 || '
+    Możliwość reintegracji usług (zm_DT-01-02-14): ' || l_zm_dt_01_02_14 || '
+    Skutki zaprzestania świadczenia usł. (zm_DT-01-02-15): ' || l_zm_dt_01_02_15);
+
+    apex_debug.info('Koniec workflow: RT0701 Pobranie danych z Kwalifikacji Usługi do RT0701, item_id: ' || p_item_id);
+END process_wf_rt0701_pobranie_danych_z_kwalifikacji_us_ugi_do_rt0701;
+/
+```

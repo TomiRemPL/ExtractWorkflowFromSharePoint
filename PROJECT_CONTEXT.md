@@ -451,10 +451,15 @@ dedykowany handler.
 - Na kolejną sesję: ręcznie zweryfikować portal w szerokim i wąskim viewportcie, a następnie
   zdecydować, czy dodać testy Playwright dla drag/zoom, kliknięć SVG, wyszukiwania i nawigacji.
 
-## 9. Powiązane pliki pamięci (memory tool)
+## 11. Integracja z pakietem SHP_API (2026-09-24)
 
-- `/memories/repo/nwf_report_tool.md` — skrócone notatki repo-scoped (ten plik jest ich
-  rozwinięciem/uszczegółowieniem, przeznaczonym do czytania bezpośrednio z workspace, a nie
-  tylko przez system pamięci).
-- `/memories/session/plan.md` — oryginalny plan fazowy przygotowany przed implementacją
-  (Faza 1-4), zachowany dla historii decyzji.
+- **Pakiet źródłowy**: `shp_api.sql` — pakiet PL/SQL do bezpośredniej integracji z SharePoint SE 2019 (NTLMv2, endpointy REST `_api/web/lists`).
+- **Zastąpienie pseudokodu**: Teoretyczny pseudokod (`UPDATE tabela SET ...`) został zastąpiony konkretnymi wywołaniami funkcji pakietu:
+  - `shp_api.get_list_item(p_site_url, p_list_title, p_item_id)` — pobranie rekordu i odczyt przez `json_value(l_item_json, '$.data.<InternalName>')`.
+  - `shp_api.update_list_item(p_site_url, p_list_title, p_item_id, p_fields_json)` — aktualizacja pól SharePoint za pomocą `json_object('<InternalName>' value <expr>)`.
+  - Warunki logiczne generują rzeczywiste wyrażenia PL/SQL (`IF json_value(...) IS NULL THEN ...`).
+  - Logowanie historii używa `apex_debug.info(...)`.
+- **Kompletna procedura PL/SQL**: Każdy raport Markdown (`out/<wf>.md`) zawiera dedykowaną sekcję z kompletną, gotową do kompilacji procedurą `process_wf_<nazwa>(p_item_id IN NUMBER)` orkiestrującą workflow.
+- **Portal HTML**: Inspektor kafelka pokazuje dokładny kod wywołania `shp_api` dla wybranego kroku z przyciskiem „Kopiuj”, a pod diagramem dodano kartę prezentującą pełną procedurę PL/SQL wybranego workflow z przyciskiem „Kopiuj całą procedurę PL/SQL”.
+- **Testy**: Zestaw testów rozszerzono do 27 testów jednostkowych (`uv run pytest`), weryfikujących generowanie wywołań `shp_api` i procedury PL/SQL.
+

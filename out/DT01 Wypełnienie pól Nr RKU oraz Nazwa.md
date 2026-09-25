@@ -24,7 +24,15 @@ flowchart TD
 ## Kroki workflow
 
 - `[n1]` Start workflow 'DT01 Wypełnienie pól Nr RKU oraz Nazwa'. Uruchamiane: ręcznie, przy utworzeniu elementu, przy zmianie elementu.
-  > **Wskazówka migracji**: Wyzwalacz procesu (Triggers: ręcznie, przy utworzeniu elementu, przy zmianie elementu). Punkt wejścia przyjmujący parametr itemId. (APEX: `Wywołanie z endpointu REST / ORDS lub trigger bazodanowy / start procesu w Flows for APEX.`)
+  > **Wskazówka migracji**: Wyzwalacz procesu (Triggers: ręcznie, przy utworzeniu elementu, przy zmianie elementu). Punkt wejścia przyjmujący parametr itemId.
+  ```plsql
+  -- Pobranie bieżącego elementu przed rozpoczęciem logiki workflow:
+  l_item_json := shp_api.get_list_item(
+      p_site_url   => c_site_url,
+      p_list_title => 'Kwalifikacja Usług',
+      p_item_id    => p_item_id
+  );
+  ```
   <details><summary>Szczegóły techniczne</summary>
 
   ```
@@ -58,9 +66,22 @@ flowchart TD
   ```
   </details>
     - `[n2]` Wykonaj poniższe kroki TYLKO JEŻELI wartość pola Nr RKU (DT.01.01) (Nr_x0020_RKU) z bieżącego elementu jest puste
-      > **Wskazówka migracji**: Warunek wykonania bloku podrzędnego: IF (wartość pola Nr RKU (DT.01.01) (Nr_x0020_RKU) z bieżącego elementu jest puste). (APEX: `IF wartość pola Nr RKU (DT.01.01) (Nr_x0020_RKU) z bieżącego elementu jest puste THEN ... END IF;`)
+      > **Wskazówka migracji**: Warunek wykonania bloku podrzędnego: IF (wartość pola Nr RKU (DT.01.01) (Nr_x0020_RKU) z bieżącego elementu jest puste).
+      ```plsql
+      IF json_value(l_item_json, '$.data.Nr_x0020_RKU') IS NULL THEN
+          -- Akcje warunkowe
+      END IF;
+      ```
         - Ustaw pole Nr RKU (DT.01.01) (Nr_x0020_RKU) na wartość: „RKU-{ItemProperty:ID}”.
-          > **Wskazówka migracji**: Ustawienie pola Nr RKU (DT.01.01) (Nr_x0020_RKU) = 'RKU-{ItemProperty:ID}'. (APEX: `UPDATE tabela SET Nr_x0020_RKU = 'RKU-{ItemProperty:ID}' WHERE id = :id;`)
+          > **Wskazówka migracji**: Ustawienie pola Nr RKU (DT.01.01) (Nr_x0020_RKU) = 'RKU-{ItemProperty:ID}'.
+          ```plsql
+          l_resp := shp_api.update_list_item(
+              p_site_url    => c_site_url,
+              p_list_title  => 'Kwalifikacja Usług',
+              p_item_id     => p_item_id,
+              p_fields_json => json_object('Nr_x0020_RKU' value 'RKU-' || TO_CHAR(p_item_id))
+          );
+          ```
           <details><summary>Szczegóły techniczne</summary>
 
           ```
@@ -70,9 +91,22 @@ flowchart TD
           ```
           </details>
     - `[n3]` Wykonaj poniższe kroki TYLKO JEŻELI wartość pola Nazwa (Title) z bieżącego elementu jest puste
-      > **Wskazówka migracji**: Warunek wykonania bloku podrzędnego: IF (wartość pola Nazwa (Title) z bieżącego elementu jest puste). (APEX: `IF wartość pola Nazwa (Title) z bieżącego elementu jest puste THEN ... END IF;`)
+      > **Wskazówka migracji**: Warunek wykonania bloku podrzędnego: IF (wartość pola Nazwa (Title) z bieżącego elementu jest puste).
+      ```plsql
+      IF json_value(l_item_json, '$.data.Title') IS NULL THEN
+          -- Akcje warunkowe
+      END IF;
+      ```
         - Ustaw pole Nazwa (Title) na wartość: „{ItemProperty:Nazwa_x0020_us_x0142_ugi_x0020__}”.
-          > **Wskazówka migracji**: Ustawienie pola Nazwa (Title) = '{ItemProperty:Nazwa_x0020_us_x0142_ugi_x0020__}'. (APEX: `UPDATE tabela SET Title = '{ItemProperty:Nazwa_x0020_us_x0142_ugi_x0020__}' WHERE id = :id;`)
+          > **Wskazówka migracji**: Ustawienie pola Nazwa (Title) = '{ItemProperty:Nazwa_x0020_us_x0142_ugi_x0020__}'.
+          ```plsql
+          l_resp := shp_api.update_list_item(
+              p_site_url    => c_site_url,
+              p_list_title  => 'Kwalifikacja Usług',
+              p_item_id     => p_item_id,
+              p_fields_json => json_object('Title' value json_value(l_item_json, '$.data.Nazwa_x0020_us_x0142_ugi_x0020__'))
+          );
+          ```
           <details><summary>Szczegóły techniczne</summary>
 
           ```
@@ -95,3 +129,48 @@ flowchart TD
 |---|---|---|---|---|
 | Nr RKU (DT.01.01) | `Nr_x0020_RKU` | Tekst/Ref | Tak | Tak |
 | Nazwa | `Title` | Tekst/Ref | Tak | Tak |
+
+## Kompletna procedura orkiestracji PL/SQL (Oracle APEX / SHP_API)
+
+Poniższy kod stanowi gotowy, kompletny szkielet procedury PL/SQL do wdrożenia w Oracle APEX, realizujący całą logikę workflow za pośrednictwem pakietu `SHP_API`:
+
+```plsql
+CREATE OR REPLACE PROCEDURE process_wf_dt01_wype_nienie_p_l_nr_rku_oraz_nazwa (
+    p_item_id IN NUMBER
+) AS
+    c_site_url CONSTANT VARCHAR2(400) := 'https://sharepoint.domain.com/sites/...';
+    l_item_json CLOB;
+    l_resp      CLOB;
+    l_ref_json  CLOB;
+BEGIN
+    apex_debug.info('Start workflow: DT01 Wypełnienie pól Nr RKU oraz Nazwa, item_id: ' || p_item_id);
+
+    -- 1. Pobranie danych biezacego elementu
+    l_item_json := shp_api.get_list_item(
+        p_site_url   => c_site_url,
+        p_list_title => 'Kwalifikacja Usług',
+        p_item_id    => p_item_id
+    );
+
+    -- 2. Logika biznesowa workflow
+    IF json_value(l_item_json, '$.data.Nr_x0020_RKU') IS NULL THEN
+        l_resp := shp_api.update_list_item(
+            p_site_url    => c_site_url,
+            p_list_title  => 'Kwalifikacja Usług',
+            p_item_id     => p_item_id,
+            p_fields_json => json_object('Nr_x0020_RKU' value 'RKU-' || TO_CHAR(p_item_id))
+        );
+    END IF;
+    IF json_value(l_item_json, '$.data.Title') IS NULL THEN
+        l_resp := shp_api.update_list_item(
+            p_site_url    => c_site_url,
+            p_list_title  => 'Kwalifikacja Usług',
+            p_item_id     => p_item_id,
+            p_fields_json => json_object('Title' value json_value(l_item_json, '$.data.Nazwa_x0020_us_x0142_ugi_x0020__'))
+        );
+    END IF;
+
+    apex_debug.info('Koniec workflow: DT01 Wypełnienie pól Nr RKU oraz Nazwa, item_id: ' || p_item_id);
+END process_wf_dt01_wype_nienie_p_l_nr_rku_oraz_nazwa;
+/
+```
