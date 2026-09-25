@@ -41,6 +41,15 @@ _OPERATOR_PL = {
     "NotContains": "nie zawiera",
     "IsEmpty": "jest puste",
     "IsNotEmpty": "nie jest puste",
+    "Eq": "jest równe",
+    "Neq": "jest różne od",
+    "Gt": "jest większe niż",
+    "Lt": "jest mniejsze niż",
+    "Geq": "jest większe lub równe",
+    "Leq": "jest mniejsze lub równe",
+    "BeginsWith": "zaczyna się od",
+    "IsNull": "jest puste",
+    "IsNotNull": "nie jest puste",
 }
 
 
@@ -471,6 +480,383 @@ def _describe_structural(node: ActionNode, resolver: FieldResolver) -> ActionDes
     return ActionDescription(summary="", is_structural=True, action_type=_short_type(node.type))
 
 
+def _parse_caml_query_info(query_str: str, resolver: FieldResolver) -> tuple[str, str, list[str]]:
+    """Wyciąga tytuł listy, warunek <Where> i pola <FieldRef> z zagnieżdżonego CAML."""
+    if not query_str:
+        return "", "", []
+    try:
+        root = ET.fromstring(query_str)
+    except Exception:
+        return "", "", []
+
+    list_el = root.find(".//List")
+    list_name = ""
+    if list_el is not None:
+        list_name = list_el.get("Title") or ""
+        if not list_name and list_el.get("ID"):
+            list_name = resolver.get_list_name(list_el.get("ID"))
+
+    fields: list[str] = []
+    for f in root.findall(".//FieldRef"):
+        fn = f.get("Name")
+        if fn and fn not in fields:
+            fields.append(fn)
+
+    where_parts: list[str] = []
+    for comp in root.findall(".//Where/*"):
+        op = comp.tag
+        f_el = comp.find("FieldRef")
+        v_el = comp.find("Value")
+        f_name = f_el.get("Name", "") if f_el is not None else ""
+        v_val = v_el.text or "" if v_el is not None else ""
+        op_pl = _OPERATOR_PL.get(op, op)
+        if f_name and v_val:
+            where_parts.append(f"{f_name} {op_pl} '{v_val}'")
+        elif f_name:
+            where_parts.append(f"{f_name} ({op_pl})")
+
+    where_desc = " AND ".join(where_parts) if where_parts else "wszystkie elementy"
+    return list_name, where_desc, fields
+
+
+def _describe_build_string(node: ActionNode, resolver: FieldResolver) -> ActionDescription:
+    input_str = node.params.get("Input", "")
+    out_var = node.params.get("Output", "")
+    out_ident = _plsql_var(out_var) if out_var else "l_built_string"
+
+    expr = _plsql_expr_from_nintex_string(input_str)
+    plsql_code = f"{out_ident} := {expr};"
+    summary = f"Zbuduj ciąg tekstowy i przypisz do zmiennej {out_var or '(brak)'}."
+    if input_str:
+        summary += f" Wartość: {input_str[:120]}"
+
+    return ActionDescription(
+        summary=summary,
+        action_type="NWBuildStringAdapter",
+        label=node.b_label or node.t_label or "Zbuduj ciąg",
+        hint_universal=f"Przypisanie sformatowanego tekstu do zmiennej {out_var}.",
+        hint_apex=f"{out_ident} := ...;",
+        plsql_code=plsql_code,
+        technical_lines=[f"Input = {input_str}", f"Output = {out_var}"],
+    )
+
+
+def _describe_business_process(node: ActionNode, resolver: FieldResolver) -> ActionDescription:
+    label = node.b_label or node.t_label or "Etap procesu"
+    summary = f"Etap biznesowy: {label}."
+    plsql_code = f"-- =========================================\n-- Etap: {label}\n-- ========================================="
+    return ActionDescription(
+        summary=summary,
+        action_type="NWBusinessProcessAdapter",
+        label=label,
+        hint_universal=f"Wydzielony etap procesu biznesowego: {label}.",
+        hint_apex=f"-- Etap: {label}",
+        plsql_code=plsql_code,
+    )
+
+
+def _describe_calculate_date(node: ActionNode, resolver: FieldResolver) -> ActionDescription:
+    date_var = node.params.get("Date", "bieżąca data")
+    out_var = node.params.get("Output", "")
+    out_ident = _plsql_var(out_var) if out_var else "l_calculated_date"
+    base_ident = _plsql_var(date_var) if date_var else "SYSDATE"
+
+    parts = []
+    days = int(node.params.get("Days") or 0)
+    months = int(node.params.get("Months") or 0)
+    years = int(node.params.get("Years") or 0)
+    hours = int(node.params.get("Hours") or 0)
+    minutes = int(node.params.get("Minutes") or 0)
+
+    if years: parts.append(f"{years:+d} lat")
+    if months: parts.append(f"{months:+d} mies.")
+    if days: parts.append(f"{days:+d} dni")
+    if hours: parts.append(f"{hours:+d} godz.")
+    if minutes: parts.append(f"{minutes:+d} min")
+
+    offset_desc = ", ".join(parts) if parts else "bez przesunięcia"
+    summary = f"Oblicz datę: {date_var} ({offset_desc}) -> zapisz do zmiennej {out_var}."
+
+    calc_expr = base_ident
+    if months or years:
+        total_months = months + years * 12
+        calc_expr = f"ADD_MONTHS({calc_expr}, {total_months})"
+    if days:
+        calc_expr = f"({calc_expr} + {days})"
+    if hours or minutes:
+        total_days = hours / 24.0 + minutes / 1440.0
+        calc_expr = f"({calc_expr} + {total_days})"
+
+    plsql_code = f"{out_ident} := {calc_expr};"
+
+    return ActionDescription(
+        summary=summary,
+        action_type="NWCalculateDateAdapter",
+        label=node.b_label or node.t_label or "Oblicz datę",
+        hint_universal=f"Wyliczenie daty z przesunięciem ({offset_desc}).",
+        hint_apex=plsql_code,
+        plsql_code=plsql_code,
+        technical_lines=[f"Date = {date_var}", f"Offset = {offset_desc}", f"Output = {out_var}"],
+    )
+
+
+def _describe_collection_operation(node: ActionNode, resolver: FieldResolver) -> ActionDescription:
+    target = node.params.get("Target", "kolekcja")
+    op = node.params.get("Operation", "Get")
+    out = node.params.get("Output", "")
+    idx = node.params.get("Index", "")
+    delim = node.params.get("JoinDelimiter", "")
+
+    target_ident = _plsql_var(target)
+    out_ident = _plsql_var(out) if out else "l_res"
+    idx_ident = _plsql_var(idx) if idx else "1"
+
+    if op.lower() == "get":
+        summary = f"Pobierz element z indeksu {idx or '0'} kolekcji {target} do zmiennej {out}."
+        plsql_code = f"{out_ident} := {target_ident}({idx_ident});"
+    elif op.lower() == "count":
+        summary = f"Zlicz liczbę elementów w kolekcji {target} do zmiennej {out}."
+        plsql_code = f"{out_ident} := {target_ident}.COUNT;"
+    elif op.lower() == "join":
+        summary = f"Połącz elementy kolekcji {target} separatorem '{delim}' do zmiennej {out}."
+        plsql_code = f"{out_ident} := apex_string.join({target_ident}, '{delim}');"
+    else:
+        summary = f"Operacja '{op}' na kolekcji {target} -> {out}."
+        plsql_code = f"-- Operacja {op} na kolekcji {target_ident}"
+
+    return ActionDescription(
+        summary=summary,
+        action_type="NWCollectionAdapter",
+        label=node.b_label or node.t_label or f"Kolekcja: {op}",
+        hint_universal=f"Operacja tablicowa ({op}) na kolekcji {target}.",
+        hint_apex=plsql_code,
+        plsql_code=plsql_code,
+        technical_lines=[f"Target = {target}", f"Operation = {op}", f"Index = {idx}", f"Output = {out}"],
+    )
+
+
+def _describe_create_site_item(node: ActionNode, resolver: FieldResolver) -> ActionDescription:
+    raw_query = node.params.get("Query", "")
+    list_name, where_desc, fields = _parse_caml_query_info(raw_query, resolver)
+    if not list_name and node.b_label:
+        list_name = node.b_label
+    if not list_name:
+        list_name = "Lista docelowa"
+
+    out_var = node.params.get("Output", "")
+    out_ident = _plsql_var(out_var) if out_var else "l_new_item_id"
+
+    summary = f"Utwórz nowy element na liście '{list_name}'."
+    if out_var:
+        summary += f" Nowe ID -> zmienna {out_var}."
+
+    plsql_code = f"""{out_ident} := shp_api.create_list_item(
+    p_site_url    => c_site_url,
+    p_list_title  => '{list_name}',
+    p_fields_json => JSON_OBJECT('Title' VALUE 'Nowy element')
+);"""
+
+    return ActionDescription(
+        summary=summary,
+        action_type="NWCreateSiteSpecificItemAdapter",
+        label=node.t_label or f"Utwórz element w {list_name}",
+        hint_universal=f"Tworzenie nowego rekordu na liście {list_name}.",
+        hint_apex=f"{out_ident} := shp_api.create_list_item(...);",
+        plsql_code=plsql_code,
+        technical_lines=[f"Lista = {list_name}", f"Output = {out_var}"],
+    )
+
+
+def _describe_delay(node: ActionNode, resolver: FieldResolver) -> ActionDescription:
+    parts = []
+    days = int(node.params.get("Days") or 0)
+    hours = int(node.params.get("Hours") or 0)
+    minutes = int(node.params.get("Minutes") or 0)
+
+    if days: parts.append(f"{days} dni")
+    if hours: parts.append(f"{hours} godz.")
+    if minutes: parts.append(f"{minutes} min")
+
+    dur_desc = ", ".join(parts) if parts else "5 minut"
+    total_sec = days * 86400 + hours * 3600 + minutes * 60
+    if not total_sec:
+        total_sec = 300
+
+    summary = f"Wstrzymaj wykonanie przepływu o {dur_desc}."
+    plsql_code = f"-- Wstrzymanie wykonania o {dur_desc}:\nDBMS_SESSION.SLEEP({total_sec});"
+
+    return ActionDescription(
+        summary=summary,
+        action_type="NWDelayForAdapter",
+        label=node.t_label or f"Wstrzymaj ({dur_desc})",
+        hint_universal=f"Opóźnienie wykonania procesu o {dur_desc}.",
+        hint_apex=f"DBMS_SESSION.SLEEP({total_sec});",
+        plsql_code=plsql_code,
+        technical_lines=[f"Czas = {dur_desc}", f"Sekundy = {total_sec}"],
+    )
+
+
+def _describe_for_each_loop(node: ActionNode, resolver: FieldResolver) -> ActionDescription:
+    target = node.params.get("Target", "kolekcja")
+    val_var = node.params.get("Value", "element")
+    target_ident = _plsql_var(target)
+    val_ident = _plsql_var(val_var)
+
+    label = node.t_label or f"Dla każdego elementu w {target}"
+    summary = f"Pętla: dla każdego elementu w kolekcji {target} (bieżący element -> {val_var})."
+
+    plsql_code = f"""-- Pętla: {label}
+FOR i IN 1..{target_ident}.COUNT LOOP
+    {val_ident} := {target_ident}(i);"""
+
+    return ActionDescription(
+        summary=summary,
+        action_type="NWForEachLoopAdapter",
+        label=node.b_label or label,
+        hint_universal=f"Iteracja pętli po elementach kolekcji {target}.",
+        hint_apex=f"FOR i IN 1..{target_ident}.COUNT LOOP",
+        plsql_code=plsql_code,
+        technical_lines=[f"Target = {target}", f"Value = {val_var}"],
+    )
+
+
+def _describe_query_list(node: ActionNode, resolver: FieldResolver) -> ActionDescription:
+    raw_query = node.params.get("Query", "")
+    list_name, where_desc, fields = _parse_caml_query_info(raw_query, resolver)
+    if not list_name and node.b_label:
+        list_name = node.b_label
+    if not list_name:
+        list_name = "Lista SharePoint"
+
+    mappings = []
+    if node.raw_el is not None:
+        for vs in node.raw_el.findall(".//ValueStorage"):
+            var_name = vs.get("VariableName", "")
+            val_id = vs.get("ValueIdentifier", "")
+            if var_name and val_id:
+                mappings.append(f"{val_id} -> {var_name}")
+
+    map_desc = f" (zapis: {', '.join(mappings)})" if mappings else ""
+    summary = f"Wyszukaj elementy na liście '{list_name}' wg warunku: {where_desc}{map_desc}."
+
+    reads = [FieldRef(name=f, internal_name=f) for f in fields]
+
+    plsql_code = f"""-- Pobranie elementów z listy {list_name}:
+l_resp := shp_api.get_list_items(
+    p_site_url   => c_site_url,
+    p_list_title => '{list_name}',
+    p_caml_query => '<Query><Where>...</Where></Query>'
+);"""
+
+    return ActionDescription(
+        summary=summary,
+        reads=reads,
+        action_type="NWQueryListAdapter",
+        label=node.b_label or node.t_label or f"Kwerenda: {list_name}",
+        hint_universal=f"Wyszukanie elementów na liście {list_name} (warunek: {where_desc}).",
+        hint_apex="l_resp := shp_api.get_list_items(...);",
+        plsql_code=plsql_code,
+        technical_lines=[f"Lista = {list_name}", f"Warunek = {where_desc}", f"Mapowania = {mappings}"],
+    )
+
+
+def _describe_send_message(node: ActionNode, resolver: FieldResolver) -> ActionDescription:
+    subject = "Powiadomienie workflow"
+    body_text = ""
+    recipients: list[str] = []
+
+    if node.raw_el is not None:
+        subj_el = node.raw_el.find(".//Message/Subject")
+        if subj_el is not None and subj_el.text:
+            subject = subj_el.text
+        body_el = node.raw_el.find(".//Message/Body")
+        if body_el is not None and body_el.text:
+            body_text = re.sub(r"<[^>]+>", "", body_el.text).strip()
+        for app in node.raw_el.findall(".//Approvers/Approver"):
+            user = app.get("User", "")
+            if user:
+                recipients.append(user.split("|")[-1])
+
+    recip_str = ", ".join(recipients) if recipients else "użytkownicy"
+    summary = f"Wyślij powiadomienie e-mail: temat '{subject}' do: {recip_str}."
+
+    plsql_code = f"""-- Wysłanie powiadomienia e-mail:
+apex_mail.send(
+    p_to   => '{recip_str}',
+    p_from => 'noreply@domain.com',
+    p_subj => '{subject}',
+    p_body => 'Powiadomienie z procesu biznesowego'
+);"""
+
+    return ActionDescription(
+        summary=summary,
+        action_type="NWSendMessageAdapter",
+        label=node.b_label or node.t_label or f"E-mail: {subject}",
+        hint_universal=f"Wysłanie wiadomości e-mail do: {recip_str} (temat: {subject}).",
+        hint_apex="apex_mail.send(...);",
+        plsql_code=plsql_code,
+        technical_lines=[f"Odbiorcy = {recip_str}", f"Temat = {subject}"],
+    )
+
+
+def _describe_start_workflow(node: ActionNode, resolver: FieldResolver) -> ActionDescription:
+    wf_name = node.params.get("AssociationId") or node.b_label or "Podproces"
+    wait_for = node.params.get("WaitForComplete", "false").lower() == "true"
+    wait_str = "synchronicznie - czeka na zakończenie" if wait_for else "asynchronicznie"
+
+    summary = f"Uruchom przepływ pracy '{wf_name}' ({wait_str})."
+    clean_name = re.sub(r"[^a-zA-Z0-9_]", "_", wf_name).strip("_").lower()
+    clean_name = re.sub(r"_+", "_", clean_name)
+    plsql_code = f"-- Uruchomienie podprocesu {wf_name}:\nprocess_wf_{clean_name}(p_item_id => p_item_id);"
+
+    return ActionDescription(
+        summary=summary,
+        action_type="NWStartWorkflow2Adapter",
+        label=node.b_label or node.t_label or f"Uruchom: {wf_name}",
+        hint_universal=f"Uruchomienie procesu podrzędnego {wf_name}.",
+        hint_apex=f"process_wf_{clean_name}(p_item_id);",
+        plsql_code=plsql_code,
+        technical_lines=[f"Workflow = {wf_name}", f"Czekaj = {wait_for}"],
+    )
+
+
+def _describe_update_multiple_items(node: ActionNode, resolver: FieldResolver) -> ActionDescription:
+    raw_query = node.params.get("Query", "")
+    list_name, where_desc, fields = _parse_caml_query_info(raw_query, resolver)
+    if not list_name and node.b_label:
+        list_name = node.b_label
+    if not list_name:
+        list_name = "Lista SharePoint"
+
+    summary = f"Aktualizuj wiele elementów naraz na liście '{list_name}' (warunek: {where_desc})."
+
+    writes = list(node.field_refs)
+    if not writes and fields:
+        writes = [FieldRef(name=f, internal_name=f) for f in fields]
+    reads = [FieldRef(name=f, internal_name=f) for f in fields]
+
+    plsql_code = f"""-- Masowa aktualizacja elementów listy {list_name}:
+-- Warunek: {where_desc}
+shp_api.update_list_item(
+    p_site_url    => c_site_url,
+    p_list_title  => '{list_name}',
+    p_item_id     => l_target_item_id,
+    p_fields_json => JSON_OBJECT(...)
+);"""
+
+    return ActionDescription(
+        summary=summary,
+        reads=reads,
+        writes=writes,
+        action_type="NWUpdateMultipleItemAdapter",
+        label=node.b_label or node.t_label or f"Aktualizuj: {list_name}",
+        hint_universal=f"Masowa aktualizacja rekordów na liście {list_name} spełniających warunek {where_desc}.",
+        hint_apex="shp_api.update_list_item(...);",
+        plsql_code=plsql_code,
+        technical_lines=[f"Lista = {list_name}", f"Warunek = {where_desc}"],
+    )
+
+
 TYPE_HANDLERS = {
     "NWWorkflowVariablesAdapter": _describe_variables_adapter,
     "WFIfElseAdapter": _describe_if_else,
@@ -483,7 +869,20 @@ TYPE_HANDLERS = {
     "NWCommitAdapter": _describe_commit,
     "WFParallelAdapter": _describe_structural,
     "WFSequenceAdapter": _describe_structural,
+    # Nowe handlery:
+    "NWBuildStringAdapter": _describe_build_string,
+    "NWBusinessProcessAdapter": _describe_business_process,
+    "NWCalculateDateAdapter": _describe_calculate_date,
+    "NWCollectionAdapter": _describe_collection_operation,
+    "NWCreateSiteSpecificItemAdapter": _describe_create_site_item,
+    "NWDelayForAdapter": _describe_delay,
+    "NWForEachLoopAdapter": _describe_for_each_loop,
+    "NWQueryListAdapter": _describe_query_list,
+    "NWSendMessageAdapter": _describe_send_message,
+    "NWStartWorkflow2Adapter": _describe_start_workflow,
+    "NWUpdateMultipleItemAdapter": _describe_update_multiple_items,
 }
+
 
 # Rejestr typow akcji napotkanych, ale nie majacych dedykowanego handlera - do wglądu/rozbudowy.
 UNKNOWN_TYPES_SEEN: set[str] = set()

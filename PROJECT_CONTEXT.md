@@ -2,31 +2,22 @@
 
 Ten plik jest przeznaczony dla modelu/agenta AI kontynuującego pracę nad tym projektem.
 Zawiera wszystkie ustalone fakty, decyzje i szczegóły techniczne, żeby nie trzeba było
-ich odkrywać/weryfikować od nowa. Aktualny na: 2026-09-19.
+ich odkrywać/weryfikować od nowa. Aktualny na: 2026-09-25.
 
 ## 1. Cel projektu
 
-Katalog `DaneZeSkryptu/` zawiera zrzut konfiguracji witryny SharePoint 2019
-(wyeksportowany wg procedury opisanej w [manual-sharepoint-2019-dla-poczatkujacych-v3 (1).md](manual-sharepoint-2019-dla-poczatkujacych-v3%20(1).md))
+Katalogi `DaneZeSkryptu/`, `DaneZeSkryptu_001/`, `DaneZeSkryptu_002/` zawierają zrzuty konfiguracji witryn SharePoint 2019
+(wyeksportowane automatycznie narzędziem `sp_extractor` lub wg procedury w [manual-sharepoint-2019-dla-poczatkujacych-v3 (1).md](manual-sharepoint-2019-dla-poczatkujacych-v3%20(1).md))
 oraz pliki `.nwf` — zrzuty konfiguracji przepływów pracy Nintex Workflow.
 
-Zbudowano narzędzie w Pythonie (`tools/nwf_report/`), które na podstawie pliku `.nwf`
-i metadanych JSON generuje **czytelny raport Markdown** opisujący krok po kroku,
-co dany workflow odczytuje i zmienia (pola, listy, warunki), w języku biznesowym
-+ sekcja techniczna, wraz z diagramem Mermaid.
+Zbudowano dwa główne narzędzia:
+1. `tools/sp_extractor/` — automatyczny ekstraktor konfiguracji i workflow z SharePoint 2019 przez REST API + SSPI (Windows SSO) + truststore (Windows cert store), tworzący kolejne katalogi `DaneZeSkryptu_nnn`.
+2. `tools/nwf_report/` — generator raportów Markdown i portalu HTML, analizujący pliki `.nwf` i metadane JSON, mapujący akcje Nintex na procedury PL/SQL pakietu `shp_api` i Oracle APEX oraz generujący diagramy Mermaid.
 
-**Status: zaimplementowane, przetestowane na 4 przykładowych plikach `.nwf`, działa poprawnie.**
-
-Utworzono również pojedynczy manual HTML `out/workflow-migration-manual.html` opisujący
-docelową integrację z Oracle APEX. Manual zawiera karty wszystkich 4 workflow, diagramy
-Mermaid, źródło każdego diagramu, identyfikatory list i pól, legendę typów obiektów oraz
-kontrakt REST sync/async z przykładami APEX/ORDS.
-
-Portal jest generowany przez `tools/nwf_report/html_builder.py` i zawiera interaktywny
-przełącznik workflow, inspektor kroków, wyszukiwarkę oraz nawigację sekcji. Diagram ma
-ograniczony viewport z przesuwaniem pointer/touch, zoomem kółkiem/przyciskami i resetem;
-kliknięcie węzła mapuje identyfikator Mermaid do `steps[node_id]` i aktualizuje inspektor.
-Zmiany z 2026-09-19 zostały wygenerowane do `out/workflow-migration-manual.html`.
+**Status (2026-09-25): w pełni zaimplementowane i przetestowane (56 testów unit/e2e przechodzących pomyślnie).**
+- Obsługa 11 dodatkowych typów akcji Nintex (`NWBuildStringAdapter`, `NWBusinessProcessAdapter`, `NWCalculateDateAdapter`, `NWCollectionAdapter`, `NWCreateSiteSpecificItemAdapter`, `NWDelayForAdapter`, `NWForEachLoopAdapter`, `NWQueryListAdapter`, `NWSendMessageAdapter`, `NWStartWorkflow2Adapter`, `NWUpdateMultipleItemAdapter`).
+- Weryfikacja na witrynie ITMM (`DaneZeSkryptu_002`, 10 workflows): **0 nierozpoznanych typów akcji**.
+- Wygenerowano raporty i portal do `out/` oraz `out_002/`.
 
 ## 2. Jak uruchomić
 
@@ -293,6 +284,17 @@ Funkcje:
   - `NWRunIf2Adapter` → "Wykonaj TYLKO JEŻELI ..." (warunek bez jawnego "else"), `reads`.
   - `NWCommitAdapter` → "Zapisz (zatwierdź) zebrane zmiany" (commit zmian zebranych przez
     wcześniejsze `SetField`/`UpdateItem` w tej samej "transakcji").
+  - `NWBuildStringAdapter` → dynamiczne łączenie ciągów tekstowych/zmiennych (`Input` -> `Output`).
+  - `NWBusinessProcessAdapter` → wydzielone etapy procesu biznesowego (`StageName`), kontener podrzędnych akcji.
+  - `NWCalculateDateAdapter` → przesunięcia dat o dni/miesiące/godziny (`Date`, `Days`, `Months`, `Hours` -> `Output`).
+  - `NWCollectionAdapter` → operacje na kolekcjach (Get, Count, Join, etc.).
+  - `NWCreateSiteSpecificItemAdapter` → tworzenie nowych rekordów na listach SharePoint (`shp_api.create_list_item`).
+  - `NWDelayForAdapter` → opóźnienia i wstrzymania wykonania (`DBMS_SESSION.SLEEP`).
+  - `NWForEachLoopAdapter` → iteracje po elementach kolekcji (`Target`, `Value`), kontener pętli.
+  - `NWQueryListAdapter` → kwerendy CAML po listach SharePoint z mapowaniem do zmiennych (`ValueStorage`).
+  - `NWSendMessageAdapter` → wysyłka wiadomości e-mail (`apex_mail.send`).
+  - `NWStartWorkflow2Adapter` → wywołanie podprocesów / innych workflow (`process_wf_*`).
+  - `NWUpdateMultipleItemAdapter` → masowa aktualizacja rekordów wg filtru CAML (`shp_api.update_list_item`).
   - `WFParallelAdapter`, `WFSequenceAdapter` → strukturalne kontenery (rozwijane bez własnego węzła).
 - `_render_value_expr(el, resolver) -> str` — generyczny renderer wartości parametru:
   obsługuje `PrimitiveValue`, `Variable`, `ListLookup` (oba warianty z sekcji 4.3, poprawnie
