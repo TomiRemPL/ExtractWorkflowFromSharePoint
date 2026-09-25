@@ -68,11 +68,11 @@ def _build_walkthrough(items: list[dict], unknown_types: set[str]) -> str:
     return "\n".join(lines)
 
 
-def main() -> None:
+def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description="Generator raportow Markdown z plikow .nwf (Nintex Workflow)")
     parser.add_argument("--input", required=True, help="Katalog z plikami .nwf i metadanymi JSON (DaneZeSkryptu)")
     parser.add_argument("--output", required=True, help="Katalog docelowy na raporty Markdown")
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
 
     input_dir = Path(args.input)
     output_dir = Path(args.output)
@@ -146,7 +146,8 @@ def main() -> None:
         print(f"OK: Wygenerowano portal HTML -> {html_out_path.name}")
 
     print(f"Gotowe. Raporty, portal HTML oraz walkthrough zapisano w: {output_dir}")
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())
