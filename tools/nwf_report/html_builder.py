@@ -715,8 +715,11 @@ def _generate_html(workflows_data: list[dict]) -> str:
           </div>
 
           <div class="inspector-field-group">
-            <label>Wskazówka Oracle APEX / PL/SQL</label>
-            <div id="ins-hint-apex" class="code-box">-</div>
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
+              <label style="margin:0;">Implementacja PL/SQL (pakiet SHP_API)</label>
+              <button class="copy-btn" id="copy-step-plsql" type="button" style="padding:2px 8px; font-size:0.75rem;">Kopiuj</button>
+            </div>
+            <div id="ins-hint-apex" class="code-box" style="white-space:pre-wrap; font-family:Consolas,monospace; font-size:0.8rem; max-height:220px; overflow-y:auto;">-</div>
           </div>
 
           <details>
@@ -724,6 +727,20 @@ def _generate_html(workflows_data: list[dict]) -> str:
             <div id="ins-raw" class="code-box" style="margin-top:8px;">-</div>
           </details>
         </aside>
+      </div>
+
+      <!-- Karta: Kompletna procedura PL/SQL dla wybranego workflow -->
+      <div class="docs-card" style="margin-top:20px;">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; flex-wrap:wrap; gap:10px;">
+          <div>
+            <h3 style="margin:0 0 4px;" id="wf-plsql-title">Kompletna procedura orkiestracji PL/SQL (pakiet SHP_API)</h3>
+            <p style="color:var(--text-muted); font-size:0.88rem; margin:0;">
+              Gotowy do skompilowania w Oracle APEX szkielet procedury orkiestrujący wybrany workflow za pośrednictwem pakietu <code>SHP_API</code>.
+            </p>
+          </div>
+          <button class="copy-btn" id="copy-full-plsql-btn" type="button" style="padding:8px 16px; font-weight:600;">Kopiuj całą procedurę PL/SQL</button>
+        </div>
+        <pre id="wf-plsql-procedure" class="code-box" style="max-height:420px; overflow:auto; font-family:Consolas,monospace; font-size:0.82rem; line-height:1.45;"></pre>
       </div>
     </section>
 
@@ -791,45 +808,47 @@ Content-Type: application/json
 
     <!-- SEKCJA 5: ORACLE APEX / PL/SQL -->
     <section id="sec-apex">
-      <h2 class="section-title"><span class="number">05.</span> Architektura wdrożenia w Oracle APEX Flow &amp; PL/SQL</h2>
+      <h2 class="section-title"><span class="number">05.</span> Architektura wdrożenia w Oracle APEX &amp; pakiet SHP_API</h2>
       <div class="docs-card">
-        <h3>Wzorzec wykonania w Flows for APEX i pakietach bazodanowych</h3>
+        <h3>Wzorzec orkiestracji w Flows for APEX i pakietach PL/SQL</h3>
         <p style="color:var(--text-muted); margin:8px 0 16px;">
-          W środowisku Oracle APEX zalecane jest rozdzielenie orkiestracji (diagram BPMN w <em>Flows for APEX</em>) od właściwej logiki transakcyjnej realizowanej przez procedury PL/SQL oraz moduł <code>APEX_WEB_SERVICE</code>.
+          W środowisku Oracle APEX integracja z SharePoint SE 2019 realizowana jest bezpośrednio z bazy danych za pośrednictwem dedykowanego pakietu <code>SHP_API</code> (autoryzacja NTLMv2, obsługa transakcji REST MERGE/POST/GET).
         </p>
 
-        <div class="code-box">-- Przykładowy szkielet procedury obsługi w PL/SQL
+        <div class="code-box">-- Wzorzec orkiestracji procesu w PL/SQL za pomocą pakietu SHP_API
 create or replace procedure pkg_workflow_migration.execute_qualification(
-    p_item_id        in number,
-    p_correlation_id in varchar2
+    p_item_id in number
 ) is
-    l_item      t_qualification%rowtype;
-    l_is_ict    varchar2(3) := 'Nie';
-    l_is_crit   varchar2(3) := 'Nie';
-    l_risk      varchar2(3) := 'Nie';
+    c_site_url  constant varchar2(400) := 'https://sharepoint.domain.com/sites/...';
+    l_item_json clob;
+    l_resp      clob;
+    l_is_ict    varchar2(10) := 'Nie';
 begin
-    -- 1. Pobranie danych elementu z bazy / REST
-    select * into l_item from t_qualification where id = p_item_id;
+    apex_debug.info('Start kwalifikacji dla elementu: ' || p_item_id);
+
+    -- 1. Pobranie danych elementu z SharePoint przez pakiet SHP_API
+    l_item_json := shp_api.get_list_item(
+        p_site_url   => c_site_url,
+        p_list_title => 'Kwalifikacja Usług',
+        p_item_id    => p_item_id
+    );
 
     -- 2. Warunek bramki logicznej (odpowiednik DT01)
-    if (l_item.analog_phone = 'Tak' or l_item.contract_model = 'ATU') then
-        l_is_ict := 'Nie';
-    elsif (l_item.is_cyclic = 'Tak' and l_item.service_symbol = 'eba_TA:S00') then
-        l_is_ict := 'Nie';
-    elsif (l_item.is_cyclic = 'Tak') then
+    if json_value(l_item_json, '$.data.DT_x002e_01') = 'Tak' then
         l_is_ict := 'Tak';
     else
         l_is_ict := 'Nie';
     end if;
 
-    -- 3. Zapis wyniku z kontrolą współbieżności ETag
-    update t_qualification
-       set is_ict_dora       = l_is_ict,
-           last_modified_by  = 'APEX_FLOW',
-           last_modified_date = sysdate
-     where id = p_item_id;
+    -- 3. Zapis wyniku do SharePoint przez SHP_API (MERGE z kontrolą ETag)
+    l_resp := shp_api.update_list_item(
+        p_site_url    => c_site_url,
+        p_list_title  => 'Kwalifikacja Usług',
+        p_item_id     => p_item_id,
+        p_fields_json => json_object('Us_x0142_uga_x0020_kwalifikowana' value l_is_ict)
+    );
 
-    commit;
+    apex_debug.info('Zakończono kwalifikację dla elementu: ' || p_item_id);
 end;</div>
       </div>
     </section>
@@ -1108,6 +1127,12 @@ end;</div>
         // Renderowanie tabeli pol
         renderFieldsTable(wf);
 
+        // Aktualizacja kompletnej procedury PL/SQL
+        const wfPlsqlTitle = document.getElementById('wf-plsql-title');
+        if (wfPlsqlTitle) wfPlsqlTitle.textContent = 'Kompletna procedura PL/SQL: ' + wf.title;
+        const wfPlsqlProc = document.getElementById('wf-plsql-procedure');
+        if (wfPlsqlProc) wfPlsqlProc.textContent = wf.plsql_procedure || '-- Brak kodu procedury';
+
         // Reset inspektora
         resetInspector();
       }}
@@ -1191,7 +1216,7 @@ end;</div>
 
         // Hints
         document.getElementById('ins-hint-univ').textContent = step.hint_universal || 'Brak dedykowanej wskazówki.';
-        document.getElementById('ins-hint-apex').textContent = step.hint_apex || 'Standardowa procedura PL/SQL.';
+        document.getElementById('ins-hint-apex').textContent = step.plsql_code || step.hint_apex || '-- Standardowa procedura PL/SQL.';
 
         // Raw
         document.getElementById('ins-raw').textContent = (step.technical_lines && step.technical_lines.length > 0)
@@ -1236,6 +1261,31 @@ end;</div>
             }});
           }});
         }});
+
+        // Obsluga kopiowania procedury i kroku PL/SQL
+        const copyStepBtn = document.getElementById('copy-step-plsql');
+        if (copyStepBtn) {{
+          copyStepBtn.addEventListener('click', () => {{
+            const code = document.getElementById('ins-hint-apex').textContent;
+            if (code && code !== '-') {{
+              navigator.clipboard.writeText(code).then(() => {{
+                showToast('Skopiowano kod kroku PL/SQL!');
+              }});
+            }}
+          }});
+        }}
+
+        const copyFullBtn = document.getElementById('copy-full-plsql-btn');
+        if (copyFullBtn) {{
+          copyFullBtn.addEventListener('click', () => {{
+            const code = document.getElementById('wf-plsql-procedure').textContent;
+            if (code) {{
+              navigator.clipboard.writeText(code).then(() => {{
+                showToast('Skopiowano całą procedurę PL/SQL!');
+              }});
+            }}
+          }});
+        }}
       }}
 
       function showToast(msg) {{

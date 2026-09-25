@@ -7,6 +7,7 @@ generycznie takze dla akcji spoza tego zestawu przykladowych plikow.
 """
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from xml.etree import ElementTree as ET
 
@@ -26,6 +27,7 @@ class ActionDescription:
     condition_text: str = ""
     hint_universal: str = ""
     hint_apex: str = ""
+    plsql_code: str = ""
 
 
 _OPERATOR_PL = {
@@ -81,6 +83,124 @@ def _render_value_expr(el: ET.Element | None, resolver: FieldResolver) -> str:
     return el.text or f"[{tag}]"
 
 
+def _plsql_var(name: str) -> str:
+    """Konwertuje dowolna nazwe zmiennej lub pola SharePoint na poprawny identyfikator zmiennej PL/SQL."""
+    clean = re.sub(r"[^a-zA-Z0-9_]", "_", name).strip("_").lower()
+    clean = re.sub(r"_+", "_", clean)
+    if not clean:
+        clean = "var"
+    if not clean.startswith("l_"):
+        clean = f"l_{clean}"
+    return clean
+
+
+def _plsql_expr_from_nintex_string(val: str, item_json_var: str = "l_item_json") -> str:
+    """Tłumaczy wyrażenia Nintex (np. RKU-{ItemProperty:ID} lub {ItemProperty:Nazwa}) na wyrażenie PL/SQL."""
+    if not val:
+        return "NULL"
+    pattern = re.compile(r"\{(ItemProperty|WorkflowVariable):([^}]+)\}")
+    tokens = list(pattern.finditer(val))
+    if not tokens:
+        escaped = val.replace("'", "''")
+        return f"'{escaped}'"
+
+    parts: list[str] = []
+    last_idx = 0
+    for match in tokens:
+        start, end = match.span()
+        if start > last_idx:
+            literal = val[last_idx:start]
+            if literal:
+                lit_escaped = literal.replace("'", "''")
+                parts.append(f"'{lit_escaped}'")
+        token_type = match.group(1)
+        token_name = match.group(2).strip()
+        if token_type == "ItemProperty":
+            if token_name.lower() in ("id", "itemid"):
+                parts.append("TO_CHAR(p_item_id)")
+            else:
+                parts.append(f"json_value({item_json_var}, '$.data.{token_name}')")
+        elif token_type == "WorkflowVariable":
+            parts.append(_plsql_var(token_name))
+        last_idx = end
+
+    if last_idx < len(val):
+        literal = val[last_idx:]
+        if literal:
+            lit_escaped = literal.replace("'", "''")
+            parts.append(f"'{lit_escaped}'")
+
+    if len(parts) == 1:
+        return parts[0]
+    return " || ".join(parts)
+
+
+def _plsql_val_expr(el: ET.Element | None, resolver: FieldResolver, item_json_var: str = "l_item_json") -> str:
+    if el is None:
+        return "NULL"
+    tag = el.tag
+    if tag == "PrimitiveValue":
+        return _plsql_expr_from_nintex_string(el.get("Value", ""), item_json_var)
+    if tag == "Variable":
+        return _plsql_var(el.get("Name", ""))
+    if tag == "ListLookup":
+        lookup_type = el.get("LookupType", "")
+        field_el = el.find("Field")
+        field_name = field_el.get("Name", "") if field_el is not None else ""
+        nested_lookup = el.find("Lookup")
+        if lookup_type == "ThisItemLookup" or nested_lookup is None:
+            return f"json_value({item_json_var}, '$.data.{field_name}')"
+        return f"json_value(l_ref_json, '$.data.{field_name}')"
+    return "NULL"
+
+
+def _plsql_condition(cond_el: ET.Element | None, resolver: FieldResolver, item_json_var: str = "l_item_json") -> str:
+    if cond_el is None:
+        return "TRUE"
+    xsi_type = cond_el.get("{http://www.w3.org/2001/XMLSchema-instance}type", "")
+    if xsi_type == "ConditionPair":
+        op = {"And": "AND", "Or": "OR"}.get(cond_el.get("Operator", ""), "AND")
+        left = _plsql_condition(cond_el.find("Left"), resolver, item_json_var)
+        right = _plsql_condition(cond_el.find("Right"), resolver, item_json_var)
+        return f"({left}) {op} ({right})"
+    if xsi_type == "NWConditionConfig":
+        params_el = cond_el.find("Params")
+        params = {p.get("Name"): p for p in params_el.findall("Param")} if params_el is not None else {}
+        op_name = ""
+        if "operator" in params:
+            op_val_el = params["operator"].find("PrimitiveValue")
+            op_name = op_val_el.get("Value", "") if op_val_el is not None else ""
+
+        left_el = next(iter(params["left"]), None) if "left" in params else None
+        right_el = next(iter(params["right"]), None) if "right" in params else None
+
+        left_expr = _plsql_val_expr(left_el, resolver, item_json_var)
+        right_expr = _plsql_val_expr(right_el, resolver, item_json_var)
+
+        if op_name == "Equal":
+            return f"{left_expr} = {right_expr}"
+        elif op_name == "NotEqual":
+            return f"{left_expr} != {right_expr}"
+        elif op_name == "GreaterThan":
+            return f"{left_expr} > {right_expr}"
+        elif op_name == "LessThan":
+            return f"{left_expr} < {right_expr}"
+        elif op_name == "GreaterThanOrEqual":
+            return f"{left_expr} >= {right_expr}"
+        elif op_name == "LessThanOrEqual":
+            return f"{left_expr} <= {right_expr}"
+        elif op_name == "Contains":
+            return f"{left_expr} LIKE '%' || {right_expr} || '%'"
+        elif op_name == "NotContains":
+            return f"{left_expr} NOT LIKE '%' || {right_expr} || '%'"
+        elif op_name == "IsEmpty":
+            return f"{left_expr} IS NULL"
+        elif op_name == "IsNotEmpty":
+            return f"{left_expr} IS NOT NULL"
+        return f"{left_expr} = {right_expr}"
+    return "TRUE"
+
+
 def _render_condition(cond_el: ET.Element | None, resolver: FieldResolver) -> str:
     if cond_el is None:
         return ""
@@ -116,13 +236,24 @@ def _describe_variables_adapter(node: ActionNode, resolver: FieldResolver) -> Ac
         triggers.append("przy zmianie elementu")
     trig_txt = ", ".join(triggers) if triggers else "brak zdefiniowanych wyzwalaczy"
     name = node.params.get("WorkflowName", "")
+    src_list_name = resolver.get_list_name()
+    plsql_code = (
+        f"-- Pobranie bieżącego elementu przed rozpoczęciem logiki workflow:\n"
+        f"l_item_json := shp_api.get_list_item(\n"
+        f"    p_site_url   => c_site_url,\n"
+        f"    p_list_title => '{src_list_name}',\n"
+        f"    p_item_id    => p_item_id\n"
+        f");"
+    )
+    hint_apex = f"l_item_json := shp_api.get_list_item(c_site_url, '{src_list_name}', p_item_id);"
     return ActionDescription(
         summary=f"Start workflow '{name}'. Uruchamiane: {trig_txt}.",
         technical_lines=[f"{k} = {v}" for k, v in node.params.items()],
         action_type="NWWorkflowVariablesAdapter",
         label=name or "Start workflow",
         hint_universal=f"Wyzwalacz procesu (Triggers: {trig_txt}). Punkt wejścia przyjmujący parametr itemId.",
-        hint_apex="Wywołanie z endpointu REST / ORDS lub trigger bazodanowy / start procesu w Flows for APEX.",
+        hint_apex=hint_apex,
+        plsql_code=plsql_code,
     )
 
 
@@ -141,6 +272,9 @@ def _extract_condition_fields(cond_el: ET.Element | None) -> list[FieldRef]:
 def _describe_if_else(node: ActionNode, resolver: FieldResolver) -> ActionDescription:
     cond_txt = _render_condition(node.condition_el, resolver)
     label = node.t_label or "Warunek"
+    cond_plsql = _plsql_condition(node.condition_el, resolver)
+    plsql_code = f"IF {cond_plsql} THEN\n    -- Gałąź Tak\nELSE\n    -- Gałąź Nie\nEND IF;"
+    hint_apex = f"IF {cond_plsql} THEN ... ELSE ... END IF;"
     return ActionDescription(
         summary=f"Warunek: JEŻELI {cond_txt}",
         reads=_extract_condition_fields(node.condition_el),
@@ -149,7 +283,8 @@ def _describe_if_else(node: ActionNode, resolver: FieldResolver) -> ActionDescri
         label=label,
         condition_text=cond_txt,
         hint_universal=f"Bramka decyzyjna (Exclusive Gateway / IF): sprawdzenie warunku logicznego: {cond_txt}.",
-        hint_apex=f"Instrukcja IF ... THEN ... ELSIF w PL/SQL lub Exclusive Gateway w Flows for APEX.",
+        hint_apex=hint_apex,
+        plsql_code=plsql_code,
     )
 
 
@@ -160,22 +295,48 @@ def _describe_if_else_branch(node: ActionNode, resolver: FieldResolver) -> Actio
 def _describe_write_to_history(node: ActionNode, resolver: FieldResolver) -> ActionDescription:
     msg = node.params.get("Message", "")
     short = msg.splitlines()[0] if msg else ""
+    msg_expr = _plsql_expr_from_nintex_string(msg)
+    plsql_code = f"apex_debug.info('Workflow: ' || {msg_expr});"
     return ActionDescription(
         summary=f"Zapisz wpis w historii przepływu: „{short}”" + (" (…)" if len(msg.splitlines()) > 1 else ""),
         technical_lines=[f"Message = {msg}"],
         action_type="NWWriteToHistoryListAdapter",
         label=node.t_label or "Zapis historii",
         hint_universal="Zapis audytowy do dziennika zdarzeń (Audit Log).",
-        hint_apex="APEX_DEBUG.INFO() lub INSERT INTO t_workflow_history(run_id, item_id, message, created_at);",
+        hint_apex=plsql_code,
+        plsql_code=plsql_code,
     )
 
 
 def _describe_update_item(node: ActionNode, resolver: FieldResolver) -> ActionDescription:
     list_id = node.params.get("ListId", "")
     this_item = node.params.get("ThisItem") == "true"
-    target = "w bieżącym elemencie" if this_item else f"w elemencie listy {list_id}"
+    target_list_name = resolver.get_list_name() if this_item else resolver.get_list_name(list_id)
+    target = "w bieżącym elemencie" if this_item else f"w elemencie listy {target_list_name}"
     writes = node.field_refs
     fields_txt = ", ".join(resolver.resolve(f.internal_name, list_id) for f in writes) or "(brak pól)"
+
+    if writes:
+        pairs = []
+        for f in writes:
+            v_name = _plsql_var(f.name or f.internal_name)
+            pairs.append(f"'{f.internal_name}' value {v_name}")
+        pairs_str = ",\n        ".join(pairs)
+        plsql_code = (
+            f"l_resp := shp_api.update_list_item(\n"
+            f"    p_site_url    => c_site_url,\n"
+            f"    p_list_title  => '{target_list_name}',\n"
+            f"    p_item_id     => p_item_id,\n"
+            f"    p_fields_json => json_object(\n"
+            f"        {pairs_str}\n"
+            f"    )\n"
+            f");"
+        )
+        hint_apex = f"l_resp := shp_api.update_list_item(c_site_url, '{target_list_name}', p_item_id, json_object(...));"
+    else:
+        plsql_code = "-- Brak zdefiniowanych pól do zapisu"
+        hint_apex = plsql_code
+
     return ActionDescription(
         summary=f"Zaktualizuj element {target}: ustaw pola {fields_txt}.",
         writes=writes,
@@ -183,15 +344,29 @@ def _describe_update_item(node: ActionNode, resolver: FieldResolver) -> ActionDe
         action_type="SPUpdateItemWithKeyAdapter",
         label=node.t_label or "Aktualizacja pól",
         hint_universal=f"Aktualizacja danych elementu ({fields_txt}). W systemie docelowym UPDATE lub REST PATCH/MERGE.",
-        hint_apex="UPDATE tabela SET ... WHERE id = :id; lub REST MERGE z nagłówkiem If-Match (weryfikacja ETag).",
+        hint_apex=hint_apex,
+        plsql_code=plsql_code,
     )
 
 
 def _describe_set_field_with_key(node: ActionNode, resolver: FieldResolver) -> ActionDescription:
     field_internal = node.params.get("LookupField", "")
     value = node.params.get("LookupFieldValue", "")
+    src_list_name = resolver.get_list_name()
+    val_expr = _plsql_expr_from_nintex_string(value)
     field_readable = resolver.resolve(field_internal, resolver.source_list_id)
     writes = [FieldRef(name=field_readable, internal_name=field_internal, field_type=node.params.get("LookupFieldType", ""))]
+
+    plsql_code = (
+        f"l_resp := shp_api.update_list_item(\n"
+        f"    p_site_url    => c_site_url,\n"
+        f"    p_list_title  => '{src_list_name}',\n"
+        f"    p_item_id     => p_item_id,\n"
+        f"    p_fields_json => json_object('{field_internal}' value {val_expr})\n"
+        f");"
+    )
+    hint_apex = f"l_resp := shp_api.update_list_item(c_site_url, '{src_list_name}', p_item_id, json_object('{field_internal}' value {val_expr}));"
+
     return ActionDescription(
         summary=f"Ustaw pole {field_readable} na wartość: „{value}”.",
         writes=writes,
@@ -199,17 +374,57 @@ def _describe_set_field_with_key(node: ActionNode, resolver: FieldResolver) -> A
         action_type="SPSetFieldWithKeyAdapter",
         label=node.t_label or f"Ustaw {field_readable}",
         hint_universal=f"Ustawienie pola {field_readable} = '{value}'.",
-        hint_apex=f"UPDATE tabela SET {field_internal} = '{value}' WHERE id = :id;",
+        hint_apex=hint_apex,
+        plsql_code=plsql_code,
     )
 
 
 def _describe_set_variable(node: ActionNode, resolver: FieldResolver) -> ActionDescription:
     var_name_el = node.param_elements.get("VariableName")
     var_name = var_name_el.get("Name", "?") if var_name_el is not None else "?"
+    var_plsql = _plsql_var(var_name)
     value_el = node.param_elements.get("Value")
     value_txt = _render_value_expr(value_el, resolver)
     label = node.t_label
     prefix = f"{label}: " if label else ""
+
+    if value_el is not None and value_el.tag == "ListLookup":
+        lookup_type = value_el.get("LookupType", "")
+        field_el = value_el.find("Field")
+        field_name = field_el.get("Name", "") if field_el is not None else ""
+        nested_lookup = value_el.find("Lookup")
+        if lookup_type == "CrossItemLookup" and nested_lookup is not None:
+            target_list_id_el = value_el.find("ListId")
+            target_list_id = target_list_id_el.text if target_list_id_el is not None else ""
+            target_list_name = resolver.get_list_name(target_list_id)
+            nested_field_el = nested_lookup.find("Field")
+            nested_field_name = nested_field_el.get("Name", "") if nested_field_el is not None else "ID"
+
+            plsql_code = (
+                f"-- Pobranie powiązanego rekordu z {target_list_name}:\n"
+                f"l_ref_json := shp_api.get_list_item(\n"
+                f"    p_site_url   => c_site_url,\n"
+                f"    p_list_title => '{target_list_name}',\n"
+                f"    p_item_id    => json_value(l_item_json, '$.data.{nested_field_name}')\n"
+                f");\n"
+                f"{var_plsql} := json_value(l_ref_json, '$.data.{field_name}');"
+            )
+            hint_apex = f"{var_plsql} := json_value(shp_api.get_list_item(c_site_url, '{target_list_name}', ...), '$.data.{field_name}');"
+        else:
+            plsql_code = f"{var_plsql} := json_value(l_item_json, '$.data.{field_name}');"
+            hint_apex = plsql_code
+    elif value_el is not None and value_el.tag == "PrimitiveValue":
+        val_expr = _plsql_expr_from_nintex_string(value_el.get("Value", ""))
+        plsql_code = f"{var_plsql} := {val_expr};"
+        hint_apex = plsql_code
+    elif value_el is not None and value_el.tag == "Variable":
+        other_var = _plsql_var(value_el.get("Name", ""))
+        plsql_code = f"{var_plsql} := {other_var};"
+        hint_apex = plsql_code
+    else:
+        plsql_code = f"{var_plsql} := NULL;"
+        hint_apex = plsql_code
+
     return ActionDescription(
         summary=f"{prefix}Zapisz w zmiennej '{var_name}' wartość: {value_txt}.",
         reads=_extract_condition_fields(value_el),
@@ -217,13 +432,17 @@ def _describe_set_variable(node: ActionNode, resolver: FieldResolver) -> ActionD
         action_type="SPSetVariableAdapter",
         label=label or f"Zmienna {var_name}",
         hint_universal=f"Obliczenie/odczyt i zapis do zmiennej lokalnej '{var_name}'.",
-        hint_apex=f"l_{var_name.replace('-', '_')} := {value_txt}; lub flow_process.set_var(p_process_id, '{var_name}', ...);",
+        hint_apex=hint_apex,
+        plsql_code=plsql_code,
     )
 
 
 def _describe_run_if(node: ActionNode, resolver: FieldResolver) -> ActionDescription:
     cond_txt = _render_condition(node.condition_el, resolver)
     summary = f"Wykonaj poniższe kroki TYLKO JEŻELI {cond_txt}" if cond_txt else "Wykonaj warunkowo poniższe kroki"
+    cond_plsql = _plsql_condition(node.condition_el, resolver)
+    plsql_code = f"IF {cond_plsql} THEN\n    -- Akcje warunkowe\nEND IF;"
+    hint_apex = f"IF {cond_plsql} THEN ... END IF;"
     return ActionDescription(
         summary=summary,
         reads=_extract_condition_fields(node.condition_el),
@@ -231,17 +450,20 @@ def _describe_run_if(node: ActionNode, resolver: FieldResolver) -> ActionDescrip
         label=node.t_label or "Wykonaj jeśli",
         condition_text=cond_txt,
         hint_universal=f"Warunek wykonania bloku podrzędnego: IF ({cond_txt}).",
-        hint_apex=f"IF {cond_txt} THEN ... END IF;",
+        hint_apex=hint_apex,
+        plsql_code=plsql_code,
     )
 
 
 def _describe_commit(node: ActionNode, resolver: FieldResolver) -> ActionDescription:
+    plsql_code = "-- Zmiany zatwierdzone przez shp_api.update_list_item"
     return ActionDescription(
         summary="Zapisz (zatwierdź) zebrane zmiany w elemencie.",
         action_type="NWCommitAdapter",
         label=node.t_label or "Zatwierdzenie transakcji",
         hint_universal="Zatwierdzenie bieżącego stanu transakcji (COMMIT).",
-        hint_apex="COMMIT; lub przejście etapu procesu BPMN.",
+        hint_apex=plsql_code,
+        plsql_code=plsql_code,
     )
 
 
@@ -283,6 +505,7 @@ def _describe_fallback(node: ActionNode, resolver: FieldResolver) -> ActionDescr
     summary = f"[Nieopisana akcja: {label}]"
     if fields_txt:
         summary += f" (pola: {fields_txt})"
+    plsql_code = f"-- Wywołanie shp_api dla akcji {_short_type(node.type)}"
     return ActionDescription(
         summary=summary,
         reads=reads,
@@ -290,6 +513,7 @@ def _describe_fallback(node: ActionNode, resolver: FieldResolver) -> ActionDescr
         action_type=_short_type(node.type),
         label=label,
         hint_universal="Niestandardowa akcja Nintex - wymaga analizy parametrów technicznych XML.",
-        hint_apex="Do zaimplementowania jako dedykowany moduł PL/SQL lub wywołanie REST.",
+        hint_apex=plsql_code,
+        plsql_code=plsql_code,
     )
 

@@ -172,3 +172,52 @@ def test_fallback_for_unknown_type(sample_resolver: FieldResolver) -> None:
     assert "[Nieopisana akcja: AnotherUnknownAdapter]" in desc_no_label.summary
     assert unknown_no_label.type in UNKNOWN_TYPES_SEEN
 
+
+def test_plsql_shp_api_generation_for_actions(sample_resolver: FieldResolver) -> None:
+    # 1. Test set field with key
+    set_field_node = ActionNode(
+        type="Nintex.Workflow.Activities.Adapters.SPSetFieldWithKeyAdapter",
+        enabled=True,
+        condition_use="None",
+        params={"LookupField": "Status_x0020_Pola", "LookupFieldValue": "Aktywny", "LookupFieldType": "Text"},
+        param_elements={},
+        field_refs=[],
+        children=[],
+    )
+    desc_field = describe_action(set_field_node, sample_resolver)
+    assert "shp_api.update_list_item" in desc_field.plsql_code
+    assert "json_object('Status_x0020_Pola' value 'Aktywny')" in desc_field.plsql_code
+
+    # 2. Test update item with multiple fields
+    update_node = ActionNode(
+        type="Nintex.Workflow.Activities.Adapters.SPUpdateItemWithKeyAdapter",
+        enabled=True,
+        condition_use="None",
+        params={"ThisItem": "true", "ListId": ""},
+        param_elements={},
+        field_refs=[
+            FieldRef("Status Elementu", "Status_x0020_Pola", "Choice"),
+            FieldRef("Opis Elementu", "Opis_x0020_Pola", "Text"),
+        ],
+        children=[],
+    )
+    desc_update = describe_action(update_node, sample_resolver)
+    assert "shp_api.update_list_item" in desc_update.plsql_code
+    assert "'Status_x0020_Pola' value l_status_elementu" in desc_update.plsql_code
+
+    # 3. Test cross item lookup variable
+    lookup_el = ET.fromstring(SAMPLE_CROSS_LOOKUP_XML)
+    var_el = ET.fromstring('<Variable Name="zm_docelowa" />')
+    var_node = ActionNode(
+        type="Nintex.Workflow.Activities.Adapters.SPSetVariableAdapter",
+        enabled=True,
+        condition_use="None",
+        params={},
+        param_elements={"VariableName": var_el, "Value": lookup_el},
+        field_refs=[],
+        children=[],
+    )
+    desc_var = describe_action(var_node, sample_resolver)
+    assert "shp_api.get_list_item" in desc_var.plsql_code
+    assert "l_zm_docelowa := json_value(l_ref_json, '$.data.Pole_x0020_Docelowe_B');" in desc_var.plsql_code
+

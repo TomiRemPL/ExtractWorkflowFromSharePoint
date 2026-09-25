@@ -1,9 +1,7 @@
-"""Budowanie raportu Markdown (+ diagram Mermaid) dla pojedynczego workflow."""
-from __future__ import annotations
-
+import re
 from dataclasses import dataclass
 
-from .action_catalog import ActionDescription, describe_action
+from .action_catalog import ActionDescription, _plsql_condition, _plsql_var, describe_action
 from .metadata_loader import FieldResolver
 from .nwf_parser import ActionNode, WorkflowModel
 
@@ -158,6 +156,109 @@ def _extract_triggers_and_guid(actions: list[ActionNode]) -> tuple[list[str], st
     return triggers or ["ręcznie"], guid
 
 
+def _generate_plsql_statements(nodes: list[ActionNode], resolver: FieldResolver, indent_level: int = 1) -> list[str]:
+    lines: list[str] = []
+    indent = "    " * indent_level
+    for node in nodes:
+        if not node.enabled:
+            continue
+        short_type = node.type.rsplit(".", 1)[-1]
+        if short_type == "NWWorkflowVariablesAdapter":
+            continue
+        if short_type in ("WFSequenceAdapter", "WFParallelAdapter"):
+            lines.extend(_generate_plsql_statements(node.children, resolver, indent_level))
+            continue
+        if short_type == "WFIfElseAdapter":
+            cond = _plsql_condition(node.condition_el, resolver)
+            lines.append(f"{indent}IF {cond} THEN")
+            tak_branch = next((c for c in node.children if c.branch_label.lower() in ("tak", "true")), None)
+            nie_branch = next((c for c in node.children if c.branch_label.lower() in ("nie", "false")), None)
+            if tak_branch is None and len(node.children) > 1:
+                nie_branch, tak_branch = node.children[0], node.children[1]
+            elif tak_branch is None and len(node.children) == 1:
+                tak_branch = node.children[0]
+
+            if tak_branch and tak_branch.children:
+                lines.extend(_generate_plsql_statements(tak_branch.children, resolver, indent_level + 1))
+            else:
+                lines.append(f"{indent}    NULL;")
+
+            if nie_branch and nie_branch.children:
+                lines.append(f"{indent}ELSE")
+                lines.extend(_generate_plsql_statements(nie_branch.children, resolver, indent_level + 1))
+            lines.append(f"{indent}END IF;")
+            continue
+        if short_type == "NWRunIf2Adapter":
+            cond = _plsql_condition(node.condition_el, resolver)
+            lines.append(f"{indent}IF {cond} THEN")
+            if node.children:
+                lines.extend(_generate_plsql_statements(node.children, resolver, indent_level + 1))
+            else:
+                lines.append(f"{indent}    NULL;")
+            lines.append(f"{indent}END IF;")
+            continue
+
+        desc = describe_action(node, resolver)
+        if desc.is_structural:
+            continue
+        if desc.plsql_code:
+            for code_line in desc.plsql_code.splitlines():
+                lines.append(f"{indent}{code_line}")
+    return lines
+
+
+def build_plsql_procedure(wf: WorkflowModel, resolver: FieldResolver) -> str:
+    """Buduje kompletna, minimalistyczna i gotowa do kompilacji procedure PL/SQL orkiestrujaca workflow za pomoca SHP_API."""
+    raw_name = wf.title or wf.source_path.stem
+    safe_name = re.sub(r"[^a-zA-Z0-9_]", "_", raw_name).strip("_").lower()
+    safe_name = re.sub(r"_+", "_", safe_name)
+    proc_name = f"process_wf_{safe_name}"
+
+    src = wf.source_list
+    src_name = src.list_name if src else resolver.source_list_name or "Lista_Zrodlowa"
+
+    variables = _extract_variables(wf.actions)
+    var_lines = []
+    seen_vars = set()
+    for v in variables:
+        v_ident = _plsql_var(v["name"])
+        if v_ident not in seen_vars:
+            seen_vars.add(v_ident)
+            v_type = "NUMBER" if v["type"].lower() in ("integer", "number") else "VARCHAR2(4000)"
+            var_lines.append(f"    {v_ident:<30} {v_type};")
+
+    var_decls = "\n".join(var_lines)
+    if var_decls:
+        var_decls = f"    -- Zmienne workflow:\n{var_decls}\n"
+
+    body_lines = _generate_plsql_statements(wf.actions, resolver, indent_level=1)
+    body_text = "\n".join(body_lines) if body_lines else "    NULL;"
+
+    return f"""CREATE OR REPLACE PROCEDURE {proc_name} (
+    p_item_id IN NUMBER
+) AS
+    c_site_url CONSTANT VARCHAR2(400) := 'https://sharepoint.domain.com/sites/...';
+    l_item_json CLOB;
+    l_resp      CLOB;
+    l_ref_json  CLOB;
+{var_decls}BEGIN
+    apex_debug.info('Start workflow: {wf.title}, item_id: ' || p_item_id);
+
+    -- 1. Pobranie danych biezacego elementu
+    l_item_json := shp_api.get_list_item(
+        p_site_url   => c_site_url,
+        p_list_title => '{src_name}',
+        p_item_id    => p_item_id
+    );
+
+    -- 2. Logika biznesowa workflow
+{body_text}
+
+    apex_debug.info('Koniec workflow: {wf.title}, item_id: ' || p_item_id);
+END {proc_name};
+/"""
+
+
 def build_workflow_data(wf: WorkflowModel, resolver: FieldResolver) -> dict:
     """Buduje ustrukturyzowany slownik z danymi workflow do celow serializacji JSON / raportu HTML."""
     mermaid_code, steps = _build_mermaid_with_steps(wf.actions, resolver)
@@ -185,7 +286,8 @@ def build_workflow_data(wf: WorkflowModel, resolver: FieldResolver) -> dict:
         "reads": [],
         "writes": [],
         "hint_universal": "Odtwórz te same reguły uruchomienia w docelowym mechanizmie orkiestracji.",
-        "hint_apex": "Wywołaj proces APEX/ORDS zgodnie z triggerami workflow.",
+        "hint_apex": f"l_item_json := shp_api.get_list_item(c_site_url, '{src_name}', p_item_id);",
+        "plsql_code": f"-- Pobranie bieżącego elementu listy źródłowej:\nl_item_json := shp_api.get_list_item(\n    p_site_url   => c_site_url,\n    p_list_title => '{src_name}',\n    p_item_id    => p_item_id\n);",
         "technical_lines": ["Triggery: " + ", ".join(triggers), f"Lista źródłowa: {src_name}", f"ID listy: {src_id}"],
         "is_structural": True,
         "enabled": True,
@@ -235,6 +337,7 @@ def build_workflow_data(wf: WorkflowModel, resolver: FieldResolver) -> dict:
             "writes": writes_info,
             "hint_universal": s.desc.hint_universal,
             "hint_apex": s.desc.hint_apex,
+            "plsql_code": s.desc.plsql_code,
             "technical_lines": s.desc.technical_lines,
             "is_structural": s.desc.is_structural,
             "enabled": s.node.enabled,
@@ -251,7 +354,8 @@ def build_workflow_data(wf: WorkflowModel, resolver: FieldResolver) -> dict:
         "reads": [],
         "writes": [],
         "hint_universal": "Zamknij proces bez dodatkowej akcji, jeżeli wcześniejsze kroki zakończyły się poprawnie.",
-        "hint_apex": "Zwróć status końcowy procesu albo zapisz go w tabeli audytowej, jeśli wymaga tego projekt migracji.",
+        "hint_apex": "apex_debug.info('Koniec workflow: ' || p_item_id);",
+        "plsql_code": "apex_debug.info('Koniec workflow: ' || p_item_id);",
         "technical_lines": ["Węzeł syntetyczny dodany przez generator raportu HTML."],
         "is_structural": True,
         "enabled": True,
@@ -306,6 +410,7 @@ def build_workflow_data(wf: WorkflowModel, resolver: FieldResolver) -> dict:
         "steps": steps_data,
         "fields": sorted_fields,
         "variables": variables,
+        "plsql_procedure": build_plsql_procedure(wf, resolver),
     }
 
 
@@ -346,8 +451,13 @@ def build_report(wf: WorkflowModel, resolver: FieldResolver) -> str:
         node_id_badge = f"`[{step.node_id}]` " if step.node_id else ""
         status = "" if step.node.enabled else " _(wyłączona)_"
         lines.append(f"{indent}- {node_id_badge}{branch_prefix}{step.desc.summary}{status}")
-        if step.desc.hint_universal or step.desc.hint_apex:
-            lines.append(f"{indent}  > **Wskazówka migracji**: {step.desc.hint_universal} (APEX: `{step.desc.hint_apex}`)")
+        if step.desc.hint_universal:
+            lines.append(f"{indent}  > **Wskazówka migracji**: {step.desc.hint_universal}")
+        if step.desc.plsql_code:
+            lines.append(f"{indent}  ```plsql")
+            for tl in step.desc.plsql_code.splitlines():
+                lines.append(f"{indent}  {tl}")
+            lines.append(f"{indent}  ```")
         if step.desc.technical_lines:
             lines.append(f"{indent}  <details><summary>Szczegóły techniczne</summary>")
             lines.append("")
@@ -387,6 +497,16 @@ def build_report(wf: WorkflowModel, resolver: FieldResolver) -> str:
     for internal_name in sorted(set(all_reads) | set(all_writes)):
         title = resolver.get_title(internal_name)
         lines.append(f"| {title} | `{internal_name}` | Tekst/Ref | {'Tak' if internal_name in all_reads else '-'} | {'Tak' if internal_name in all_writes else '-'} |")
+    lines.append("")
+
+    plsql_proc = build_plsql_procedure(wf, resolver)
+    lines.append("## Kompletna procedura orkiestracji PL/SQL (Oracle APEX / SHP_API)")
+    lines.append("")
+    lines.append("Poniższy kod stanowi gotowy, kompletny szkielet procedury PL/SQL do wdrożenia w Oracle APEX, realizujący całą logikę workflow za pośrednictwem pakietu `SHP_API`:")
+    lines.append("")
+    lines.append("```plsql")
+    lines.append(plsql_proc)
+    lines.append("```")
     lines.append("")
 
     return "\n".join(lines)

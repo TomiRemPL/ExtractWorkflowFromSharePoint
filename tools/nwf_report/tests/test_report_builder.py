@@ -269,3 +269,40 @@ def test_workflow_data_has_inspector_data_for_visible_mermaid_nodes(sample_resol
     inspector_node_ids = {step["node_id"] for step in data["steps"]}
     assert visible_node_ids <= inspector_node_ids
 
+
+def test_build_plsql_procedure(sample_resolver: FieldResolver) -> None:
+    update = ActionNode(
+        type="Nintex.Workflow.Activities.Adapters.SPSetFieldWithKeyAdapter",
+        enabled=True,
+        condition_use="None",
+        params={"LookupField": "Kwota", "LookupFieldValue": "100", "LookupFieldType": "Number"},
+        param_elements={},
+        field_refs=[],
+        children=[],
+        t_label="Ustaw kwotę",
+    )
+    wf = WorkflowModel(
+        title="Testowy Workflow Procedura",
+        description="",
+        list_references=[
+            ListReference(
+                "Lista Rejestr",
+                "{AAAAAAAA-1111-2222-3333-444444444444}",
+                True,
+                [FieldRef("Wartość Kwoty", "Kwota", "Number")],
+            )
+        ],
+        actions=[update],
+        source_path=Path("DaneZeSkryptu/test.nwf"),
+    )
+
+    from tools.nwf_report.report_builder import build_plsql_procedure
+    proc = build_plsql_procedure(wf, sample_resolver)
+
+    assert "CREATE OR REPLACE PROCEDURE process_wf_testowy_workflow_procedura" in proc
+    assert "p_item_id IN NUMBER" in proc
+    assert "shp_api.get_list_item" in proc
+    assert "shp_api.update_list_item" in proc
+    assert "json_object('Kwota' value '100')" in proc
+    assert "END process_wf_testowy_workflow_procedura;" in proc
+
