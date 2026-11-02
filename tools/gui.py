@@ -166,10 +166,14 @@ class DoraMigrationApp(tk.Tk):
         opt_box.grid(row=2, column=1, sticky=tk.W, padx=5, pady=4)
 
         self.inc_data_var = tk.BooleanVar(value=False)
-        ttk.Checkbutton(opt_box, text="Pobierz wiersze danych (20_dane_*.json)", variable=self.inc_data_var).pack(
+        ttk.Checkbutton(opt_box, text="Pobierz dane list (20_dane_*.json)", variable=self.inc_data_var).pack(
             side=tk.LEFT, padx=(0, 10)
         )
-        ttk.Label(opt_box, text="(Domyślnie Windows SSO z Active Directory)", foreground="#666666").pack(side=tk.LEFT)
+        self.insecure_ssl_var = tk.BooleanVar(value=False)
+        ttk.Checkbutton(opt_box, text="Ignoruj certyfikat SSL (--insecure)", variable=self.insecure_ssl_var).pack(
+            side=tk.LEFT, padx=(0, 10)
+        )
+        ttk.Label(opt_box, text="(Domyślnie Windows SSO / SSPI)", foreground="#666666").pack(side=tk.LEFT)
 
         # Przycisk startu ekstrakcji
         btn_box = ttk.Frame(parent)
@@ -273,7 +277,10 @@ class DoraMigrationApp(tk.Tk):
         def task():
             try:
                 self.log(f"Inicjalizacja klienta SharePoint dla: {url}")
-                client = SharePointClient(base_url=url, insecure=False)
+                client = SharePointClient(
+                    base_url=url,
+                    verify_ssl=not self.insecure_ssl_var.get(),
+                )
 
                 if self.auto_dir_var.get():
                     out_dir = resolve_output_dir(None, base_dir=REPO_ROOT)
@@ -288,7 +295,9 @@ class DoraMigrationApp(tk.Tk):
                     include_data=self.inc_data_var.get(),
                 )
                 manifest = extractor.run()
-                self.log(f"SUKCES: Zakończono ekstrakcję. Pobrano {len(manifest.workflows)} workflow, {len(manifest.lists)} list.")
+                wf_count = len(manifest.get("workflows", []))
+                list_count = len(manifest.get("lists", []))
+                self.log(f"SUKCES: Zakończono ekstrakcję. Pobrano {wf_count} workflow, {list_count} list.")
                 self.status_lbl.configure(text=f"Zakończono pobieranie do {out_dir.name}.")
 
                 # Zaktualizuj zakladke raportow

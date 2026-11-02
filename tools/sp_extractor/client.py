@@ -27,6 +27,7 @@ class SharePointClient:
         password: str | None = None,
         domain: str | None = None,
         verify_ssl: bool = True,
+        insecure: bool = False,
         timeout: int = 60,
         session: requests.Session | None = None,
     ) -> None:
@@ -35,6 +36,8 @@ class SharePointClient:
         self.origin = f"{parsed.scheme}://{parsed.netloc}"
         self.timeout = timeout
         self.session = session or requests.Session()
+        if insecure:
+            verify_ssl = False
         self.session.verify = verify_ssl
 
         # Configure Authentication

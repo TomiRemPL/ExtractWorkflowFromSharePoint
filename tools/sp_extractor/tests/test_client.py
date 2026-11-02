@@ -89,3 +89,11 @@ def test_export_nintex_workflow_success():
     content = client.export_nintex_workflow("Workflow A", "Lista B", "list")
     assert content == "<NWExportedWorkflow>content</NWExportedWorkflow>"
 
+
+
+def test_client_init_ssl_options():
+    c1 = SharePointClient("http://sp.corp.local/sites/dora", verify_ssl=False)
+    assert c1.session.verify is False
+
+    c2 = SharePointClient("http://sp.corp.local/sites/dora", insecure=True)
+    assert c2.session.verify is False
