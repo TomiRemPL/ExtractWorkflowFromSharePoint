@@ -491,3 +491,37 @@ dedykowany handler.
 - **Kompatybilność**: Struktura wygenerowanego katalogu jest w 100% kompatybilna z wejściem generatora raportów `tools/nwf_report/generate_report.py`.
 - **Testy**: Łączna liczba testów w projekcie wzrosła do 45 (wszystkie zielone w `uv run pytest`), w tym testy end-to-end zasilające raporty z wygenerowanych przez mock metadanych.
 
+## 13. Rozszerzenie katalogu akcji Nintex (2026-10-31)
+
+- Rozszerzono `tools/nwf_report/action_catalog.py` o 11 nowych typów akcji (łącznie 56 akcji w katalogu):
+  `Math`, `CreateItem`, `DeleteItem`, `QueryList`, `UpdateXml`, `QueryXml`, `StateMachine`, `SetWorkflowVariable`, `RegularExpression`, `CallWebService`, `Switch`.
+- Dodano testy jednostkowe w `tools/nwf_report/tests/test_action_catalog_expanded.py`.
+- Zapewniono pełne mapowanie parametrów akcji oraz wywołań `shp_api` / operacji bazodanowych w raportach Markdown i portalu HTML.
+
+## 14. Integracja z wyzwalaczem SharePoint (workflow.xaml) i ORDS REST (2026-11-02)
+
+- **Analiza kontraktu wyzwalacza**: Na podstawie `.___SP/workflow.xaml` (SharePoint Designer 2013 WF4) oraz pakietu `shp_api.sql` zidentyfikowano 17 pól JSON wysyłanych przez SharePoint w wywołaniu POST na endpoint ORDS:
+  `POST https://ilapex.{Environment}.creditagricole:8082/ords/shp/nintex/main`
+  Pola: `id`, `guid`, `title`, `url2`, `association`, `associator`, `initiator`, `instance`, `list`, `list_name`, `url`, `url_site`, `created`, `created_by`, `updated`, `updated_by`, `content_type`.
+- **Dynamiczne parametry procedur PL/SQL**: Procedury `process_wf_<nazwa>` przyjmują dynamiczne parametry:
+  `p_item_id IN NUMBER, p_site_url IN VARCHAR2 DEFAULT NULL, p_list_title IN VARCHAR2 DEFAULT NULL, p_initiator IN VARCHAR2 DEFAULT NULL, p_payload IN CLOB DEFAULT NULL`.
+  W przypadku braku `p_site_url` lub `p_list_title` procedura dynamicznie cofa się do stałych z metadanych workflow (`c_site_url`, `c_list_title`).
+- **Pakiet dyspozytora (`pkg_shp_dispatcher.sql`)**:
+  - `tools/nwf_report/report_builder.py` (`build_dispatcher_package`): generuje pakiet `pkg_shp_dispatcher` z procedurą `dispatch_event(p_payload IN CLOB)`.
+  - Parsuje 17 pól payloadu z JSON (`json_value`), odrzuca foldery (`content_type = 'Folder'`), routuje zdarzenia wg `l_association` / `l_list_title` do procedur `process_wf_*` i rejestruje logi przez `apex_debug.info`.
+  - `tools/nwf_report/generate_report.py` automatycznie generuje i zapisuje `pkg_shp_dispatcher.sql` w katalogu wyjściowym raportów (`out/`, `out_002/`).
+- **Rozbudowa portalu HTML**:
+  - Sekcja 04: Kompletny kontrakt webhooka ORDS (tabela 17 pól, filtrowanie folderów, przykłady payloadu).
+  - Sekcja 05: Architektura dyspozytora i wzorzec integracyjny PL/SQL.
+
+## 15. Aplikacja okienkowa GUI (`tools/gui.py`, `run_gui.bat`) (2026-11-02)
+
+- **Cel**: Uruchamianie ekstrakcji i generowania raportów w prostym interfejsie graficznym dla użytkowników nietechnicznych.
+- **Implementacja**:
+  - `tools/gui.py`: Desktopowa aplikacja Tkinter (nowoczesny motyw `clam`, zakładki `Ekstrakcja (sp_extractor)` oraz `Generator raportów (nwf_report)`).
+  - Podgląd logów na żywo (`LogViewer` z obsługą wielowątkowości `threading.Thread`), przyciski przeglądania katalogów, otwieranie wygenerowanego portalu HTML w przeglądarce (`webbrowser.open`).
+  - Automatyczne wykrywanie kolejnego folderu `DaneZeSkryptu_nnn`.
+  - `run_gui.bat`: Skrypt startowy uruchamiający GUI za pomocą interpretera Python ze środowiska `.venv` (`.venv\Scripts\pythonw.exe tools\gui.py`).
+- **Testy**: Dodano `tools/nwf_report/tests/test_gui.py` testujący inicjalizację okna i formularza (58 przechodzących testów w całym projekcie).
+
+
