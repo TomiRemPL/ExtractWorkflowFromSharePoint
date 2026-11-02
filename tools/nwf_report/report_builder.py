@@ -276,19 +276,25 @@ def build_plsql_procedure(wf: WorkflowModel, resolver: FieldResolver) -> str:
     body_text = "\n".join(body_lines) if body_lines else "    NULL;"
 
     return f"""CREATE OR REPLACE PROCEDURE {proc_name} (
-    p_item_id IN NUMBER
+    p_item_id    IN NUMBER,
+    p_site_url   IN VARCHAR2 DEFAULT NULL,
+    p_list_title IN VARCHAR2 DEFAULT NULL,
+    p_initiator  IN VARCHAR2 DEFAULT NULL,
+    p_payload    IN CLOB     DEFAULT NULL
 ) AS
-    c_site_url CONSTANT VARCHAR2(400) := 'https://sharepoint.domain.com/sites/...';
-    l_item_json CLOB;
-    l_resp      CLOB;
-    l_ref_json  CLOB;
+    c_default_site_url CONSTANT VARCHAR2(400) := 'https://teams.sp.creditagricole/team/...';
+    c_site_url         VARCHAR2(1000) := NVL(p_site_url, c_default_site_url);
+    c_list_title       VARCHAR2(255)  := NVL(p_list_title, '{src_name}');
+    l_item_json        CLOB;
+    l_resp             CLOB;
+    l_ref_json         CLOB;
 {var_decls}BEGIN
-    apex_debug.info('Start workflow: {wf.title}, item_id: ' || p_item_id);
+    apex_debug.info('Start workflow: {wf.title}, item_id: ' || p_item_id || ', initiator: ' || p_initiator);
 
-    -- 1. Pobranie danych biezacego elementu
+    -- 1. Pobranie danych biezacego elementu z SharePoint
     l_item_json := shp_api.get_list_item(
         p_site_url   => c_site_url,
-        p_list_title => '{src_name}',
+        p_list_title => c_list_title,
         p_item_id    => p_item_id
     );
 
@@ -297,6 +303,118 @@ def build_plsql_procedure(wf: WorkflowModel, resolver: FieldResolver) -> str:
 
     apex_debug.info('Koniec workflow: {wf.title}, item_id: ' || p_item_id);
 END {proc_name};
+/"""
+
+
+def build_dispatcher_package(workflows_data: list[dict]) -> str:
+    """Generuje kompletny pakiet PL/SQL pkg_shp_dispatcher obslugujacy zadania webhooka z workflow.xaml."""
+    case_branches = []
+    for wf in workflows_data:
+        title = wf.get("title", "")
+        raw_name = title or wf.get("source_file", "")
+        safe_name = re.sub(r"[^a-zA-Z0-9_]", "_", raw_name).strip("_").lower()
+        safe_name = re.sub(r"_+", "_", safe_name)
+        proc_name = f"process_wf_{safe_name}"
+        src_name = wf.get("source_list_name", "")
+
+        branch = f"""            WHEN '{title}' THEN
+                {proc_name}(
+                    p_item_id    => l_id,
+                    p_site_url   => l_url_site,
+                    p_list_title => NVL(l_list_name, '{src_name}'),
+                    p_initiator  => l_initiator,
+                    p_payload    => p_body
+                );"""
+        case_branches.append(branch)
+
+    case_sql = "\n".join(case_branches) if case_branches else "            NULL;"
+
+    return f"""CREATE OR REPLACE PACKAGE pkg_shp_dispatcher AS
+    /**
+     * Glowny punkt wejscia dla webhooka SharePoint Designer 2013 (workflow.xaml).
+     * Endpoint ORDS: POST /ords/shp/nintex/main
+     *
+     * @param p_body           JSON payload przekazany w ciele zadania HTTP POST
+     * @param p_status_code    Kod odpowiedzi HTTP zwracany do SharePoint (200 / 400 / 500)
+     * @param p_status_message Komunikat zwrotny logowany w historii SharePoint
+     */
+    PROCEDURE handle_webhook (
+        p_body           IN  CLOB,
+        p_status_code    OUT NUMBER,
+        p_status_message OUT VARCHAR2
+    );
+END pkg_shp_dispatcher;
+/
+
+CREATE OR REPLACE PACKAGE BODY pkg_shp_dispatcher AS
+
+    PROCEDURE handle_webhook (
+        p_body           IN  CLOB,
+        p_status_code    OUT NUMBER,
+        p_status_message OUT VARCHAR2
+    ) IS
+        l_id           NUMBER;
+        l_guid         VARCHAR2(64);
+        l_title        VARCHAR2(500);
+        l_association  VARCHAR2(255);
+        l_associator   VARCHAR2(255);
+        l_initiator    VARCHAR2(255);
+        l_instance     VARCHAR2(64);
+        l_list_id      VARCHAR2(64);
+        l_list_name    VARCHAR2(255);
+        l_url_site     VARCHAR2(1000);
+        l_content_type VARCHAR2(100);
+    BEGIN
+        IF p_body IS NULL THEN
+            p_status_code := 400;
+            p_status_message := 'Blad: pusty payload JSON';
+            RETURN;
+        END IF;
+
+        -- Rozpakowanie 17 atrybutow wysylanych przez SharePoint (workflow.xaml):
+        l_id           := json_value(p_body, '$.id' RETURNING NUMBER);
+        l_guid         := json_value(p_body, '$.guid');
+        l_title        := json_value(p_body, '$.title');
+        l_association  := json_value(p_body, '$.association');
+        l_associator   := json_value(p_body, '$.associator');
+        l_initiator    := json_value(p_body, '$.initiator');
+        l_instance     := json_value(p_body, '$.instance');
+        l_list_id      := json_value(p_body, '$.list');
+        l_list_name    := json_value(p_body, '$.list_name');
+        l_url_site     := json_value(p_body, '$.url_site');
+        l_content_type := json_value(p_body, '$.content_type');
+
+        apex_debug.info('Odebrano webhook z SharePoint: wf=' || l_association || 
+                        ', lista=' || l_list_name || ', id=' || l_id || ', user=' || l_initiator);
+
+        -- Zgodnie z workflow.xaml: ignorowanie folderow
+        IF l_content_type = 'Folder' THEN
+            p_status_code := 200;
+            p_status_message := 'Folder Ignored';
+            RETURN;
+        END IF;
+
+        -- Routing do dedykowanych procedur przeplywow pracy:
+        CASE l_association
+{case_sql}
+            ELSE
+                apex_debug.warn('Nieznany workflow (association): ' || l_association);
+                p_status_code := 200;
+                p_status_message := 'Ostrzezenie: brak procedury dla association=' || l_association;
+                RETURN;
+        END CASE;
+
+        p_status_code := 200;
+        p_status_message := 'OK';
+
+    EXCEPTION
+        WHEN OTHERS THEN
+            p_status_code := 500;
+            p_status_message := 'Blad wykonania: ' || SQLERRM;
+            apex_debug.error('Blad pkg_shp_dispatcher: ' || SQLERRM || ' | ' || DBMS_UTILITY.format_error_backtrace);
+    END handle_webhook;
+
+END pkg_shp_dispatcher;
 /"""
 
 
@@ -541,12 +659,37 @@ def build_report(wf: WorkflowModel, resolver: FieldResolver) -> str:
     lines.append("")
 
     plsql_proc = build_plsql_procedure(wf, resolver)
+    raw_name = wf.title or wf.source_path.stem
+    safe_name = re.sub(r"[^a-zA-Z0-9_]", "_", raw_name).strip("_").lower()
+    safe_name = re.sub(r"_+", "_", safe_name)
+    proc_name = f"process_wf_{safe_name}"
+
     lines.append("## Kompletna procedura orkiestracji PL/SQL (Oracle APEX / SHP_API)")
     lines.append("")
     lines.append("Poniższy kod stanowi gotowy, kompletny szkielet procedury PL/SQL do wdrożenia w Oracle APEX, realizujący całą logikę workflow za pośrednictwem pakietu `SHP_API`:")
     lines.append("")
     lines.append("```plsql")
     lines.append(plsql_proc)
+    lines.append("```")
+    lines.append("")
+
+    lines.append("## Integracja z wyzwalaczem SharePoint (workflow.xaml) & ORDS")
+    lines.append("")
+    lines.append("Ten workflow jest wyzwalany automatycznie przez wyzwalacz SharePoint Designer (`workflow.xaml`), który wysyła żądanie `POST` do endpointu ORDS:")
+    lines.append("- **Endpoint ORDS:** `POST https://ilapex.{Environment}.creditagricole:8082/ords/shp/nintex/main`")
+    lines.append(f"- **Klucz powiązania (`association`):** `{wf.title or wf.source_path.stem}`")
+    lines.append(f"- **Lista źródłowa (`list_name`):** `{src.list_name if src else '(nieznana)'}`")
+    lines.append("")
+    lines.append("Fragment routingu w centralnym dyspozytorze `pkg_shp_dispatcher`:")
+    lines.append("```plsql")
+    lines.append(f"WHEN '{wf.title or wf.source_path.stem}' THEN")
+    lines.append(f"    {proc_name}(")
+    lines.append("        p_item_id    => l_id,")
+    lines.append("        p_site_url   => l_url_site,")
+    lines.append(f"        p_list_title => NVL(l_list_name, '{src.list_name if src else "Lista"}'),")
+    lines.append("        p_initiator  => l_initiator,")
+    lines.append("        p_payload    => p_body")
+    lines.append("    );")
     lines.append("```")
     lines.append("")
 

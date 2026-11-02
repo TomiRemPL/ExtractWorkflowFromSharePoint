@@ -15,13 +15,13 @@ if __package__ in (None, ""):
     from nwf_report.html_builder import build_html_manual
     from nwf_report.metadata_loader import FieldResolver, load_site_metadata
     from nwf_report.nwf_parser import iter_actions, parse_nwf
-    from nwf_report.report_builder import build_report, build_workflow_data
+    from nwf_report.report_builder import build_dispatcher_package, build_report, build_workflow_data
 else:
     from .action_catalog import UNKNOWN_TYPES_SEEN
     from .html_builder import build_html_manual
     from .metadata_loader import FieldResolver, load_site_metadata
     from .nwf_parser import iter_actions, parse_nwf
-    from .report_builder import build_report, build_workflow_data
+    from .report_builder import build_dispatcher_package, build_report, build_workflow_data
 
 
 def _safe_filename(name: str) -> str:
@@ -138,6 +138,12 @@ def main(argv: list[str] | None = None) -> None:
 
     walkthrough_md = _build_walkthrough(summary_items, UNKNOWN_TYPES_SEEN)
     (output_dir / "walkthrough.md").write_text(walkthrough_md, encoding="utf-8")
+
+    # Generowanie centralnego pakietu dyspozytora ORDS (obsługa webhooka z workflow.xaml)
+    if workflows_data:
+        dispatcher_sql = build_dispatcher_package(workflows_data)
+        (output_dir / "pkg_shp_dispatcher.sql").write_text(dispatcher_sql, encoding="utf-8")
+        print(f"OK: Wygenerowano pakiet dyspozytora ORDS -> pkg_shp_dispatcher.sql")
 
     # Generowanie interaktywnego portalu manuala migracji w formacie HTML
     if workflows_data:

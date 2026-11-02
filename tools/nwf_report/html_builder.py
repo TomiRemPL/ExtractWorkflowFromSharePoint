@@ -769,39 +769,53 @@ def _generate_html(workflows_data: list[dict]) -> str:
       </div>
     </section>
 
-    <!-- SEKCJA 4: UNIWERSALNY KONTRAKT REST -->
+    <!-- SEKCJA 4: KONTRAKT REST / WEBHOOK -->
     <section id="sec-contract">
-      <h2 class="section-title"><span class="number">04.</span> Uniwersalny kontrakt integracyjny REST</h2>
+      <h2 class="section-title"><span class="number">04.</span> Kontrakt integracyjny SharePoint (workflow.xaml) ↔ ORDS REST API</h2>
       <div class="grid-2">
         <div class="docs-card">
-          <h3>Wywołanie procesu (POST)</h3>
-          <p style="color:var(--text-muted); font-size:0.88rem; margin:8px 0 12px;">Standardowy endpoint dla systemów zewnętrznych (np. APEX, Camunda, ERP).</p>
-          <div class="code-box">POST /api/v1/workflows/&#123;workflowKey&#125;/runs
-Authorization: Bearer &lt;token&gt;
-Idempotency-Key: &lt;unique-uuid&gt;
-Content-Type: application/json
+          <h3>Żądanie Webhook z SharePoint (POST)</h3>
+          <p style="color:var(--text-muted); font-size:0.88rem; margin:8px 0 12px;">Wyzwalacz SharePoint Designer 2013 (<code>workflow.xaml</code>) wywołuje endpoint ORDS przy utworzeniu lub modyfikacji elementu (z wyłączeniem folderów):</p>
+          <div class="code-box">POST https://ilapex.&#123;Environment&#125;.creditagricole:8082/ords/shp/nintex/main
+Accept: application/json;odata=verbose
+Content-Type: application/json;odata=verbose
 
 &#123;
-  "itemId": 1234,
-  "executionMode": "sync",
-  "correlationId": "WF-REQ-2026-0091"
+  "id": 1234,
+  "guid": "c71a398c-8c3e-4b42-888e-73cb1ef17300",
+  "title": "Tytuł elementu listy",
+  "url2": "https://teams.sp.creditagricole/team/...",
+  "association": "Nazwa przepływu pracy",
+  "associator": "CREDITAGRICOLE\\login_kojarzacego",
+  "initiator": "CREDITAGRICOLE\\login_inicjatora",
+  "instance": "0d8fb406-8d69-42b8-93be-17bcad7818aa",
+  "list": "&#123;1D3B1CFB-74B5-46BC-BA03-8E443CDC952D&#125;",
+  "list_name": "Karty wskaźników SIZ",
+  "url": "/team/ITMM/Lists/SIZ/DispForm.aspx?ID=1234",
+  "url_site": "https://teams.sp.creditagricole/team/ITMM",
+  "created": "2026-10-31T09:00:00Z",
+  "created_by": "CREDITAGRICOLE\\autor",
+  "updated": "2026-10-31T09:05:00Z",
+  "updated_by": "CREDITAGRICOLE\\edytor",
+  "content_type": "Item"
 &#125;</div>
         </div>
         <div class="docs-card">
-          <h3>Odpowiedź (200 OK / 202 Accepted)</h3>
-          <p style="color:var(--text-muted); font-size:0.88rem; margin:8px 0 12px;">Odpowiedź synchroniczna z listą zmodyfikowanych pól lub asynchroniczna z adresem statusu.</p>
+          <h3>Odpowiedź ORDS (200 OK / WriteToHistory)</h3>
+          <p style="color:var(--text-muted); font-size:0.88rem; margin:8px 0 12px;">SharePoint Designer oczekuje kodu HTTP 200, który zapisuje do historii przepływu prac:</p>
           <div class="code-box">HTTP/1.1 200 OK
 Content-Type: application/json
 
 &#123;
-  "runId": "run_981ab2",
-  "status": "COMPLETED",
-  "changedFields": [
-    "Us_x0142_uga_x0020_kwalifikowana",
-    "Us_x0142_uga_x0020_krytyczna_x000"
-  ],
-  "finishedAt": "2026-09-18T16:00:00Z"
-&#125;</div>
+  "status": 200,
+  "message": "OK"
+&#125;
+
+-- Zapis w historii SharePoint (WriteToHistory):
+-- "(p24) Response Status Code: 200"
+
+-- W przypadku folderów (ContentType = 'Folder'):
+-- "(p24) Response Status Code: Folder Ignored"</div>
         </div>
       </div>
     </section>
@@ -809,6 +823,42 @@ Content-Type: application/json
     <!-- SEKCJA 5: ORACLE APEX / PL/SQL -->
     <section id="sec-apex">
       <h2 class="section-title"><span class="number">05.</span> Architektura wdrożenia w Oracle APEX &amp; pakiet SHP_API</h2>
+      <div class="docs-card" style="margin-bottom:24px;">
+        <h3>Centralny dyspozytor ORDS (pkg_shp_dispatcher)</h3>
+        <p style="color:var(--text-muted); margin:8px 0 16px;">
+          ORDS przyjmuje żądanie z <code>workflow.xaml</code> i przekazuje treść JSON do procedury <code>pkg_shp_dispatcher.handle_webhook</code>, która rozpakowuje 17 atrybutów i wywołuje właściwą procedurę docelowego workflow.
+        </p>
+
+        <div class="code-box">-- Wzorzec centralnego dyspozytora ORDS (pkg_shp_dispatcher)
+create or replace package body pkg_shp_dispatcher as
+    procedure handle_webhook(
+        p_body           in  clob,
+        p_status_code    out number,
+        p_status_message out varchar2
+    ) is
+        l_id          number         := json_value(p_body, '$.id' returning number);
+        l_association varchar2(255)  := json_value(p_body, '$.association');
+        l_list_name   varchar2(255)  := json_value(p_body, '$.list_name');
+        l_url_site    varchar2(1000) := json_value(p_body, '$.url_site');
+        l_initiator   varchar2(255)  := json_value(p_body, '$.initiator');
+    begin
+        case l_association
+            when 'DT01 Mechanizm Kwalifikacji Usługi' then
+                process_wf_dt01_mechanizm_kwalifikacji_uslugi(
+                    p_item_id    => l_id,
+                    p_site_url   => l_url_site,
+                    p_list_title => l_list_name,
+                    p_initiator  => l_initiator,
+                    p_payload    => p_body
+                );
+            -- Kolejne przepływy pracy rejestrowane automatycznie...
+        end case;
+        p_status_code := 200;
+        p_status_message := 'OK';
+    end;
+end pkg_shp_dispatcher;</div>
+      </div>
+
       <div class="docs-card">
         <h3>Wzorzec orkiestracji w Flows for APEX i pakietach PL/SQL</h3>
         <p style="color:var(--text-muted); margin:8px 0 16px;">
@@ -816,20 +866,25 @@ Content-Type: application/json
         </p>
 
         <div class="code-box">-- Wzorzec orkiestracji procesu w PL/SQL za pomocą pakietu SHP_API
-create or replace procedure pkg_workflow_migration.execute_qualification(
-    p_item_id in number
+create or replace procedure process_wf_kwalifikacja_uslugi(
+    p_item_id    in number,
+    p_site_url   in varchar2 default null,
+    p_list_title in varchar2 default null,
+    p_initiator  in varchar2 default null,
+    p_payload    in clob     default null
 ) is
-    c_site_url  constant varchar2(400) := 'https://sharepoint.domain.com/sites/...';
-    l_item_json clob;
-    l_resp      clob;
-    l_is_ict    varchar2(10) := 'Nie';
+    c_site_url   varchar2(1000) := nvl(p_site_url, 'https://teams.sp.creditagricole/team/ITMM');
+    c_list_title varchar2(255)  := nvl(p_list_title, 'Kwalifikacja Usług');
+    l_item_json  clob;
+    l_resp       clob;
+    l_is_ict     varchar2(10) := 'Nie';
 begin
-    apex_debug.info('Start kwalifikacji dla elementu: ' || p_item_id);
+    apex_debug.info('Start kwalifikacji: item_id=' || p_item_id || ', initiator=' || p_initiator);
 
     -- 1. Pobranie danych elementu z SharePoint przez pakiet SHP_API
     l_item_json := shp_api.get_list_item(
         p_site_url   => c_site_url,
-        p_list_title => 'Kwalifikacja Usług',
+        p_list_title => c_list_title,
         p_item_id    => p_item_id
     );
 
@@ -843,7 +898,7 @@ begin
     -- 3. Zapis wyniku do SharePoint przez SHP_API (MERGE z kontrolą ETag)
     l_resp := shp_api.update_list_item(
         p_site_url    => c_site_url,
-        p_list_title  => 'Kwalifikacja Usług',
+        p_list_title  => c_list_title,
         p_item_id     => p_item_id,
         p_fields_json => json_object('Us_x0142_uga_x0020_kwalifikowana' value l_is_ict)
     );

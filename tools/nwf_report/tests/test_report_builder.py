@@ -300,9 +300,31 @@ def test_build_plsql_procedure(sample_resolver: FieldResolver) -> None:
     proc = build_plsql_procedure(wf, sample_resolver)
 
     assert "CREATE OR REPLACE PROCEDURE process_wf_testowy_workflow_procedura" in proc
-    assert "p_item_id IN NUMBER" in proc
+    assert "p_item_id" in proc
+    assert "p_site_url" in proc
+    assert "p_initiator" in proc
     assert "shp_api.get_list_item" in proc
     assert "shp_api.update_list_item" in proc
     assert "json_object('Kwota' value '100')" in proc
     assert "END process_wf_testowy_workflow_procedura;" in proc
+
+
+def test_build_dispatcher_package() -> None:
+    from tools.nwf_report.report_builder import build_dispatcher_package
+
+    workflows_data = [
+        {
+            "title": "Kwalifikacja Uslugi",
+            "source_file": "kwalifikacja.nwf",
+            "source_list_name": "Karty wskaźników SIZ",
+        }
+    ]
+
+    sql = build_dispatcher_package(workflows_data)
+    assert "CREATE OR REPLACE PACKAGE pkg_shp_dispatcher" in sql
+    assert "PROCEDURE handle_webhook" in sql
+    assert "$.id" in sql
+    assert "$.association" in sql
+    assert "WHEN 'Kwalifikacja Uslugi' THEN" in sql
+    assert "process_wf_kwalifikacja_uslugi" in sql
 
