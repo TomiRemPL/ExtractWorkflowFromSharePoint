@@ -4,7 +4,8 @@
 
 - Read [PROJECT_CONTEXT.md](PROJECT_CONTEXT.md) before changing project code. It is the detailed source of truth for the `.nwf` format, verified behavior, implementation decisions, and open topics.
 - Use [manual-sharepoint-2019-dla-poczatkujacych-v3 (1).md](manual-sharepoint-2019-dla-poczatkujacych-v3%20(1).md) for the SharePoint export procedure and the naming conventions in `DaneZeSkryptu/`.
-- Current status (2026-09-19): the parser, metadata loader, action catalog, Markdown/Mermaid report builder, CLI, and generated interactive HTML portal are implemented. Reports for four example workflows have been manually verified. The Python test suite contains 24 passing tests; browser-level Playwright coverage for drag/zoom/SVG clicks/search/navigation remains an open follow-up.
+- Current status (2026-11-03): implemented — `.nwf` parser, metadata loader, action catalog (56 action types), Markdown/Mermaid reports with `SHP_API` PL/SQL procedures, ORDS dispatcher package (`pkg_shp_dispatcher.sql`), interactive HTML portal, SharePoint metadata extractor (`tools/sp_extractor/`), Tkinter GUI (`tools/gui.py`), and the Oracle APEX Shared Components > Workflows guide (`tools/nwf_report/apex_workflow_guide.py`). `uv run pytest` → 65 passed. For the latest handoff state and next steps read section 17 of [PROJECT_CONTEXT.md](PROJECT_CONTEXT.md).
+- Never commit SharePoint row-data dumps (`20_dane_*.json`) or new extraction folders `DaneZeSkryptu_nnn/` / `out_nnn/`; they are git-ignored because they contain business data.
 
 ## Context and tool usage
 

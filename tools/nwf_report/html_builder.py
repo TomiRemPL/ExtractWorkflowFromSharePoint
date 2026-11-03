@@ -548,6 +548,16 @@ def _generate_html(workflows_data: list[dict]) -> str:
       margin-bottom: 20px;
       box-shadow: var(--shadow);
     }}
+    .apex-activity-card {{
+      background: var(--bg-surface);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 16px;
+      margin-top: 12px;
+    }}
+    .apex-activity-card h4 {{
+      margin-bottom: 8px;
+    }}
     .grid-2 {{
       display: grid;
       grid-template-columns: repeat(auto-fit, minmax(360px, 1fr));
@@ -620,6 +630,7 @@ def _generate_html(workflows_data: list[dict]) -> str:
         <button class="nav-btn" data-target="sec-fields">Słownik pól &amp; lookupy</button>
         <button class="nav-btn" data-target="sec-contract">Uniwersalny kontrakt REST</button>
         <button class="nav-btn" data-target="sec-apex">Oracle APEX &amp; PL/SQL</button>
+        <button class="nav-btn" data-target="sec-apex-workflows">APEX Workflow Designer</button>
         <button class="nav-btn" data-target="sec-checklist">Checklist wdrożeniowy</button>
       </div>
       <div class="search-box">
@@ -720,6 +731,18 @@ def _generate_html(workflows_data: list[dict]) -> str:
               <button class="copy-btn" id="copy-step-plsql" type="button" style="padding:2px 8px; font-size:0.75rem;">Kopiuj</button>
             </div>
             <div id="ins-hint-apex" class="code-box" style="white-space:pre-wrap; font-family:Consolas,monospace; font-size:0.8rem; max-height:220px; overflow-y:auto;">-</div>
+          </div>
+
+          <div class="inspector-field-group" id="group-apex-workflow" style="display:none;">
+            <label>Oracle APEX Workflow Designer</label>
+            <div><span id="ins-apex-type" class="inspector-badge"></span></div>
+            <div><strong>Gdzie skonfigurować:</strong> <span id="ins-apex-location" class="inspector-box"></span></div>
+            <div id="ins-apex-notes" class="inspector-box"></div>
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
+              <label style="margin:0;">Kod aktywności Execute Code / Switch</label>
+              <button class="copy-btn" id="copy-apex-step-code" type="button">Kopiuj kod dla APEX Workflow</button>
+            </div>
+            <pre id="ins-apex-code" class="code-box" style="white-space:pre-wrap; max-height:220px; overflow:auto;"></pre>
           </div>
 
           <details>
@@ -908,9 +931,29 @@ end;</div>
       </div>
     </section>
 
+    <!-- SEKCJA 6: APEX SHARED COMPONENTS WORKFLOWS -->
+    <section id="sec-apex-workflows">
+      <h2 class="section-title"><span class="number">06.</span> Przewodnik APEX Workflow Designer</h2>
+      <div class="docs-card">
+        <div id="apex-workflow-definition"></div>
+        <div class="callout callout-warn">
+          W kodzie aktywności używaj bindów <code>:STATIC_ID</code>. APEX 24.2 nie udostępnia
+          <code>apex_workflow.get_variable</code> ani <code>set_variable</code>; API administracyjne
+          wymaga identyfikatora instancji i nie zastępuje bindów w aktywności.
+        </div>
+        <div style="overflow-x:auto;">
+          <h3>Workflow Parameters</h3>
+          <table class="card-table" id="apex-parameters-table"></table>
+          <h3 style="margin-top:20px;">Workflow Variables</h3>
+          <table class="card-table" id="apex-variables-table"></table>
+        </div>
+      </div>
+      <div id="apex-activities"></div>
+    </section>
+
     <!-- SEKCJA 6: CHECKLIST -->
     <section id="sec-checklist">
-      <h2 class="section-title"><span class="number">06.</span> Kryteria odbioru i checklist wdrożenia</h2>
+      <h2 class="section-title"><span class="number">07.</span> Kryteria odbioru i checklist wdrożenia</h2>
       <div class="docs-card">
         <ul style="list-style:none; display:grid; grid-template-columns:repeat(auto-fit, minmax(280px, 1fr)); gap:12px;">
           <li>&#9989; <strong>Weryfikacja kodowania:</strong> Eksporty CSV/JSON czytane jako UTF-8/UTF-16.</li>
@@ -1188,6 +1231,8 @@ end;</div>
         const wfPlsqlProc = document.getElementById('wf-plsql-procedure');
         if (wfPlsqlProc) wfPlsqlProc.textContent = wf.plsql_procedure || '-- Brak kodu procedury';
 
+        renderApexWorkflowGuide(wf);
+
         // Reset inspektora
         resetInspector();
       }}
@@ -1277,6 +1322,21 @@ end;</div>
         document.getElementById('ins-raw').textContent = (step.technical_lines && step.technical_lines.length > 0)
           ? step.technical_lines.join('\\n')
           : 'Brak szczegółowych parametrów.';
+
+        const apexActivity = (wf.apex_workflow_spec?.activities || []).find(activity => activity.node_id === nodeId);
+        const apexGroup = document.getElementById('group-apex-workflow');
+        apexGroup.style.display = apexActivity ? 'flex' : 'none';
+        if (apexActivity) {{
+          document.getElementById('ins-apex-type').textContent = apexActivity.activity_type;
+          document.getElementById('ins-apex-location').textContent = apexActivity.ui_location;
+          document.getElementById('ins-apex-notes').textContent = (apexActivity.config_notes || []).join('\\n');
+          document.getElementById('ins-apex-code').textContent = apexActivity.plsql_code || '(Brak kodu — skonfiguruj właściwości aktywności.)';
+          const copyApexBtn = document.getElementById('copy-apex-step-code');
+          copyApexBtn.style.display = apexActivity.plsql_code ? '' : 'none';
+          copyApexBtn.onclick = () => {{
+            navigator.clipboard.writeText(apexActivity.plsql_code).then(() => showToast('Skopiowano kod dla APEX Workflow!'));
+          }};
+        }}
       }}
 
       function resetInspector() {{
@@ -1290,6 +1350,88 @@ end;</div>
         document.getElementById('ins-hint-univ').textContent = '-';
         document.getElementById('ins-hint-apex').textContent = '-';
         document.getElementById('ins-raw').textContent = '-';
+        document.getElementById('group-apex-workflow').style.display = 'none';
+      }}
+
+      function renderApexWorkflowGuide(wf) {{
+        const spec = wf.apex_workflow_spec;
+        const definition = document.getElementById('apex-workflow-definition');
+        const activities = document.getElementById('apex-activities');
+        const paramsTable = document.getElementById('apex-parameters-table');
+        const variablesTable = document.getElementById('apex-variables-table');
+        definition.textContent = spec
+          ? `${{spec.name}} · Static ID: ${{spec.static_id}} · Category: ${{spec.category}} · Wyzwalacze: ${{(spec.start_triggers || []).join(', ')}}`
+          : 'Brak wygenerowanej specyfikacji APEX Workflow.';
+        activities.replaceChildren();
+
+        function renderTable(table, headers, rows) {{
+          table.replaceChildren();
+          const thead = document.createElement('thead');
+          const headerRow = document.createElement('tr');
+          headers.forEach(text => {{
+            const th = document.createElement('th');
+            th.textContent = text;
+            headerRow.appendChild(th);
+          }});
+          thead.appendChild(headerRow);
+          table.appendChild(thead);
+          const tbody = document.createElement('tbody');
+          rows.forEach(values => {{
+            const tr = document.createElement('tr');
+            values.forEach(value => {{
+              const td = document.createElement('td');
+              td.textContent = value == null ? '' : String(value);
+              tr.appendChild(td);
+            }});
+            tbody.appendChild(tr);
+          }});
+          table.appendChild(tbody);
+        }}
+
+        if (!spec) {{
+          renderTable(paramsTable, [], []);
+          renderTable(variablesTable, [], []);
+          return;
+        }}
+        renderTable(paramsTable, ['Static ID', 'Typ', 'Wymagany', 'Domyślna wartość', 'Opis'],
+          (spec.parameters || []).map(param => [param.static_id, param.data_type, param.required ? 'Tak' : 'Nie', param.default_value, param.description]));
+        renderTable(variablesTable, ['Static ID', 'Typ', 'Rola / mapowanie'],
+          (spec.variables || []).map(variable => [variable.static_id, variable.data_type, [variable.field_binding, variable.role].filter(Boolean).join(' — ')]));
+        (spec.activities || []).forEach((activity, index) => {{
+          const card = document.createElement('article');
+          card.className = 'apex-activity-card';
+          const title = document.createElement('h4');
+          title.textContent = `${{index + 1}}. ${{activity.title}} (${{activity.node_id}})`;
+          const type = document.createElement('p');
+          type.textContent = `Activity Type: ${{activity.activity_type}} · ${{activity.ui_location}}`;
+          card.append(title, type);
+          (activity.config_notes || []).forEach(note => {{
+            const paragraph = document.createElement('p');
+            paragraph.textContent = `• ${{note}}`;
+            card.appendChild(paragraph);
+          }});
+          (activity.transitions || []).forEach(transition => {{
+            const paragraph = document.createElement('p');
+            paragraph.textContent = `Transition ${{
+              transition.condition || 'Next'
+            }} → ${{transition.target_node_id}} (${{transition.target_name}})`;
+            card.appendChild(paragraph);
+          }});
+          if (activity.plsql_code) {{
+            const code = document.createElement('pre');
+            code.className = 'code-box';
+            code.textContent = activity.plsql_code;
+            const button = document.createElement('button');
+            button.className = 'copy-btn';
+            button.type = 'button';
+            button.textContent = 'Kopiuj kod dla APEX Workflow';
+            button.addEventListener('click', () => {{
+              navigator.clipboard.writeText(activity.plsql_code).then(() => showToast('Skopiowano kod dla APEX Workflow!'));
+            }});
+            card.append(button, code);
+          }}
+          activities.appendChild(card);
+        }});
       }}
 
       function renderFieldsTable(wf) {{

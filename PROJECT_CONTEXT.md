@@ -414,7 +414,7 @@ dedykowany handler.
 ## 8. Otwarte tematy / możliwe następne kroki (nieblokujące, do decyzji z użytkownikiem)
 
 - **Testy interakcji HTML w przeglądarce** nie są jeszcze automatyczne. `uv run pytest`
-  przechodzi (24 testy), ale testy sprawdzają generator i dane, nie rzeczywiste drag/zoom/
+  przechodzi (65 testów na 2026-11-03), ale testy sprawdzają generator i dane, nie rzeczywiste drag/zoom/
   kliknięcia SVG ani scrollowanie sekcji. Warto dodać testy Playwright.
 - **Ręczna walidacja portalu** pozostaje do wykonania w Chromium/Edge na szerokim i wąskim
   viewportcie: kliknięcia węzłów, przesuwanie, zoom, reset, wyszukiwarka i nawigacja górna.
@@ -524,4 +524,50 @@ dedykowany handler.
   - `run_gui.bat`: Skrypt startowy uruchamiający GUI za pomocą interpretera Python ze środowiska `.venv` (`.venv\Scripts\pythonw.exe tools\gui.py`).
 - **Testy**: Dodano `tools/nwf_report/tests/test_gui.py` testujący inicjalizację okna i formularza (58 przechodzących testów w całym projekcie).
 
+## 16. Przewodnik Oracle APEX Shared Components > Workflows (2026-11-03)
 
+- `tools/nwf_report/apex_workflow_guide.py` buduje specyfikację definicji workflow, parametrów,
+  zmiennych, typów aktywności, przejść i instrukcji PL/SQL dla aktywności z każdego pliku `.nwf`.
+- `report_builder.py` dołącza przewodnik do raportów Markdown i do danych serializowanych dla portalu;
+  `html_builder.py` wyświetla osobny panel APEX Workflow Designer oraz szczegóły w inspektorze.
+- Zmienne procesu są dostępne w kodzie aktywności przez bindy `:STATIC_ID`. Nie generuj wywołań
+  `apex_workflow.get_variable` ani `apex_workflow.set_variable`: dokumentacja APEX 24.2 opisuje
+  `GET_VARIABLE_VALUE(p_instance_id, p_variable_static_id)` i `UPDATE_VARIABLES`, które jest
+  administracyjną operacją na instancjach zawieszonych lub błędnych ([API reference](https://docs.oracle.com/en/database/oracle/apex/24.2/aeapi/APEX_WORKFLOW.html)).
+- Wygenerowane zmienne `SP_<InternalName>` są mapowaniem wymagającym zasilenia z SharePoint przez
+  `SHP_API` lub odpowiedni parametr wejściowy; przed wdrożeniem należy potwierdzić mapowanie i
+  identyfikatory elementów dla akcji cross-list. Przewodnik pokazuje również syntetyczną aktywność
+  `Workflow End` i przenosi źródłowe triggery do instrukcji uruchamiania procesu.
+- Testy: `tools/nwf_report/tests/test_apex_workflow_guide.py` (przypisania zmiennych, Switch i
+  przejścia, aktualizacja SharePoint, Wait, lookup cross-list, wyjście Markdown/HTML).
+
+## 17. Stan przekazania (handoff) — 2026-11-03
+
+Punkt startowy dla kolejnego agenta/LLM:
+
+1. Przeczytaj `AGENTS.md`, potem ten plik (sekcje 4–5 format i architektura, 11–16 kolejne funkcje).
+2. Weryfikacja środowiska: `uv run pytest` → **65 passed**.
+3. Regeneracja wyników: `uv run python tools\nwf_report\generate_report.py --input DaneZeSkryptu --output out`
+   — tworzy 4 raporty `.md`, `index.md`, `pkg_shp_dispatcher.sql` i `workflow-migration-manual.html`.
+   Katalog `out/` jest w `.gitignore`, ale jego pliki są śledzone (dodane wymuszeniem) — po
+   regeneracji commituj je jawnie (`git add -f out/...`).
+4. Smoke test portalu: otwórz `out/workflow-migration-manual.html`, sekcja APEX Workflow Designer
+   powinna pokazywać aktywności (w tym syntetyczne `Workflow End`), a kliknięcie węzła Switch na
+   diagramie aktualizuje inspektor.
+
+Dane lokalne nieśledzone w git: `DaneZeSkryptu_nnn/` i `out_nnn/` (wyniki `sp_extractor` z
+prawdziwej witryny, w tym wiersze list `20_dane_*.json` z danymi biznesowymi). Są ignorowane w
+`.gitignore` i nie mogą trafić do repozytorium.
+
+Otwarte kroki (priorytetowo):
+
+- **APEX**: potwierdzić w docelowej wersji APEX, że bindy `:STATIC_ID` zmiennych workflow są
+  zapisywalne w aktywnościach „Execute Code”; skompilować wygenerowany PL/SQL na środowisku.
+- **Mapowanie `SP_<InternalName>`**: zaprojektować zasilanie zmiennych z `SHP_API.get_list_item`
+  (np. aktywność inicjalizująca) i potwierdzić identyfikatory elementów dla akcji cross-list.
+- **Sygnatury `SHP_API`**: zweryfikować zgodność wywołań `update_list_item`/`get_list_item` z
+  wdrożonym pakietem `shp_api.sql`.
+- **Kolizje Static ID**: identyfikatory są wyprowadzane z tytułów; dwa tytuły normalizujące się do
+  tego samego ID mogą kolidować — dodać deduplikację (sufiks) w `apex_workflow_guide.py`.
+- **Testy przeglądarkowe** (Playwright) dla drag/zoom/kliknięć SVG/wyszukiwania/kopiowania.
+- Pozostałe tematy z sekcji 8 (`Workflow-Inventory.csv`, pętle w Mermaid, nowe operatory).

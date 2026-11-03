@@ -2,6 +2,7 @@ import re
 from dataclasses import dataclass
 
 from .action_catalog import ActionDescription, _plsql_condition, _plsql_var, describe_action
+from .apex_workflow_guide import format_markdown_apex_section, generate_apex_workflow_spec
 from .metadata_loader import FieldResolver
 from .nwf_parser import ActionNode, WorkflowModel
 
@@ -421,6 +422,7 @@ END pkg_shp_dispatcher;
 def build_workflow_data(wf: WorkflowModel, resolver: FieldResolver) -> dict:
     """Buduje ustrukturyzowany slownik z danymi workflow do celow serializacji JSON / raportu HTML."""
     mermaid_code, steps = _build_mermaid_with_steps(wf.actions, resolver)
+    apex_workflow_spec = generate_apex_workflow_spec(wf, steps, resolver)
     triggers, guid = _extract_triggers_and_guid(wf.actions)
     variables = _extract_variables(wf.actions)
 
@@ -570,11 +572,13 @@ def build_workflow_data(wf: WorkflowModel, resolver: FieldResolver) -> dict:
         "fields": sorted_fields,
         "variables": variables,
         "plsql_procedure": build_plsql_procedure(wf, resolver),
+        "apex_workflow_spec": apex_workflow_spec.to_dict(),
     }
 
 
 def build_report(wf: WorkflowModel, resolver: FieldResolver) -> str:
     mermaid_code, steps = _build_mermaid_with_steps(wf.actions, resolver)
+    apex_workflow_spec = generate_apex_workflow_spec(wf, steps, resolver)
 
     lines: list[str] = []
     lines.append(f"# {wf.title}")
@@ -658,6 +662,9 @@ def build_report(wf: WorkflowModel, resolver: FieldResolver) -> str:
         lines.append(f"| {title} | `{internal_name}` | Tekst/Ref | {'Tak' if internal_name in all_reads else '-'} | {'Tak' if internal_name in all_writes else '-'} |")
     lines.append("")
 
+    lines.append(format_markdown_apex_section(apex_workflow_spec))
+    lines.append("")
+
     plsql_proc = build_plsql_procedure(wf, resolver)
     raw_name = wf.title or wf.source_path.stem
     safe_name = re.sub(r"[^a-zA-Z0-9_]", "_", raw_name).strip("_").lower()
@@ -694,4 +701,3 @@ def build_report(wf: WorkflowModel, resolver: FieldResolver) -> str:
     lines.append("")
 
     return "\n".join(lines)
-

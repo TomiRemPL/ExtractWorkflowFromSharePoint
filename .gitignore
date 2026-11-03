@@ -13,3 +13,8 @@ venv/
 # Output directory
 out/
 
+# Local SharePoint extractions (contain business row data) and their reports
+DaneZeSkryptu_*/
+out_*/
+20_dane_*.json
+
