@@ -10,11 +10,10 @@ venv/
 # Pytest
 .pytest_cache/
 
-# Output directory
-out/
-
-# Local SharePoint extractions (contain business row data) and their reports
+# Local SharePoint extractions and generated reports must never be committed
+DaneZeSkryptu/
 DaneZeSkryptu_*/
+out/
 out_*/
 20_dane_*.json
 
