@@ -1,7 +1,8 @@
 import re
 from dataclasses import dataclass
 
-from .action_catalog import ActionDescription, _plsql_condition, _plsql_var, describe_action
+from .action_catalog import ActionDescription, describe_action, generate_plsql_statements
+from .apex_naming import P_PAYLOAD_BODY, SHP_API, sql_literal, workflow_static_id
 from .apex_workflow_guide import format_markdown_apex_section, generate_apex_workflow_spec
 from .metadata_loader import FieldResolver
 from .nwf_parser import ActionNode, WorkflowModel
@@ -182,158 +183,28 @@ def _extract_triggers_and_guid(actions: list[ActionNode]) -> tuple[list[str], st
     return triggers or ["ręcznie"], guid
 
 
-def _generate_plsql_statements(nodes: list[ActionNode], resolver: FieldResolver, indent_level: int = 1) -> list[str]:
-    lines: list[str] = []
-    indent = "    " * indent_level
-    for node in nodes:
-        if not node.enabled:
-            continue
-        short_type = node.type.rsplit(".", 1)[-1]
-        if short_type == "NWWorkflowVariablesAdapter":
-            continue
-        if short_type in ("WFSequenceAdapter", "WFParallelAdapter"):
-            lines.extend(_generate_plsql_statements(node.children, resolver, indent_level))
-            continue
-        if short_type == "WFIfElseAdapter":
-            cond = _plsql_condition(node.condition_el, resolver)
-            lines.append(f"{indent}IF {cond} THEN")
-            tak_branch = next((c for c in node.children if c.branch_label.lower() in ("tak", "true")), None)
-            nie_branch = next((c for c in node.children if c.branch_label.lower() in ("nie", "false")), None)
-            if tak_branch is None and len(node.children) > 1:
-                nie_branch, tak_branch = node.children[0], node.children[1]
-            elif tak_branch is None and len(node.children) == 1:
-                tak_branch = node.children[0]
-
-            if tak_branch and tak_branch.children:
-                lines.extend(_generate_plsql_statements(tak_branch.children, resolver, indent_level + 1))
-            else:
-                lines.append(f"{indent}    NULL;")
-
-            if nie_branch and nie_branch.children:
-                lines.append(f"{indent}ELSE")
-                lines.extend(_generate_plsql_statements(nie_branch.children, resolver, indent_level + 1))
-            lines.append(f"{indent}END IF;")
-            continue
-        if short_type == "NWRunIf2Adapter":
-            cond = _plsql_condition(node.condition_el, resolver)
-            lines.append(f"{indent}IF {cond} THEN")
-            if node.children:
-                lines.extend(_generate_plsql_statements(node.children, resolver, indent_level + 1))
-            else:
-                lines.append(f"{indent}    NULL;")
-            lines.append(f"{indent}END IF;")
-            continue
-        if short_type == "NWBusinessProcessAdapter":
-            desc = describe_action(node, resolver)
-            for code_line in desc.plsql_code.splitlines():
-                lines.append(f"{indent}{code_line}")
-            if node.children:
-                lines.extend(_generate_plsql_statements(node.children, resolver, indent_level))
-            continue
-        if short_type == "NWForEachLoopAdapter":
-            desc = describe_action(node, resolver)
-            for code_line in desc.plsql_code.splitlines():
-                lines.append(f"{indent}{code_line}")
-            if node.children:
-                lines.extend(_generate_plsql_statements(node.children, resolver, indent_level + 1))
-            lines.append(f"{indent}END LOOP;")
-            continue
-
-
-        desc = describe_action(node, resolver)
-        if desc.is_structural:
-            continue
-        if desc.plsql_code:
-            for code_line in desc.plsql_code.splitlines():
-                lines.append(f"{indent}{code_line}")
-    return lines
-
-
-def build_plsql_procedure(wf: WorkflowModel, resolver: FieldResolver) -> str:
-    """Buduje kompletna, minimalistyczna i gotowa do kompilacji procedure PL/SQL orkiestrujaca workflow za pomoca SHP_API."""
-    raw_name = wf.title or wf.source_path.stem
-    safe_name = re.sub(r"[^a-zA-Z0-9_]", "_", raw_name).strip("_").lower()
-    safe_name = re.sub(r"_+", "_", safe_name)
-    proc_name = f"process_wf_{safe_name}"
-
-    src = wf.source_list
-    src_name = src.list_name if src else resolver.source_list_name or "Lista_Zrodlowa"
-
-    variables = _extract_variables(wf.actions)
-    var_lines = []
-    seen_vars = set()
-    for v in variables:
-        v_ident = _plsql_var(v["name"])
-        if v_ident not in seen_vars:
-            seen_vars.add(v_ident)
-            v_type = "NUMBER" if v["type"].lower() in ("integer", "number") else "VARCHAR2(4000)"
-            var_lines.append(f"    {v_ident:<30} {v_type};")
-
-    var_decls = "\n".join(var_lines)
-    if var_decls:
-        var_decls = f"    -- Zmienne workflow:\n{var_decls}\n"
-
-    body_lines = _generate_plsql_statements(wf.actions, resolver, indent_level=1)
-    body_text = "\n".join(body_lines) if body_lines else "    NULL;"
-
-    return f"""CREATE OR REPLACE PROCEDURE {proc_name} (
-    p_item_id    IN NUMBER,
-    p_site_url   IN VARCHAR2 DEFAULT NULL,
-    p_list_title IN VARCHAR2 DEFAULT NULL,
-    p_initiator  IN VARCHAR2 DEFAULT NULL,
-    p_payload    IN CLOB     DEFAULT NULL
-) AS
-    c_default_site_url CONSTANT VARCHAR2(400) := 'https://teams.sp.creditagricole/team/...';
-    c_site_url         VARCHAR2(1000) := NVL(p_site_url, c_default_site_url);
-    c_list_title       VARCHAR2(255)  := NVL(p_list_title, '{src_name}');
-    l_item_json        CLOB;
-    l_resp             CLOB;
-    l_ref_json         CLOB;
-{var_decls}BEGIN
-    apex_debug.info('Start workflow: {wf.title}, item_id: ' || p_item_id || ', initiator: ' || p_initiator);
-
-    -- 1. Pobranie danych biezacego elementu z SharePoint
-    l_item_json := shp_api.get_list_item(
-        p_site_url   => c_site_url,
-        p_list_title => c_list_title,
-        p_item_id    => p_item_id
-    );
-
-    -- 2. Logika biznesowa workflow
-{body_text}
-
-    apex_debug.info('Koniec workflow: {wf.title}, item_id: ' || p_item_id);
-END {proc_name};
-/"""
+# Zgodnosc wsteczna: generator instrukcji PL/SQL przeniesiono do action_catalog (sciezka B).
+_generate_plsql_statements = generate_plsql_statements
 
 
 def build_dispatcher_package(workflows_data: list[dict]) -> str:
-    """Generuje kompletny pakiet PL/SQL pkg_shp_dispatcher obslugujacy zadania webhooka z workflow.xaml."""
+    """Generuje pakiet pkg_shp_dispatcher: webhook SharePoint (workflow.xaml) -> apex_workflow.start_workflow."""
     case_branches = []
     for wf in workflows_data:
         title = wf.get("title", "")
-        raw_name = title or wf.get("source_file", "")
-        safe_name = re.sub(r"[^a-zA-Z0-9_]", "_", raw_name).strip("_").lower()
-        safe_name = re.sub(r"_+", "_", safe_name)
-        proc_name = f"process_wf_{safe_name}"
-        src_name = wf.get("source_list_name", "")
+        spec = wf.get("apex_workflow_spec") or {}
+        static_id = spec.get("static_id") or workflow_static_id(title or wf.get("source_file", ""))
+        case_branches.append(f"            WHEN {sql_literal(title)} THEN l_static_id := {sql_literal(static_id)};")
 
-        branch = f"""            WHEN '{title}' THEN
-                {proc_name}(
-                    p_item_id    => l_id,
-                    p_site_url   => l_url_site,
-                    p_list_title => NVL(l_list_name, '{src_name}'),
-                    p_initiator  => l_initiator,
-                    p_payload    => p_body
-                );"""
-        case_branches.append(branch)
-
-    case_sql = "\n".join(case_branches) if case_branches else "            NULL;"
+    case_sql = "\n".join(case_branches) if case_branches else "            WHEN NULL THEN NULL;"
 
     return f"""CREATE OR REPLACE PACKAGE pkg_shp_dispatcher AS
     /**
      * Glowny punkt wejscia dla webhooka SharePoint Designer 2013 (workflow.xaml).
      * Endpoint ORDS: POST /ords/shp/nintex/main
+     * Uruchamia instancje APEX Workflow (Shared Components > Workflows) przekazujac
+     * caly payload w parametrze {P_PAYLOAD_BODY}; dalsze kroki (Retrieve Payload,
+     * {SHP_API}.GET_LIST_ITEM) wykonuje juz sam workflow.
      *
      * @param p_body           JSON payload przekazany w ciele zadania HTTP POST
      * @param p_status_code    Kod odpowiedzi HTTP zwracany do SharePoint (200 / 400 / 500)
@@ -348,6 +219,11 @@ END pkg_shp_dispatcher;
 /
 
 CREATE OR REPLACE PACKAGE BODY pkg_shp_dispatcher AS
+
+    -- TODO: ustaw ID aplikacji APEX zawierajacej definicje workflow (Shared Components > Workflows).
+    c_app_id    CONSTANT NUMBER        := NULL;
+    c_page_id   CONSTANT NUMBER        := 1;
+    c_apex_user CONSTANT VARCHAR2(255) := 'SHP_WEBHOOK';
 
     PROCEDURE handle_webhook (
         p_body           IN  CLOB,
@@ -365,6 +241,9 @@ CREATE OR REPLACE PACKAGE BODY pkg_shp_dispatcher AS
         l_list_name    VARCHAR2(255);
         l_url_site     VARCHAR2(1000);
         l_content_type VARCHAR2(100);
+        l_static_id    VARCHAR2(255);
+        l_params       apex_workflow.t_workflow_parameters;
+        l_workflow_id  NUMBER;
     BEGIN
         IF p_body IS NULL THEN
             p_status_code := 400;
@@ -372,7 +251,7 @@ CREATE OR REPLACE PACKAGE BODY pkg_shp_dispatcher AS
             RETURN;
         END IF;
 
-        -- Rozpakowanie 17 atrybutow wysylanych przez SharePoint (workflow.xaml):
+        -- Rozpakowanie atrybutow payloadu (workflow.xaml) potrzebnych do routingu i logowania
         l_id           := json_value(p_body, '$.id' RETURNING NUMBER);
         l_guid         := json_value(p_body, '$.guid');
         l_title        := json_value(p_body, '$.title');
@@ -385,7 +264,7 @@ CREATE OR REPLACE PACKAGE BODY pkg_shp_dispatcher AS
         l_url_site     := json_value(p_body, '$.url_site');
         l_content_type := json_value(p_body, '$.content_type');
 
-        apex_debug.info('Odebrano webhook z SharePoint: wf=' || l_association || 
+        apex_debug.info('Odebrano webhook z SharePoint: wf=' || l_association ||
                         ', lista=' || l_list_name || ', id=' || l_id || ', user=' || l_initiator);
 
         -- Zgodnie z workflow.xaml: ignorowanie folderow
@@ -395,24 +274,50 @@ CREATE OR REPLACE PACKAGE BODY pkg_shp_dispatcher AS
             RETURN;
         END IF;
 
-        -- Routing do dedykowanych procedur przeplywow pracy:
+        -- Routing: association (nazwa workflow Nintex) -> Static ID workflow APEX
         CASE l_association
 {case_sql}
             ELSE
                 apex_debug.warn('Nieznany workflow (association): ' || l_association);
                 p_status_code := 200;
-                p_status_message := 'Ostrzezenie: brak procedury dla association=' || l_association;
+                p_status_message := 'Ostrzezenie: brak workflow APEX dla association=' || l_association;
                 RETURN;
         END CASE;
 
+        l_params(1).static_id := '{P_PAYLOAD_BODY}';
+        l_params(1).value.data_type := apex_session_state.c_data_type_clob;
+        l_params(1).value.clob_value := p_body;
+
+        -- Wywolanie z ORDS odbywa sie poza sesja APEX - tworzymy ja na czas startu workflow.
+        apex_session.create_session(
+            p_app_id   => c_app_id,
+            p_page_id  => c_page_id,
+            p_username => c_apex_user
+        );
+
+        l_workflow_id := apex_workflow.start_workflow(
+            p_application_id => c_app_id,
+            p_static_id      => l_static_id,
+            p_parameters     => l_params,
+            p_initiator      => l_initiator,
+            p_detail_pk      => TO_CHAR(l_id)
+        );
+
+        apex_session.delete_session;
+
         p_status_code := 200;
-        p_status_message := 'OK';
+        p_status_message := 'OK: workflow ' || l_static_id || ' uruchomiony (workflow_id=' || l_workflow_id || ')';
 
     EXCEPTION
         WHEN OTHERS THEN
             p_status_code := 500;
             p_status_message := 'Blad wykonania: ' || SQLERRM;
             apex_debug.error('Blad pkg_shp_dispatcher: ' || SQLERRM || ' | ' || DBMS_UTILITY.format_error_backtrace);
+            BEGIN
+                apex_session.delete_session;
+            EXCEPTION
+                WHEN OTHERS THEN NULL;
+            END;
     END handle_webhook;
 
 END pkg_shp_dispatcher;
@@ -447,8 +352,8 @@ def build_workflow_data(wf: WorkflowModel, resolver: FieldResolver) -> dict:
         "reads": [],
         "writes": [],
         "hint_universal": "Odtwórz te same reguły uruchomienia w docelowym mechanizmie orkiestracji.",
-        "hint_apex": f"l_item_json := shp_api.get_list_item(c_site_url, '{src_name}', p_item_id);",
-        "plsql_code": f"-- Pobranie bieżącego elementu listy źródłowej:\nl_item_json := shp_api.get_list_item(\n    p_site_url   => c_site_url,\n    p_list_title => '{src_name}',\n    p_item_id    => p_item_id\n);",
+        "hint_apex": f"Kroki standardowe APEX: Additional Data (NINTEX_PARAMS) → Retrieve Payload → {SHP_API}.GET_LIST_ITEM → Parse V_SHP_ANSWER.",
+        "plsql_code": apex_workflow_spec.standard_activities[2].plsql_code,
         "technical_lines": ["Triggery: " + ", ".join(triggers), f"Lista źródłowa: {src_name}", f"ID listy: {src_id}"],
         "is_structural": True,
         "enabled": True,
@@ -515,8 +420,8 @@ def build_workflow_data(wf: WorkflowModel, resolver: FieldResolver) -> dict:
         "reads": [],
         "writes": [],
         "hint_universal": "Zamknij proces bez dodatkowej akcji, jeżeli wcześniejsze kroki zakończyły się poprawnie.",
-        "hint_apex": "apex_debug.info('Koniec workflow: ' || p_item_id);",
-        "plsql_code": "apex_debug.info('Koniec workflow: ' || p_item_id);",
+        "hint_apex": "Aktywność APEX 'Workflow End' (End State: Completed).",
+        "plsql_code": "",
         "technical_lines": ["Węzeł syntetyczny dodany przez generator raportu HTML."],
         "is_structural": True,
         "enabled": True,
@@ -571,7 +476,6 @@ def build_workflow_data(wf: WorkflowModel, resolver: FieldResolver) -> dict:
         "steps": steps_data,
         "fields": sorted_fields,
         "variables": variables,
-        "plsql_procedure": build_plsql_procedure(wf, resolver),
         "apex_workflow_spec": apex_workflow_spec.to_dict(),
     }
 
@@ -665,38 +569,20 @@ def build_report(wf: WorkflowModel, resolver: FieldResolver) -> str:
     lines.append(format_markdown_apex_section(apex_workflow_spec))
     lines.append("")
 
-    plsql_proc = build_plsql_procedure(wf, resolver)
-    raw_name = wf.title or wf.source_path.stem
-    safe_name = re.sub(r"[^a-zA-Z0-9_]", "_", raw_name).strip("_").lower()
-    safe_name = re.sub(r"_+", "_", safe_name)
-    proc_name = f"process_wf_{safe_name}"
-
-    lines.append("## Kompletna procedura orkiestracji PL/SQL (Oracle APEX / SHP_API)")
-    lines.append("")
-    lines.append("Poniższy kod stanowi gotowy, kompletny szkielet procedury PL/SQL do wdrożenia w Oracle APEX, realizujący całą logikę workflow za pośrednictwem pakietu `SHP_API`:")
-    lines.append("")
-    lines.append("```plsql")
-    lines.append(plsql_proc)
-    lines.append("```")
-    lines.append("")
-
+    association = wf.title or wf.source_path.stem
     lines.append("## Integracja z wyzwalaczem SharePoint (workflow.xaml) & ORDS")
     lines.append("")
     lines.append("Ten workflow jest wyzwalany automatycznie przez wyzwalacz SharePoint Designer (`workflow.xaml`), który wysyła żądanie `POST` do endpointu ORDS:")
     lines.append("- **Endpoint ORDS:** `POST https://ilapex.{Environment}.creditagricole:8082/ords/shp/nintex/main`")
-    lines.append(f"- **Klucz powiązania (`association`):** `{wf.title or wf.source_path.stem}`")
+    lines.append(f"- **Klucz powiązania (`association`):** `{association}`")
     lines.append(f"- **Lista źródłowa (`list_name`):** `{src.list_name if src else '(nieznana)'}`")
+    lines.append(f"- **Static ID workflow APEX:** `{apex_workflow_spec.static_id}`")
+    lines.append(f"- **Konfiguracja `NINTEX_PARAMS`:** skrypt `nintex_params.sql` (wiersz `WORKFLOW_STATIC_ID = '{apex_workflow_spec.static_id}'`)")
     lines.append("")
-    lines.append("Fragment routingu w centralnym dyspozytorze `pkg_shp_dispatcher`:")
+    lines.append("Fragment routingu w centralnym dyspozytorze `pkg_shp_dispatcher` (cały payload trafia do parametru "
+                 f"`{P_PAYLOAD_BODY}`, a instancję uruchamia `apex_workflow.start_workflow`):")
     lines.append("```plsql")
-    lines.append(f"WHEN '{wf.title or wf.source_path.stem}' THEN")
-    lines.append(f"    {proc_name}(")
-    lines.append("        p_item_id    => l_id,")
-    lines.append("        p_site_url   => l_url_site,")
-    lines.append(f"        p_list_title => NVL(l_list_name, '{src.list_name if src else "Lista"}'),")
-    lines.append("        p_initiator  => l_initiator,")
-    lines.append("        p_payload    => p_body")
-    lines.append("    );")
+    lines.append(f"WHEN {sql_literal(association)} THEN l_static_id := {sql_literal(apex_workflow_spec.static_id)};")
     lines.append("```")
     lines.append("")
 

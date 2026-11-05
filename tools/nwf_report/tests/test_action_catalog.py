@@ -185,8 +185,9 @@ def test_plsql_shp_api_generation_for_actions(sample_resolver: FieldResolver) ->
         children=[],
     )
     desc_field = describe_action(set_field_node, sample_resolver)
-    assert "shp_api.update_list_item" in desc_field.plsql_code
-    assert "json_object('Status_x0020_Pola' value 'Aktywny')" in desc_field.plsql_code
+    assert "LCDT.SHP_API.update_list_item" in desc_field.plsql_code
+    assert "p_item_id     => :V_ITEM_ID" in desc_field.plsql_code
+    assert "'Status_x0020_Pola' VALUE 'Aktywny'" in desc_field.plsql_code
 
     # 2. Test update item with multiple fields
     update_node = ActionNode(
@@ -202,8 +203,9 @@ def test_plsql_shp_api_generation_for_actions(sample_resolver: FieldResolver) ->
         children=[],
     )
     desc_update = describe_action(update_node, sample_resolver)
-    assert "shp_api.update_list_item" in desc_update.plsql_code
-    assert "'Status_x0020_Pola' value l_status_elementu" in desc_update.plsql_code
+    assert "LCDT.SHP_API.update_list_item" in desc_update.plsql_code
+    assert "p_list_title  => :V_LIST_TITLE" in desc_update.plsql_code
+    assert "'Status_x0020_Pola' VALUE :SP_STATUS_X0020_POLA" in desc_update.plsql_code
 
     # 3. Test cross item lookup variable
     lookup_el = ET.fromstring(SAMPLE_CROSS_LOOKUP_XML)
@@ -218,6 +220,6 @@ def test_plsql_shp_api_generation_for_actions(sample_resolver: FieldResolver) ->
         children=[],
     )
     desc_var = describe_action(var_node, sample_resolver)
-    assert "shp_api.get_list_item" in desc_var.plsql_code
-    assert "l_zm_docelowa := json_value(l_ref_json, '$.data.Pole_x0020_Docelowe_B');" in desc_var.plsql_code
+    assert "LCDT.SHP_API.get_list_item" in desc_var.plsql_code
+    assert ":ZM_DOCELOWA := json_value(l_ref_json, '$.data.Pole_x0020_Docelowe_B');" in desc_var.plsql_code
 

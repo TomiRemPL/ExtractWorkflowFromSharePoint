@@ -95,6 +95,7 @@ class FieldResolver:
     def __init__(self, list_references, site_metadata: SiteMetadata | None = None, source_list_id: str = ""):
         self._by_list_and_name: dict[str, dict[str, str]] = {}  # list_id/list_name (lower) -> {internal_name: title}
         self._by_internal_name: dict[str, str] = {}  # fallback bez kontekstu listy (gdy nazwa jednoznaczna)
+        self._types_by_list: dict[str, dict[str, str]] = {}  # list_id/list_name (lower) -> {internal_name: FieldType}
         self._list_id_to_name: dict[str, str] = {}
         self.source_list_id = source_list_id
         self.source_list_name = ""
@@ -104,16 +105,21 @@ class FieldResolver:
             if lr.is_source_list and lr.list_name:
                 self.source_list_name = lr.list_name
             per_list: dict[str, str] = {}
+            per_list_types: dict[str, str] = {}
             for f in lr.fields:
                 if not f.internal_name:
                     continue
                 title = f.name or f.internal_name
                 per_list[f.internal_name.lower()] = title
+                if f.field_type:
+                    per_list_types[f.internal_name.lower()] = f.field_type
                 self._by_internal_name.setdefault(f.internal_name.lower(), title)
             if lr.list_id:
                 self._by_list_and_name[_norm_guid(lr.list_id)] = per_list
+                self._types_by_list[_norm_guid(lr.list_id)] = per_list_types
             if lr.list_name:
                 self._by_list_and_name[lr.list_name.lower()] = per_list
+                self._types_by_list[lr.list_name.lower()] = per_list_types
         self._site_metadata = site_metadata or SiteMetadata()
 
     def get_list_name(self, list_hint: str = "") -> str:
@@ -162,6 +168,23 @@ class FieldResolver:
             return f"{col.title} ({internal_name})"
 
         return internal_name  # nierozpoznane - zwracamy nazwe techniczna bez tlumaczenia
+
+    def get_field_type(self, internal_name: str, list_hint: str = "") -> str:
+        """Zwraca typ pola SharePoint (np. Text, Lookup, User) w kontekscie listy; pusty, gdy nieznany."""
+        if not internal_name:
+            return ""
+        key = internal_name.lower()
+        list_hint = list_hint or self.source_list_id
+        if list_hint:
+            per_list = self._types_by_list.get(_norm_guid(list_hint)) or self._types_by_list.get(list_hint.lower())
+            if per_list and key in per_list:
+                return per_list[key]
+            list_info = self._site_metadata.lists_by_id.get(_norm_guid(list_hint)) or \
+                self._site_metadata.lists_by_title.get(list_hint.lower())
+            if list_info and key in list_info.columns and list_info.columns[key].type_as_string:
+                return list_info.columns[key].type_as_string
+        col = self._site_metadata.site_columns.get(key)
+        return col.type_as_string if col else ""
 
     def get_title(self, internal_name: str, list_hint: str = "") -> str:
         """Zwraca sama czytelna nazwe pola (DisplayName), bez doklejonego (InternalName)."""

@@ -11,6 +11,21 @@ import re
 from dataclasses import dataclass, field
 from xml.etree import ElementTree as ET
 
+from .apex_naming import (
+    EMAIL_RE,
+    P_EMAIL_FROM,
+    SHP_API,
+    V_ITEM_ID,
+    V_LIST_TITLE,
+    V_SITE_URL,
+    email_param,
+    field_variable,
+    is_lookup,
+    is_user,
+    sql_literal,
+    variable_static_id,
+    workflow_static_id,
+)
 from .metadata_loader import FieldResolver
 from .nwf_parser import ActionNode, FieldRef
 
@@ -41,6 +56,7 @@ _OPERATOR_PL = {
     "NotContains": "nie zawiera",
     "IsEmpty": "jest puste",
     "IsNotEmpty": "nie jest puste",
+    "NotIsEmpty": "nie jest puste",
     "Eq": "jest równe",
     "Neq": "jest różne od",
     "Gt": "jest większe niż",
@@ -93,18 +109,81 @@ def _render_value_expr(el: ET.Element | None, resolver: FieldResolver) -> str:
 
 
 def _plsql_var(name: str) -> str:
-    """Konwertuje dowolna nazwe zmiennej lub pola SharePoint na poprawny identyfikator zmiennej PL/SQL."""
-    clean = re.sub(r"[^a-zA-Z0-9_]", "_", name).strip("_").lower()
-    clean = re.sub(r"_+", "_", clean)
-    if not clean:
-        clean = "var"
-    if not clean.startswith("l_"):
-        clean = f"l_{clean}"
-    return clean
+    """Bind zmiennej APEX Workflow (:STATIC_ID) odpowiadajacej zmiennej Nintex."""
+    return f":{variable_static_id(name or 'var')}"
 
 
-def _plsql_expr_from_nintex_string(val: str, item_json_var: str = "l_item_json") -> str:
-    """Tłumaczy wyrażenia Nintex (np. RKU-{ItemProperty:ID} lub {ItemProperty:Nazwa}) na wyrażenie PL/SQL."""
+def _item_property_expr(name: str) -> str:
+    if name.lower() in ("id", "itemid"):
+        return f":{V_ITEM_ID}"
+    return f":{field_variable(name)}"
+
+
+def _this_item_field_expr(field_name: str, field_type: str, coercion: str, resolver: FieldResolver | None) -> str:
+    """Wyrazenie dla pola biezacego elementu zasilonego w kroku standardowym 4 (Parse V_SHP_ANSWER)."""
+    if not field_name or field_name.lower() in ("id", "itemid"):
+        return f":{V_ITEM_ID}"
+    resolved_type = (resolver.get_field_type(field_name) if resolver is not None else "") or field_type
+    if is_lookup(resolved_type) and ("lookupid" in coercion.lower() or "int" in coercion.lower()):
+        return f":{field_variable(field_name, 'ID')}"
+    return f":{field_variable(field_name)}"
+
+
+def _ref_select(field_name: str, field_type: str, id_only: bool = False) -> tuple[str, str]:
+    """Zwraca (p_query, sciezka JSON) do odczytu pola z elementu innej listy."""
+    if is_lookup(field_type) or is_user(field_type):
+        prop = "Id" if id_only else "Title"
+        return f"$select={field_name}/{prop}&$expand={field_name}", f"{field_name}.{prop}"
+    return f"$select={field_name}", field_name
+
+
+def _cross_lookup_parts(el: ET.Element, resolver: FieldResolver) -> dict[str, str]:
+    """Rozklada CrossItemLookup na wywolanie LCDT.SHP_API i sciezke JSON wyniku."""
+    field_el = el.find("Field")
+    field_name = field_el.get("Name", "") if field_el is not None else ""
+    target_list_el = el.find("ListId")
+    target_list_id = (target_list_el.text or "") if target_list_el is not None else ""
+    target_list = resolver.get_list_name(target_list_id)
+    target_type = resolver.get_field_type(field_name, target_list_id) or (field_el.get("Type", "") if field_el is not None else "")
+    coercion = el.findtext("Coercion") or "LookupIdOnlyAsInteger"
+    # Coercion "LookupId..." na polu Lookup/User oznacza, ze Nintex zwraca ID powiazanego elementu, a nie jego tytul.
+    query, path = _ref_select(field_name, target_type, id_only="lookupid" in coercion.lower())
+    nested = el.find("Lookup")
+    nested_field_el = nested.find("Field") if nested is not None else None
+    nested_name = nested_field_el.get("Name", "") if nested_field_el is not None else ""
+    nested_type = nested_field_el.get("Type", "") if nested_field_el is not None else ""
+    if nested is not None and nested.get("LookupType", "ThisItemLookup") == "ThisItemLookup":
+        key_expr = _this_item_field_expr(nested_name, nested_type, coercion, resolver)
+    elif nested is not None and nested.find("Variable") is not None:
+        key_expr = _plsql_var(nested.find("Variable").get("Name", ""))
+    else:
+        key_expr = "NULL /* TODO: klucz wyszukania */"
+    compare_el = el.find("CompareField")
+    compare = compare_el.get("Name", "ID") if compare_el is not None else "ID"
+    if compare.upper() == "ID":
+        call = (
+            f"{SHP_API}.get_list_item(\n"
+            f"    p_site_url   => :{V_SITE_URL},\n"
+            f"    p_list_title => {sql_literal(target_list)},\n"
+            f"    p_item_id    => {key_expr},\n"
+            f"    p_query      => {sql_literal(query)}\n"
+            f")"
+        )
+        json_path = f"$.data.{path}"
+    else:
+        call = (
+            f"{SHP_API}.get_list_items(\n"
+            f"    p_site_url   => :{V_SITE_URL},\n"
+            f"    p_list_title => {sql_literal(target_list)},\n"
+            f"    p_query      => {sql_literal(query + '&$top=1&$filter=' + compare + ' eq ')} || '''' || REPLACE({key_expr}, '''', '''''') || ''''\n"
+            f")"
+        )
+        json_path = f"$.data[0].{path}"
+    return {"call": call, "json_path": json_path, "target_list": target_list, "field": field_name}
+
+
+def _plsql_expr_from_nintex_string(val: str, item_json_var: str = "", resolver: FieldResolver | None = None) -> str:
+    """Tłumaczy wyrażenia Nintex (np. RKU-{ItemProperty:ID} lub {ItemProperty:Nazwa}) na wyrażenie PL/SQL z bindami APEX."""
     if not val:
         return "NULL"
     pattern = re.compile(r"\{(ItemProperty|WorkflowVariable):([^}]+)\}")
@@ -125,10 +204,9 @@ def _plsql_expr_from_nintex_string(val: str, item_json_var: str = "l_item_json")
         token_type = match.group(1)
         token_name = match.group(2).strip()
         if token_type == "ItemProperty":
-            if token_name.lower() in ("id", "itemid"):
-                parts.append("TO_CHAR(p_item_id)")
-            else:
-                parts.append(f"json_value({item_json_var}, '$.data.{token_name}')")
+            expr = _item_property_expr(token_name)
+            standalone = len(tokens) == 1 and not pattern.sub("", val)
+            parts.append(expr if standalone or expr != f":{V_ITEM_ID}" else f"TO_CHAR({expr})")
         elif token_type == "WorkflowVariable":
             parts.append(_plsql_var(token_name))
         last_idx = end
@@ -144,26 +222,29 @@ def _plsql_expr_from_nintex_string(val: str, item_json_var: str = "l_item_json")
     return " || ".join(parts)
 
 
-def _plsql_val_expr(el: ET.Element | None, resolver: FieldResolver, item_json_var: str = "l_item_json") -> str:
+def _plsql_val_expr(el: ET.Element | None, resolver: FieldResolver, item_json_var: str = "") -> str:
     if el is None:
         return "NULL"
     tag = el.tag
     if tag == "PrimitiveValue":
-        return _plsql_expr_from_nintex_string(el.get("Value", ""), item_json_var)
+        return _plsql_expr_from_nintex_string(el.get("Value", ""), item_json_var, resolver)
     if tag == "Variable":
         return _plsql_var(el.get("Name", ""))
     if tag == "ListLookup":
         lookup_type = el.get("LookupType", "")
         field_el = el.find("Field")
         field_name = field_el.get("Name", "") if field_el is not None else ""
+        field_type = field_el.get("Type", "") if field_el is not None else ""
         nested_lookup = el.find("Lookup")
         if lookup_type == "ThisItemLookup" or nested_lookup is None:
-            return f"json_value({item_json_var}, '$.data.{field_name}')"
-        return f"json_value(l_ref_json, '$.data.{field_name}')"
+            return _this_item_field_expr(field_name, field_type, el.findtext("Coercion") or "", resolver)
+        parts = _cross_lookup_parts(el, resolver)
+        call = re.sub(r"\(\s+", "(", re.sub(r"\s+\)", ")", re.sub(r"\s*\n\s*", " ", parts["call"])))
+        return f"json_value({call}, '{parts['json_path']}')"
     return "NULL"
 
 
-def _plsql_condition(cond_el: ET.Element | None, resolver: FieldResolver, item_json_var: str = "l_item_json") -> str:
+def _plsql_condition(cond_el: ET.Element | None, resolver: FieldResolver, item_json_var: str = "") -> str:
     if cond_el is None:
         return "TRUE"
     xsi_type = cond_el.get("{http://www.w3.org/2001/XMLSchema-instance}type", "")
@@ -202,9 +283,9 @@ def _plsql_condition(cond_el: ET.Element | None, resolver: FieldResolver, item_j
             return f"{left_expr} LIKE '%' || {right_expr} || '%'"
         elif op_name == "NotContains":
             return f"{left_expr} NOT LIKE '%' || {right_expr} || '%'"
-        elif op_name == "IsEmpty":
+        elif op_name in ("IsEmpty", "IsNull"):
             return f"{left_expr} IS NULL"
-        elif op_name == "IsNotEmpty":
+        elif op_name in ("IsNotEmpty", "NotIsEmpty", "IsNotNull"):
             return f"{left_expr} IS NOT NULL"
         return f"{left_expr} = {right_expr}"
     return "TRUE"
@@ -247,14 +328,13 @@ def _describe_variables_adapter(node: ActionNode, resolver: FieldResolver) -> Ac
     name = node.params.get("WorkflowName", "")
     src_list_name = resolver.get_list_name()
     plsql_code = (
-        f"-- Pobranie bieżącego elementu przed rozpoczęciem logiki workflow:\n"
-        f"l_item_json := shp_api.get_list_item(\n"
-        f"    p_site_url   => c_site_url,\n"
-        f"    p_list_title => '{src_list_name}',\n"
-        f"    p_item_id    => p_item_id\n"
-        f");"
+        "-- Kroki standardowe APEX Workflow (patrz sekcja 'Kroki standardowe'):\n"
+        "--   1. Workflow Start + Additional Data (NINTEX_PARAMS -> P_*)\n"
+        f"--   2. Execute Code 'Retrieve Payload' (:P_PAYLOAD_BODY -> :{V_ITEM_ID}, :{V_SITE_URL}, :{V_LIST_TITLE}, :V_EDITOR)\n"
+        f"--   3. Invoke API {SHP_API}.GET_LIST_ITEM (lista '{src_list_name}') -> :V_SHP_ANSWER\n"
+        "--   4. Execute Code 'Parse' (:V_SHP_ANSWER -> :SP_*)"
     )
-    hint_apex = f"l_item_json := shp_api.get_list_item(c_site_url, '{src_list_name}', p_item_id);"
+    hint_apex = f"Kroki standardowe: Additional Data → Retrieve Payload → {SHP_API}.GET_LIST_ITEM → Parse V_SHP_ANSWER."
     return ActionDescription(
         summary=f"Start workflow '{name}'. Uruchamiane: {trig_txt}.",
         technical_lines=[f"{k} = {v}" for k, v in node.params.items()],
@@ -304,7 +384,7 @@ def _describe_if_else_branch(node: ActionNode, resolver: FieldResolver) -> Actio
 def _describe_write_to_history(node: ActionNode, resolver: FieldResolver) -> ActionDescription:
     msg = node.params.get("Message", "")
     short = msg.splitlines()[0] if msg else ""
-    msg_expr = _plsql_expr_from_nintex_string(msg)
+    msg_expr = _plsql_expr_from_nintex_string(msg, resolver=resolver)
     plsql_code = f"apex_debug.info('Workflow: ' || {msg_expr});"
     return ActionDescription(
         summary=f"Zapisz wpis w historii przepływu: „{short}”" + (" (…)" if len(msg.splitlines()) > 1 else ""),
@@ -317,31 +397,69 @@ def _describe_write_to_history(node: ActionNode, resolver: FieldResolver) -> Act
     )
 
 
+def _field_json_pair(internal_name: str, value_expr: str, field_type: str) -> str:
+    """Para JSON_OBJECT dla REST SharePoint: Lookup -> <Pole>Id, User -> <Pole>Id z ensure_user_id."""
+    if is_user(field_type):
+        return f"'{internal_name}Id' VALUE {SHP_API}.ensure_user_id(:{V_SITE_URL}, {value_expr})"
+    if is_lookup(field_type):
+        return f"'{internal_name}Id' VALUE {value_expr}"
+    return f"'{internal_name}' VALUE {value_expr}"
+
+
+def _update_call(list_expr: str, item_expr: str, pairs: list[str]) -> str:
+    pairs_str = ",\n        ".join(pairs)
+    return (
+        f"l_resp := {SHP_API}.update_list_item(\n"
+        f"    p_site_url    => :{V_SITE_URL},\n"
+        f"    p_list_title  => {list_expr},\n"
+        f"    p_item_id     => {item_expr},\n"
+        f"    p_fields_json => json_object(\n"
+        f"        {pairs_str}\n"
+        f"    )\n"
+        f");"
+    )
+
+
+def _field_reference_value(node: ActionNode, internal_name: str) -> ET.Element | None:
+    """Wartosc przypisywana do pola w SPUpdateItemWithKeyAdapter (dziecko FieldReference)."""
+    if node.raw_el is None:
+        return None
+    for ref in node.raw_el.iter("FieldReference"):
+        if ref.get("Value") == internal_name:
+            return next((child for child in ref if child.tag != "Coercion"), None)
+    return None
+
+
 def _describe_update_item(node: ActionNode, resolver: FieldResolver) -> ActionDescription:
     list_id = node.params.get("ListId", "")
-    this_item = node.params.get("ThisItem") == "true"
+    this_item = node.params.get("ThisItem") == "true" or not list_id or (
+        bool(resolver.source_list_id) and list_id.strip("{}").lower() == resolver.source_list_id.strip("{}").lower()
+    )
     target_list_name = resolver.get_list_name() if this_item else resolver.get_list_name(list_id)
     target = "w bieżącym elemencie" if this_item else f"w elemencie listy {target_list_name}"
     writes = node.field_refs
     fields_txt = ", ".join(resolver.resolve(f.internal_name, list_id) for f in writes) or "(brak pól)"
 
+    if this_item:
+        list_expr, item_expr = f":{V_LIST_TITLE}", f":{V_ITEM_ID}"
+    else:
+        list_expr = sql_literal(target_list_name)
+        key_field = node.params.get("LookupField", "")
+        key_value = node.params.get("LookupFieldValue", "")
+        if key_field.upper() == "ID" and key_value:
+            item_expr = f"TO_NUMBER({_plsql_expr_from_nintex_string(key_value, resolver=resolver)})"
+        else:
+            item_expr = f"NULL /* TODO: ID elementu wg {key_field or 'klucza'} = {key_value or '?'} */"
+
     if writes:
         pairs = []
         for f in writes:
-            v_name = _plsql_var(f.name or f.internal_name)
-            pairs.append(f"'{f.internal_name}' value {v_name}")
-        pairs_str = ",\n        ".join(pairs)
-        plsql_code = (
-            f"l_resp := shp_api.update_list_item(\n"
-            f"    p_site_url    => c_site_url,\n"
-            f"    p_list_title  => '{target_list_name}',\n"
-            f"    p_item_id     => p_item_id,\n"
-            f"    p_fields_json => json_object(\n"
-            f"        {pairs_str}\n"
-            f"    )\n"
-            f");"
-        )
-        hint_apex = f"l_resp := shp_api.update_list_item(c_site_url, '{target_list_name}', p_item_id, json_object(...));"
+            value_el = _field_reference_value(node, f.internal_name)
+            value_expr = _plsql_val_expr(value_el, resolver) if value_el is not None else f":{field_variable(f.internal_name)}"
+            field_type = resolver.get_field_type(f.internal_name, list_id) or f.field_type
+            pairs.append(_field_json_pair(f.internal_name, value_expr, field_type))
+        plsql_code = _update_call(list_expr, item_expr, pairs)
+        hint_apex = f"l_resp := {SHP_API}.update_list_item(:{V_SITE_URL}, {list_expr}, {item_expr}, json_object(...));"
     else:
         plsql_code = "-- Brak zdefiniowanych pól do zapisu"
         hint_apex = plsql_code
@@ -361,20 +479,14 @@ def _describe_update_item(node: ActionNode, resolver: FieldResolver) -> ActionDe
 def _describe_set_field_with_key(node: ActionNode, resolver: FieldResolver) -> ActionDescription:
     field_internal = node.params.get("LookupField", "")
     value = node.params.get("LookupFieldValue", "")
-    src_list_name = resolver.get_list_name()
-    val_expr = _plsql_expr_from_nintex_string(value)
+    val_expr = _plsql_expr_from_nintex_string(value, resolver=resolver)
     field_readable = resolver.resolve(field_internal, resolver.source_list_id)
+    field_type = resolver.get_field_type(field_internal) or node.params.get("LookupFieldType", "")
     writes = [FieldRef(name=field_readable, internal_name=field_internal, field_type=node.params.get("LookupFieldType", ""))]
 
-    plsql_code = (
-        f"l_resp := shp_api.update_list_item(\n"
-        f"    p_site_url    => c_site_url,\n"
-        f"    p_list_title  => '{src_list_name}',\n"
-        f"    p_item_id     => p_item_id,\n"
-        f"    p_fields_json => json_object('{field_internal}' value {val_expr})\n"
-        f");"
-    )
-    hint_apex = f"l_resp := shp_api.update_list_item(c_site_url, '{src_list_name}', p_item_id, json_object('{field_internal}' value {val_expr}));"
+    pair = _field_json_pair(field_internal, val_expr, field_type)
+    plsql_code = _update_call(f":{V_LIST_TITLE}", f":{V_ITEM_ID}", [pair])
+    hint_apex = f"l_resp := {SHP_API}.update_list_item(:{V_SITE_URL}, :{V_LIST_TITLE}, :{V_ITEM_ID}, json_object({pair}));"
 
     return ActionDescription(
         summary=f"Ustaw pole {field_readable} na wartość: „{value}”.",
@@ -399,31 +511,20 @@ def _describe_set_variable(node: ActionNode, resolver: FieldResolver) -> ActionD
 
     if value_el is not None and value_el.tag == "ListLookup":
         lookup_type = value_el.get("LookupType", "")
-        field_el = value_el.find("Field")
-        field_name = field_el.get("Name", "") if field_el is not None else ""
         nested_lookup = value_el.find("Lookup")
         if lookup_type == "CrossItemLookup" and nested_lookup is not None:
-            target_list_id_el = value_el.find("ListId")
-            target_list_id = target_list_id_el.text if target_list_id_el is not None else ""
-            target_list_name = resolver.get_list_name(target_list_id)
-            nested_field_el = nested_lookup.find("Field")
-            nested_field_name = nested_field_el.get("Name", "") if nested_field_el is not None else "ID"
-
+            parts = _cross_lookup_parts(value_el, resolver)
             plsql_code = (
-                f"-- Pobranie powiązanego rekordu z {target_list_name}:\n"
-                f"l_ref_json := shp_api.get_list_item(\n"
-                f"    p_site_url   => c_site_url,\n"
-                f"    p_list_title => '{target_list_name}',\n"
-                f"    p_item_id    => json_value(l_item_json, '$.data.{nested_field_name}')\n"
-                f");\n"
-                f"{var_plsql} := json_value(l_ref_json, '$.data.{field_name}');"
+                f"-- Pobranie powiązanego rekordu z {parts['target_list']}:\n"
+                f"l_ref_json := {parts['call']};\n"
+                f"{var_plsql} := json_value(l_ref_json, '{parts['json_path']}');"
             )
-            hint_apex = f"{var_plsql} := json_value(shp_api.get_list_item(c_site_url, '{target_list_name}', ...), '$.data.{field_name}');"
+            hint_apex = f"{var_plsql} := json_value({SHP_API}.get_list_item(:{V_SITE_URL}, '{parts['target_list']}', ...), '{parts['json_path']}');"
         else:
-            plsql_code = f"{var_plsql} := json_value(l_item_json, '$.data.{field_name}');"
+            plsql_code = f"{var_plsql} := {_plsql_val_expr(value_el, resolver)};"
             hint_apex = plsql_code
     elif value_el is not None and value_el.tag == "PrimitiveValue":
-        val_expr = _plsql_expr_from_nintex_string(value_el.get("Value", ""))
+        val_expr = _plsql_expr_from_nintex_string(value_el.get("Value", ""), resolver=resolver)
         plsql_code = f"{var_plsql} := {val_expr};"
         hint_apex = plsql_code
     elif value_el is not None and value_el.tag == "Variable":
@@ -465,7 +566,7 @@ def _describe_run_if(node: ActionNode, resolver: FieldResolver) -> ActionDescrip
 
 
 def _describe_commit(node: ActionNode, resolver: FieldResolver) -> ActionDescription:
-    plsql_code = "-- Zmiany zatwierdzone przez shp_api.update_list_item"
+    plsql_code = f"-- Zmiany są zatwierdzane natychmiast przez {SHP_API}.update_list_item (REST SharePoint)"
     return ActionDescription(
         summary="Zapisz (zatwierdź) zebrane zmiany w elemencie.",
         action_type="NWCommitAdapter",
@@ -522,9 +623,9 @@ def _parse_caml_query_info(query_str: str, resolver: FieldResolver) -> tuple[str
 def _describe_build_string(node: ActionNode, resolver: FieldResolver) -> ActionDescription:
     input_str = node.params.get("Input", "")
     out_var = node.params.get("Output", "")
-    out_ident = _plsql_var(out_var) if out_var else "l_built_string"
+    out_ident = _plsql_var(out_var) if out_var else ":V_BUILT_STRING"
 
-    expr = _plsql_expr_from_nintex_string(input_str)
+    expr = _plsql_expr_from_nintex_string(input_str, resolver=resolver)
     plsql_code = f"{out_ident} := {expr};"
     summary = f"Zbuduj ciąg tekstowy i przypisz do zmiennej {out_var or '(brak)'}."
     if input_str:
@@ -644,24 +745,25 @@ def _describe_create_site_item(node: ActionNode, resolver: FieldResolver) -> Act
         list_name = "Lista docelowa"
 
     out_var = node.params.get("Output", "")
-    out_ident = _plsql_var(out_var) if out_var else "l_new_item_id"
+    out_ident = _plsql_var(out_var) if out_var else ":V_NEW_ITEM_ID"
 
     summary = f"Utwórz nowy element na liście '{list_name}'."
     if out_var:
         summary += f" Nowe ID -> zmienna {out_var}."
 
-    plsql_code = f"""{out_ident} := shp_api.create_list_item(
-    p_site_url    => c_site_url,
-    p_list_title  => '{list_name}',
-    p_fields_json => JSON_OBJECT('Title' VALUE 'Nowy element')
-);"""
+    plsql_code = f"""l_resp := {SHP_API}.add_list_item(
+    p_site_url    => :{V_SITE_URL},
+    p_list_title  => {sql_literal(list_name)},
+    p_fields_json => json_object('Title' VALUE 'Nowy element') -- TODO: uzupełnij mapowanie pól
+);
+{out_ident} := json_value(l_resp, '$.item_id' RETURNING NUMBER);"""
 
     return ActionDescription(
         summary=summary,
         action_type="NWCreateSiteSpecificItemAdapter",
         label=node.t_label or f"Utwórz element w {list_name}",
         hint_universal=f"Tworzenie nowego rekordu na liście {list_name}.",
-        hint_apex=f"{out_ident} := shp_api.create_list_item(...);",
+        hint_apex=f"l_resp := {SHP_API}.add_list_item(...); {out_ident} := json_value(l_resp, '$.item_id');",
         plsql_code=plsql_code,
         technical_lines=[f"Lista = {list_name}", f"Output = {out_var}"],
     )
@@ -683,14 +785,17 @@ def _describe_delay(node: ActionNode, resolver: FieldResolver) -> ActionDescript
         total_sec = 300
 
     summary = f"Wstrzymaj wykonanie przepływu o {dur_desc}."
-    plsql_code = f"-- Wstrzymanie wykonania o {dur_desc}:\nDBMS_SESSION.SLEEP({total_sec});"
+    plsql_code = (
+        f"-- Wstrzymanie o {dur_desc}: w APEX użyj natywnej aktywności 'Wait' ({total_sec // 60} min).\n"
+        "-- W ścieżce B (jeden Execute Code) podziel kod na dwie aktywności Execute Code rozdzielone aktywnością Wait."
+    )
 
     return ActionDescription(
         summary=summary,
         action_type="NWDelayForAdapter",
         label=node.t_label or f"Wstrzymaj ({dur_desc})",
         hint_universal=f"Opóźnienie wykonania procesu o {dur_desc}.",
-        hint_apex=f"DBMS_SESSION.SLEEP({total_sec});",
+        hint_apex=f"Aktywność APEX 'Wait': {total_sec // 60} min.",
         plsql_code=plsql_code,
         technical_lines=[f"Czas = {dur_desc}", f"Sekundy = {total_sec}"],
     )
@@ -741,12 +846,14 @@ def _describe_query_list(node: ActionNode, resolver: FieldResolver) -> ActionDes
 
     reads = [FieldRef(name=f, internal_name=f) for f in fields]
 
-    plsql_code = f"""-- Pobranie elementów z listy {list_name}:
-l_resp := shp_api.get_list_items(
-    p_site_url   => c_site_url,
-    p_list_title => '{list_name}',
-    p_caml_query => '<Query><Where>...</Where></Query>'
-);"""
+    select = f"$select={','.join(fields)}" if fields else "$select=Id"
+    plsql_code = f"""-- Pobranie elementów z listy {list_name} (warunek Nintex: {where_desc}):
+l_resp := {SHP_API}.get_list_items(
+    p_site_url   => :{V_SITE_URL},
+    p_list_title => {sql_literal(list_name)},
+    p_query      => {sql_literal(select + '&$filter=')} -- TODO: przepisz warunek CAML na OData $filter
+);
+-- Wyniki: json_table(l_resp, '$.data[*]' COLUMNS (...))"""
 
     return ActionDescription(
         summary=summary,
@@ -754,7 +861,7 @@ l_resp := shp_api.get_list_items(
         action_type="NWQueryListAdapter",
         label=node.b_label or node.t_label or f"Kwerenda: {list_name}",
         hint_universal=f"Wyszukanie elementów na liście {list_name} (warunek: {where_desc}).",
-        hint_apex="l_resp := shp_api.get_list_items(...);",
+        hint_apex=f"l_resp := {SHP_API}.get_list_items(:{V_SITE_URL}, '{list_name}', '$select=...&$filter=...');",
         plsql_code=plsql_code,
         technical_lines=[f"Lista = {list_name}", f"Warunek = {where_desc}", f"Mapowania = {mappings}"],
     )
@@ -780,12 +887,17 @@ def _describe_send_message(node: ActionNode, resolver: FieldResolver) -> ActionD
     recip_str = ", ".join(recipients) if recipients else "użytkownicy"
     summary = f"Wyślij powiadomienie e-mail: temat '{subject}' do: {recip_str}."
 
-    plsql_code = f"""-- Wysłanie powiadomienia e-mail:
+    to_parts = [
+        f":{email_param(r)}" if EMAIL_RE.fullmatch(r) else _plsql_expr_from_nintex_string(r, resolver=resolver)
+        for r in recipients
+    ]
+    to_expr = " || ',' || ".join(to_parts) if to_parts else f":{field_variable('Editor', 'EMAIL')} /* TODO: potwierdź odbiorcę */"
+    plsql_code = f"""-- Wysłanie powiadomienia e-mail (stałe adresy -> parametry P_ z NINTEX_PARAMS):
 apex_mail.send(
-    p_to   => '{recip_str}',
-    p_from => 'noreply@domain.com',
-    p_subj => '{subject}',
-    p_body => 'Powiadomienie z procesu biznesowego'
+    p_to   => {to_expr},
+    p_from => :{P_EMAIL_FROM},
+    p_subj => {_plsql_expr_from_nintex_string(subject, resolver=resolver)},
+    p_body => {_plsql_expr_from_nintex_string(body_text or 'Powiadomienie z procesu biznesowego', resolver=resolver)}
 );"""
 
     return ActionDescription(
@@ -805,16 +917,31 @@ def _describe_start_workflow(node: ActionNode, resolver: FieldResolver) -> Actio
     wait_str = "synchronicznie - czeka na zakończenie" if wait_for else "asynchronicznie"
 
     summary = f"Uruchom przepływ pracy '{wf_name}' ({wait_str})."
-    clean_name = re.sub(r"[^a-zA-Z0-9_]", "_", wf_name).strip("_").lower()
-    clean_name = re.sub(r"_+", "_", clean_name)
-    plsql_code = f"-- Uruchomienie podprocesu {wf_name}:\nprocess_wf_{clean_name}(p_item_id => p_item_id);"
+    child_static_id = workflow_static_id(wf_name)
+    plsql_code = (
+        f"-- Uruchomienie podprocesu {wf_name}: w APEX użyj aktywności 'Invoke Workflow' (Sub-Workflow)\n"
+        f"-- lub wywołaj go z kodu:\n"
+        f"DECLARE\n"
+        f"    l_params apex_workflow.t_workflow_parameters;\n"
+        f"    l_wf_id  NUMBER;\n"
+        f"BEGIN\n"
+        f"    l_params(1).static_id := 'P_PAYLOAD_BODY';\n"
+        f"    l_params(1).value.data_type := apex_session_state.c_data_type_clob;\n"
+        f"    l_params(1).value.clob_value := :P_PAYLOAD_BODY;\n"
+        f"    l_wf_id := apex_workflow.start_workflow(\n"
+        f"        p_static_id  => '{child_static_id}',\n"
+        f"        p_parameters => l_params,\n"
+        f"        p_detail_pk  => TO_CHAR(:{V_ITEM_ID})\n"
+        f"    );\n"
+        f"END;"
+    )
 
     return ActionDescription(
         summary=summary,
         action_type="NWStartWorkflow2Adapter",
         label=node.b_label or node.t_label or f"Uruchom: {wf_name}",
         hint_universal=f"Uruchomienie procesu podrzędnego {wf_name}.",
-        hint_apex=f"process_wf_{clean_name}(p_item_id);",
+        hint_apex=f"Invoke Workflow '{child_static_id}' (lub apex_workflow.start_workflow).",
         plsql_code=plsql_code,
         technical_lines=[f"Workflow = {wf_name}", f"Czekaj = {wait_for}"],
     )
@@ -835,14 +962,20 @@ def _describe_update_multiple_items(node: ActionNode, resolver: FieldResolver) -
         writes = [FieldRef(name=f, internal_name=f) for f in fields]
     reads = [FieldRef(name=f, internal_name=f) for f in fields]
 
-    plsql_code = f"""-- Masowa aktualizacja elementów listy {list_name}:
--- Warunek: {where_desc}
-shp_api.update_list_item(
-    p_site_url    => c_site_url,
-    p_list_title  => '{list_name}',
-    p_item_id     => l_target_item_id,
-    p_fields_json => JSON_OBJECT(...)
-);"""
+    plsql_code = f"""-- Masowa aktualizacja elementów listy {list_name} (warunek Nintex: {where_desc}):
+l_resp := {SHP_API}.get_list_items(
+    p_site_url   => :{V_SITE_URL},
+    p_list_title => {sql_literal(list_name)},
+    p_query      => '$select=Id&$filter=' -- TODO: przepisz warunek CAML na OData $filter
+);
+FOR r IN (SELECT id FROM json_table(l_resp, '$.data[*]' COLUMNS (id NUMBER PATH '$.Id'))) LOOP
+    l_ref_json := {SHP_API}.update_list_item(
+        p_site_url    => :{V_SITE_URL},
+        p_list_title  => {sql_literal(list_name)},
+        p_item_id     => r.id,
+        p_fields_json => json_object('Title' VALUE NULL) -- TODO: uzupełnij mapowanie pól
+    );
+END LOOP;"""
 
     return ActionDescription(
         summary=summary,
@@ -851,7 +984,7 @@ shp_api.update_list_item(
         action_type="NWUpdateMultipleItemAdapter",
         label=node.b_label or node.t_label or f"Aktualizuj: {list_name}",
         hint_universal=f"Masowa aktualizacja rekordów na liście {list_name} spełniających warunek {where_desc}.",
-        hint_apex="shp_api.update_list_item(...);",
+        hint_apex=f"{SHP_API}.get_list_items(...) + pętla {SHP_API}.update_list_item(...);",
         plsql_code=plsql_code,
         technical_lines=[f"Lista = {list_name}", f"Warunek = {where_desc}"],
     )
@@ -904,7 +1037,7 @@ def _describe_fallback(node: ActionNode, resolver: FieldResolver) -> ActionDescr
     summary = f"[Nieopisana akcja: {label}]"
     if fields_txt:
         summary += f" (pola: {fields_txt})"
-    plsql_code = f"-- Wywołanie shp_api dla akcji {_short_type(node.type)}"
+    plsql_code = f"-- TODO: wywołanie {SHP_API} dla akcji {_short_type(node.type)}"
     return ActionDescription(
         summary=summary,
         reads=reads,
@@ -916,3 +1049,96 @@ def _describe_fallback(node: ActionNode, resolver: FieldResolver) -> ActionDescr
         plsql_code=plsql_code,
     )
 
+
+_LOCAL_DECLARATIONS = {
+    "l_resp": "l_resp     CLOB;",
+    "l_ref_json": "l_ref_json CLOB;",
+}
+
+
+def generate_plsql_statements(nodes: list[ActionNode], resolver: FieldResolver, indent_level: int = 1) -> list[str]:
+    """Sklada fragmenty PL/SQL akcji w jedna sekwencje instrukcji (sciezka B: jeden Execute Code)."""
+    lines: list[str] = []
+    indent = "    " * indent_level
+
+    def emit(code: str, level: int) -> None:
+        pad = "    " * level
+        lines.extend(f"{pad}{code_line}" for code_line in code.splitlines())
+
+    for node in nodes:
+        if not node.enabled:
+            continue
+        short_type = _short_type(node.type)
+        if short_type == "NWWorkflowVariablesAdapter":
+            continue
+        if short_type in ("WFSequenceAdapter", "WFParallelAdapter"):
+            lines.extend(generate_plsql_statements(node.children, resolver, indent_level))
+            continue
+        if short_type == "WFIfElseAdapter":
+            cond = _plsql_condition(node.condition_el, resolver)
+            lines.append(f"{indent}IF {cond} THEN")
+            tak_branch = next((c for c in node.children if c.branch_label.lower() in ("tak", "true", "yes")), None)
+            nie_branch = next((c for c in node.children if c.branch_label.lower() in ("nie", "false", "no")), None)
+            if tak_branch is None and len(node.children) > 1:
+                nie_branch, tak_branch = node.children[0], node.children[1]
+            elif tak_branch is None and len(node.children) == 1:
+                tak_branch = node.children[0]
+            tak_lines = generate_plsql_statements(tak_branch.children, resolver, indent_level + 1) if tak_branch else []
+            lines.extend(tak_lines or [f"{indent}    NULL;"])
+            nie_lines = generate_plsql_statements(nie_branch.children, resolver, indent_level + 1) if nie_branch else []
+            if nie_lines:
+                lines.append(f"{indent}ELSE")
+                lines.extend(nie_lines)
+            lines.append(f"{indent}END IF;")
+            continue
+        if short_type == "NWRunIf2Adapter":
+            cond = _plsql_condition(node.condition_el, resolver)
+            lines.append(f"{indent}IF {cond} THEN")
+            child_lines = generate_plsql_statements(node.children, resolver, indent_level + 1)
+            lines.extend(child_lines or [f"{indent}    NULL;"])
+            lines.append(f"{indent}END IF;")
+            continue
+        desc = describe_action(node, resolver)
+        if short_type == "NWBusinessProcessAdapter":
+            emit(desc.plsql_code, indent_level)
+            lines.extend(generate_plsql_statements(node.children, resolver, indent_level))
+            continue
+        if short_type == "NWForEachLoopAdapter":
+            emit(desc.plsql_code, indent_level)
+            lines.extend(generate_plsql_statements(node.children, resolver, indent_level + 1))
+            lines.append(f"{indent}END LOOP;")
+            continue
+        if desc.is_structural:
+            continue
+        if desc.plsql_code:
+            emit(desc.plsql_code, indent_level)
+    return lines
+
+
+def wrap_plsql_block(statements: list[str] | str, header_comment: str = "") -> str:
+    """Opakowuje instrukcje w anonimowy blok PL/SQL deklarujacy tylko uzywane zmienne lokalne."""
+    body = statements if isinstance(statements, str) else "\n".join(statements)
+    body = body if body.strip() else "    NULL;"
+    if isinstance(statements, str):
+        body = "\n".join(f"    {line}" if line else line for line in body.splitlines())
+    if all(not line.strip() or line.strip().startswith("--") for line in body.splitlines()):
+        body += "\n    NULL;"
+    declarations = [
+        f"    {decl}" for name, decl in _LOCAL_DECLARATIONS.items() if re.search(rf"\b{name}\b", body)
+    ]
+    head = f"-- {header_comment}\n" if header_comment else ""
+    if declarations:
+        return f"{head}DECLARE\n" + "\n".join(declarations) + f"\nBEGIN\n{body}\nEND;"
+    return f"{head}BEGIN\n{body}\nEND;"
+
+
+def build_path_b_code(nodes: list[ActionNode], resolver: FieldResolver, workflow_title: str = "") -> str:
+    """Kod jednej aktywnosci Execute Code (sciezka B) realizujacej cala logike workflow Nintex."""
+    statements = generate_plsql_statements(nodes, resolver, indent_level=1)
+    title = workflow_title.replace("'", "''")
+    statements = [
+        f"    apex_debug.info('Start logiki workflow: {title}, item_id: ' || :{V_ITEM_ID});",
+        *statements,
+        f"    apex_debug.info('Koniec logiki workflow: {title}, item_id: ' || :{V_ITEM_ID});",
+    ]
+    return wrap_plsql_block(statements, "Ścieżka B: cała logika workflow Nintex w jednej aktywności Execute Code")

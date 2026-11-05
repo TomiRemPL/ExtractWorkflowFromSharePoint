@@ -270,7 +270,7 @@ def test_workflow_data_has_inspector_data_for_visible_mermaid_nodes(sample_resol
     assert visible_node_ids <= inspector_node_ids
 
 
-def test_build_plsql_procedure(sample_resolver: FieldResolver) -> None:
+def test_build_path_b_code(sample_resolver: FieldResolver) -> None:
     update = ActionNode(
         type="Nintex.Workflow.Activities.Adapters.SPSetFieldWithKeyAdapter",
         enabled=True,
@@ -296,17 +296,17 @@ def test_build_plsql_procedure(sample_resolver: FieldResolver) -> None:
         source_path=Path("DaneZeSkryptu/test.nwf"),
     )
 
-    from tools.nwf_report.report_builder import build_plsql_procedure
-    proc = build_plsql_procedure(wf, sample_resolver)
+    data = build_workflow_data(wf, sample_resolver)
+    assert "plsql_procedure" not in data
+    proc = data["apex_workflow_spec"]["path_b"]["plsql_code"]
 
-    assert "CREATE OR REPLACE PROCEDURE process_wf_testowy_workflow_procedura" in proc
-    assert "p_item_id" in proc
-    assert "p_site_url" in proc
-    assert "p_initiator" in proc
-    assert "shp_api.get_list_item" in proc
-    assert "shp_api.update_list_item" in proc
-    assert "json_object('Kwota' value '100')" in proc
-    assert "END process_wf_testowy_workflow_procedura;" in proc
+    assert proc.startswith("-- Ścieżka B")
+    assert "DECLARE\n    l_resp     CLOB;" in proc
+    assert "LCDT.SHP_API.update_list_item" in proc
+    assert "p_site_url    => :V_SITE_URL" in proc
+    assert "p_item_id     => :V_ITEM_ID" in proc
+    assert "'Kwota' VALUE '100'" in proc
+    assert proc.rstrip().endswith("END;")
 
 
 def test_build_dispatcher_package() -> None:
@@ -325,6 +325,12 @@ def test_build_dispatcher_package() -> None:
     assert "PROCEDURE handle_webhook" in sql
     assert "$.id" in sql
     assert "$.association" in sql
-    assert "WHEN 'Kwalifikacja Uslugi' THEN" in sql
-    assert "process_wf_kwalifikacja_uslugi" in sql
+    assert "WHEN 'Kwalifikacja Uslugi' THEN l_static_id := 'WF_KWALIFIKACJA_USLUGI';" in sql
+    assert "apex_workflow.start_workflow(" in sql
+    assert "l_params(1).static_id := 'P_PAYLOAD_BODY';" in sql
+    assert "apex_session_state.c_data_type_clob" in sql
+    assert "apex_session.create_session(" in sql
+    assert "apex_session.delete_session;" in sql
+    assert "l_content_type = 'Folder'" in sql
+    assert "process_wf_" not in sql
 

@@ -2,7 +2,10 @@
 from __future__ import annotations
 
 import json
+from html import escape
 from pathlib import Path
+
+from .app_info import APPLICATION_NOTICE, APP_VERSION, AUTHOR
 
 
 def _generate_html(workflows_data: list[dict]) -> str:
@@ -87,7 +90,14 @@ def _generate_html(workflows_data: list[dict]) -> str:
       display: flex;
       justify-content: space-between;
       align-items: center;
+      flex-wrap: wrap;
+      gap: 12px;
       margin-bottom: 16px;
+    }}
+    .hero-actions {{
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
     }}
     .badge-pill {{
       display: inline-flex;
@@ -121,6 +131,25 @@ def _generate_html(workflows_data: list[dict]) -> str:
       border-color: var(--primary);
       color: var(--primary);
     }}
+    .about-dialog {{
+      margin: auto;
+      width: min(560px, calc(100% - 32px));
+      max-height: calc(100% - 32px);
+      overflow: auto;
+      padding: 24px;
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      background: var(--bg-surface);
+      color: var(--text);
+      box-shadow: var(--shadow);
+      overflow-wrap: anywhere;
+    }}
+    .about-dialog::backdrop {{
+      background: rgba(0, 0, 0, 0.6);
+    }}
+    .about-dialog p {{
+      margin: 12px 0;
+    }}
     h1.hero-title {{
       font-size: clamp(1.8rem, 3.5vw, 2.8rem);
       font-weight: 800;
@@ -153,32 +182,6 @@ def _generate_html(workflows_data: list[dict]) -> str:
       justify-content: space-between;
       align-items: center;
       gap: 16px;
-    }}
-    .nav-links {{
-      display: flex;
-      gap: 8px;
-      overflow-x: auto;
-    }}
-    .nav-btn {{
-      background: transparent;
-      border: 1px solid transparent;
-      color: var(--text-muted);
-      padding: 8px 14px;
-      border-radius: 6px;
-      font-weight: 600;
-      font-size: 0.9rem;
-      cursor: pointer;
-      transition: all 0.15s;
-      white-space: nowrap;
-    }}
-    .nav-btn:hover {{
-      color: var(--text);
-      background: var(--bg-surface);
-    }}
-    .nav-btn.active {{
-      color: var(--primary);
-      background: var(--primary-bg);
-      border-color: var(--primary);
     }}
     .search-box {{
       position: relative;
@@ -609,10 +612,13 @@ def _generate_html(workflows_data: list[dict]) -> str:
     <div class="container">
       <div class="hero-top">
         <span class="badge-pill">Architektura migracji &middot; SharePoint &rarr; Docelowy system</span>
-        <button id="theme-btn" class="theme-toggle" type="button">
-          <span id="theme-icon">&#9790;</span>
-          <span id="theme-text">Tryb jasny</span>
-        </button>
+        <div class="hero-actions">
+          <button id="about-btn" class="theme-toggle" type="button" aria-haspopup="dialog" aria-controls="about-dialog">O aplikacji</button>
+          <button id="theme-btn" class="theme-toggle" type="button">
+            <span id="theme-icon">&#9790;</span>
+            <span id="theme-text">Tryb jasny</span>
+          </button>
+        </div>
       </div>
       <h1 class="hero-title">Centrum migracji Nintex Workflow</h1>
       <p class="hero-desc">
@@ -621,18 +627,35 @@ def _generate_html(workflows_data: list[dict]) -> str:
     </div>
   </header>
 
+  <dialog id="about-dialog" class="about-dialog" aria-labelledby="about-title" aria-describedby="about-info">
+    <h2 id="about-title">O aplikacji</h2>
+    <div id="about-info">
+      <p>{escape(AUTHOR)}</p>
+      <p>{escape(APPLICATION_NOTICE)}</p>
+      <p>Wersja: {escape(APP_VERSION)}</p>
+    </div>
+    <form method="dialog">
+      <button class="theme-toggle" type="submit" autofocus>Zamknij</button>
+    </form>
+  </dialog>
+  <script>
+    (() => {{
+      const aboutButton = document.getElementById('about-btn');
+      const aboutDialog = document.getElementById('about-dialog');
+      aboutButton.addEventListener('click', () => aboutDialog.showModal());
+      aboutDialog.addEventListener('keydown', event => {{
+        if (event.key === 'Escape') {{
+          event.preventDefault();
+          aboutDialog.close();
+        }}
+      }});
+      aboutDialog.addEventListener('close', () => aboutButton.focus());
+    }})();
+  </script>
+
   <!-- STICKY NAVBAR -->
   <nav class="sticky-nav">
     <div class="container nav-inner">
-      <div class="nav-links">
-        <button class="nav-btn active" data-target="sec-inventory">Inwentaryzacja</button>
-        <button class="nav-btn" data-target="sec-flows">Interaktywny diagram &amp; Inspektor</button>
-        <button class="nav-btn" data-target="sec-fields">Słownik pól &amp; lookupy</button>
-        <button class="nav-btn" data-target="sec-contract">Uniwersalny kontrakt REST</button>
-        <button class="nav-btn" data-target="sec-apex">Oracle APEX &amp; PL/SQL</button>
-        <button class="nav-btn" data-target="sec-apex-workflows">APEX Workflow Designer</button>
-        <button class="nav-btn" data-target="sec-checklist">Checklist wdrożeniowy</button>
-      </div>
       <div class="search-box">
         <svg viewBox="0 0 24 24"><path d="M10 18a7.952 7.952 0 0 0 4.897-1.688l4.396 4.396 1.414-1.414-4.396-4.396A7.952 7.952 0 0 0 18 10c0-4.411-3.589-8-8-8s-8 3.589-8 8 3.589 8 8 8zm0-14c3.309 0 6 2.691 6 6s-2.691 6-6 6-6-2.691-6-6 2.691-6 6-6z"/></svg>
         <input type="search" id="global-search" placeholder="Szukaj akcji, pola, InternalName..." aria-label="Wyszukiwarka">
@@ -752,16 +775,16 @@ def _generate_html(workflows_data: list[dict]) -> str:
         </aside>
       </div>
 
-      <!-- Karta: Kompletna procedura PL/SQL dla wybranego workflow -->
+      <!-- Karta: Sciezka B - gotowy kod Execute Code dla wybranego workflow -->
       <div class="docs-card" style="margin-top:20px;">
         <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; flex-wrap:wrap; gap:10px;">
           <div>
-            <h3 style="margin:0 0 4px;" id="wf-plsql-title">Kompletna procedura orkiestracji PL/SQL (pakiet SHP_API)</h3>
+            <h3 style="margin:0 0 4px;" id="wf-plsql-title">Ścieżka B — gotowy kod aktywności Execute Code (LCDT.SHP_API)</h3>
             <p style="color:var(--text-muted); font-size:0.88rem; margin:0;">
-              Gotowy do skompilowania w Oracle APEX szkielet procedury orkiestrujący wybrany workflow za pośrednictwem pakietu <code>SHP_API</code>.
+              Wklej do jednej aktywności <strong>Execute Code</strong> dodanej po kroku 4 (Parse V_SHP_ANSWER). Kod używa bindów <code>:V_*</code>, <code>:SP_*</code>, <code>:P_*</code> i funkcji pakietu <code>LCDT.SHP_API</code>.
             </p>
           </div>
-          <button class="copy-btn" id="copy-full-plsql-btn" type="button" style="padding:8px 16px; font-weight:600;">Kopiuj całą procedurę PL/SQL</button>
+          <button class="copy-btn" id="copy-full-plsql-btn" type="button" style="padding:8px 16px; font-weight:600;">Kopiuj kod ścieżki B</button>
         </div>
         <pre id="wf-plsql-procedure" class="code-box" style="max-height:420px; overflow:auto; font-family:Consolas,monospace; font-size:0.82rem; line-height:1.45;"></pre>
       </div>
@@ -845,89 +868,58 @@ Content-Type: application/json
 
     <!-- SEKCJA 5: ORACLE APEX / PL/SQL -->
     <section id="sec-apex">
-      <h2 class="section-title"><span class="number">05.</span> Architektura wdrożenia w Oracle APEX &amp; pakiet SHP_API</h2>
+      <h2 class="section-title"><span class="number">05.</span> Architektura wdrożenia w Oracle APEX &amp; pakiet LCDT.SHP_API</h2>
       <div class="docs-card" style="margin-bottom:24px;">
-        <h3>Centralny dyspozytor ORDS (pkg_shp_dispatcher)</h3>
-        <p style="color:var(--text-muted); margin:8px 0 16px;">
-          ORDS przyjmuje żądanie z <code>workflow.xaml</code> i przekazuje treść JSON do procedury <code>pkg_shp_dispatcher.handle_webhook</code>, która rozpakowuje 17 atrybutów i wywołuje właściwą procedurę docelowego workflow.
-        </p>
+        <h3>Standardowy przebieg każdego workflow APEX</h3>
+        <ol style="margin:8px 0 12px 20px; line-height:1.7;">
+          <li><strong>Workflow Start</strong> — <em>Additional Data</em> (SQL Query na <code>NINTEX_PARAMS</code>) ustawia parametry <code>P_*</code> (np. <code>P_EMAIL_*</code>, <code>P_KWOTA</code>).</li>
+          <li><strong>Execute Code „Retrieve Payload”</strong> — rozparsowanie <code>:P_PAYLOAD_BODY</code> na <code>V_ITEM_ID</code>, <code>V_SITE_URL</code>, <code>V_LIST_TITLE</code>, <code>V_EDITOR</code>; puste wartości → błąd <code>-20010</code> (instancja FAULTED).</li>
+          <li><strong>Invoke API</strong> — PL/SQL Package <code>LCDT</code> → <code>SHP_API</code> → <code>GET_LIST_ITEM</code>; ręcznie wpisywany jest tylko <code>p_query</code> (<code>$select</code> + <code>$expand</code>), wynik trafia do <code>V_SHP_ANSWER</code>.</li>
+          <li><strong>Execute Code „Parse”</strong> — odczyt <code>V_SHP_ANSWER</code> (<code>data.*</code>) do zmiennych <code>SP_*</code>.</li>
+          <li><strong>Logika użytkownika</strong> — <em>Ścieżka A</em> (aktywność na każdą akcję Nintex) albo <em>Ścieżka B</em> (jedna aktywność Execute Code z gotowym kodem).</li>
+        </ol>
+        <div class="callout callout-warn">
+          <strong>P_</strong> — parametry niezmienne w czasie trwania przepływu (payload i konfiguracja z <code>NINTEX_PARAMS</code>).
+          <strong>V_</strong> / <strong>SP_</strong> — zmienne, które aktywności mogą odczytywać i nadpisywać.
+        </div>
+      </div>
 
-        <div class="code-box">-- Wzorzec centralnego dyspozytora ORDS (pkg_shp_dispatcher)
-create or replace package body pkg_shp_dispatcher as
-    procedure handle_webhook(
-        p_body           in  clob,
-        p_status_code    out number,
-        p_status_message out varchar2
-    ) is
-        l_id          number         := json_value(p_body, '$.id' returning number);
-        l_association varchar2(255)  := json_value(p_body, '$.association');
-        l_list_name   varchar2(255)  := json_value(p_body, '$.list_name');
-        l_url_site    varchar2(1000) := json_value(p_body, '$.url_site');
-        l_initiator   varchar2(255)  := json_value(p_body, '$.initiator');
-    begin
-        case l_association
-            when 'DT01 Mechanizm Kwalifikacji Usługi' then
-                process_wf_dt01_mechanizm_kwalifikacji_uslugi(
-                    p_item_id    => l_id,
-                    p_site_url   => l_url_site,
-                    p_list_title => l_list_name,
-                    p_initiator  => l_initiator,
-                    p_payload    => p_body
-                );
-            -- Kolejne przepływy pracy rejestrowane automatycznie...
-        end case;
-        p_status_code := 200;
-        p_status_message := 'OK';
-    end;
-end pkg_shp_dispatcher;</div>
+      <div class="docs-card" style="margin-bottom:24px;">
+        <h3>Centralny dyspozytor ORDS (pkg_shp_dispatcher → apex_workflow.start_workflow)</h3>
+        <p style="color:var(--text-muted); margin:8px 0 16px;">
+          ORDS przyjmuje żądanie z <code>workflow.xaml</code>, a <code>pkg_shp_dispatcher.handle_webhook</code> mapuje <code>association</code> na Static ID workflow i uruchamia instancję, przekazując cały payload w parametrze <code>P_PAYLOAD_BODY</code>. Pełny pakiet: <code>pkg_shp_dispatcher.sql</code> (ustaw stałą <code>c_app_id</code>).
+        </p>
+        <div class="code-box">CASE l_association
+    WHEN 'DT01 Mechanizm Kwalifikacji Usługi' THEN l_static_id := 'WF_DT01_MECHANIZM_KWALIFIKACJI_USLUGI';
+    -- kolejne workflow generowane automatycznie...
+END CASE;
+
+l_params(1).static_id := 'P_PAYLOAD_BODY';
+l_params(1).value.data_type := apex_session_state.c_data_type_clob;
+l_params(1).value.clob_value := p_body;
+
+apex_session.create_session(p_app_id => c_app_id, p_page_id => c_page_id, p_username => c_apex_user);
+l_workflow_id := apex_workflow.start_workflow(
+    p_application_id => c_app_id,
+    p_static_id      => l_static_id,
+    p_parameters     => l_params,
+    p_initiator      => l_initiator,
+    p_detail_pk      => TO_CHAR(l_id)
+);
+apex_session.delete_session;</div>
       </div>
 
       <div class="docs-card">
-        <h3>Wzorzec orkiestracji w Flows for APEX i pakietach PL/SQL</h3>
+        <h3>Konfiguracja NINTEX_PARAMS (Additional Data)</h3>
         <p style="color:var(--text-muted); margin:8px 0 16px;">
-          W środowisku Oracle APEX integracja z SharePoint SE 2019 realizowana jest bezpośrednio z bazy danych za pośrednictwem dedykowanego pakietu <code>SHP_API</code> (autoryzacja NTLMv2, obsługa transakcji REST MERGE/POST/GET).
+          Stałe konfiguracyjne (adresy e-mail, kwoty) są przechowywane w tabeli <code>NINTEX_PARAMS</code> (kolumny <code>P_VAR_01..10</code>, <code>P_NUM_01..10</code>). Skrypt <code>nintex_params.sql</code> zawiera DDL (zakomentowany) i instrukcje MERGE dla każdego workflow.
         </p>
-
-        <div class="code-box">-- Wzorzec orkiestracji procesu w PL/SQL za pomocą pakietu SHP_API
-create or replace procedure process_wf_kwalifikacja_uslugi(
-    p_item_id    in number,
-    p_site_url   in varchar2 default null,
-    p_list_title in varchar2 default null,
-    p_initiator  in varchar2 default null,
-    p_payload    in clob     default null
-) is
-    c_site_url   varchar2(1000) := nvl(p_site_url, 'https://teams.sp.creditagricole/team/ITMM');
-    c_list_title varchar2(255)  := nvl(p_list_title, 'Kwalifikacja Usług');
-    l_item_json  clob;
-    l_resp       clob;
-    l_is_ict     varchar2(10) := 'Nie';
-begin
-    apex_debug.info('Start kwalifikacji: item_id=' || p_item_id || ', initiator=' || p_initiator);
-
-    -- 1. Pobranie danych elementu z SharePoint przez pakiet SHP_API
-    l_item_json := shp_api.get_list_item(
-        p_site_url   => c_site_url,
-        p_list_title => c_list_title,
-        p_item_id    => p_item_id
-    );
-
-    -- 2. Warunek bramki logicznej (odpowiednik DT01)
-    if json_value(l_item_json, '$.data.DT_x002e_01') = 'Tak' then
-        l_is_ict := 'Tak';
-    else
-        l_is_ict := 'Nie';
-    end if;
-
-    -- 3. Zapis wyniku do SharePoint przez SHP_API (MERGE z kontrolą ETag)
-    l_resp := shp_api.update_list_item(
-        p_site_url    => c_site_url,
-        p_list_title  => c_list_title,
-        p_item_id     => p_item_id,
-        p_fields_json => json_object('Us_x0142_uga_x0020_kwalifikowana' value l_is_ict)
-    );
-
-    apex_debug.info('Zakończono kwalifikację dla elementu: ' || p_item_id);
-end;</div>
+        <div class="code-box">SELECT p.P_VAR_01 AS P_EMAIL,
+       p.P_NUM_01 AS P_KWOTA
+  FROM nintex_params p
+  JOIN apex_workflows w
+    ON w.workflow_def_static_id = p.workflow_static_id
+ WHERE w.workflow_id = :APEX$WORKFLOW_ID;</div>
       </div>
     </section>
 
@@ -946,9 +938,19 @@ end;</div>
           <table class="card-table" id="apex-parameters-table"></table>
           <h3 style="margin-top:20px;">Workflow Variables</h3>
           <table class="card-table" id="apex-variables-table"></table>
+          <h3 style="margin-top:20px;">Additional Data (NINTEX_PARAMS → parametry P_)</h3>
+          <div id="apex-additional-data"></div>
         </div>
       </div>
+      <h3 style="margin:24px 0 12px;">Kroki standardowe 1–4</h3>
+      <div id="apex-standard-activities"></div>
+      <div style="display:flex; gap:10px; align-items:center; margin:24px 0 12px; flex-wrap:wrap;">
+        <h3 style="margin:0;">Logika workflow po kroku 4:</h3>
+        <button class="copy-btn apex-path-btn" type="button" data-path="A">Ścieżka A — krok po kroku</button>
+        <button class="copy-btn apex-path-btn" type="button" data-path="B">Ścieżka B — jedna aktywność Execute Code</button>
+      </div>
       <div id="apex-activities"></div>
+      <div id="apex-path-b" style="display:none;"></div>
     </section>
 
     <!-- SEKCJA 6: CHECKLIST -->
@@ -960,6 +962,10 @@ end;</div>
           <li>&#9989; <strong>Współbieżność:</strong> Obsługa nagłówków ETag / optymistycznego blokowania.</li>
           <li>&#9989; <strong>Idempotencja:</strong> Ponowne wywołanie z tym samym kluczem nie duplikuje danych.</li>
           <li>&#9989; <strong>Audit Log:</strong> Zapis każdego przejścia procesu do tabeli historii wykonania.</li>
+          <li>&#9989; <strong>NINTEX_PARAMS:</strong> Uruchomiony <code>nintex_params.sql</code> i uzupełnione wartości <code>P_VAR_xx</code> / <code>P_NUM_xx</code>.</li>
+          <li>&#9989; <strong>Uprawnienia:</strong> Schemat aplikacji APEX ma <code>EXECUTE</code> na <code>LCDT.SHP_API</code>.</li>
+          <li>&#9989; <strong>Dyspozytor:</strong> Ustawione <code>c_app_id</code> w <code>pkg_shp_dispatcher</code>; Static ID workflow zgodne z routingiem.</li>
+          <li>&#9989; <strong>Błąd -20010:</strong> Test pustego payloadu kończy instancję jako FAULTED widoczną w Workflow Console.</li>
         </ul>
       </div>
     </section>
@@ -1009,6 +1015,7 @@ end;</div>
       const mermaidContainer = document.getElementById('mermaid-graph');
       const activeWfTag = document.getElementById('active-wf-tag');
       const fieldsTbody = document.querySelector('#fields-table tbody');
+      const searchInput = document.getElementById('global-search');
       const toast = document.getElementById('toast');
       const mermaidWrapper = document.querySelector('.mermaid-wrapper');
       const zoomLabel = document.getElementById('flow-zoom-label');
@@ -1175,6 +1182,7 @@ end;</div>
           }});
           wfTabsContainer.appendChild(btn);
         }});
+        filterWorkflowTabs(searchInput.value);
       }}
 
       function filterWorkflowTabs(query) {{
@@ -1201,8 +1209,16 @@ end;</div>
         return matchingIndexes;
       }}
 
+      function filterFieldsTable(query) {{
+        const q = query.toLowerCase().trim();
+        fieldsTbody.querySelectorAll('tr').forEach(row => {{
+          row.style.display = (!q || row.textContent.toLowerCase().includes(q)) ? '' : 'none';
+        }});
+      }}
+
       // Renderowanie aktywnego workflow
       async function renderActiveWorkflow() {{
+        if (workflows.length === 0) return;
         const wf = workflows[activeIndex];
         activeWorkflow = wf;
         activeWfTag.textContent = 'Lista: ' + wf.source_list_name;
@@ -1227,9 +1243,9 @@ end;</div>
 
         // Aktualizacja kompletnej procedury PL/SQL
         const wfPlsqlTitle = document.getElementById('wf-plsql-title');
-        if (wfPlsqlTitle) wfPlsqlTitle.textContent = 'Kompletna procedura PL/SQL: ' + wf.title;
+        if (wfPlsqlTitle) wfPlsqlTitle.textContent = 'Ścieżka B (Execute Code): ' + wf.title;
         const wfPlsqlProc = document.getElementById('wf-plsql-procedure');
-        if (wfPlsqlProc) wfPlsqlProc.textContent = wf.plsql_procedure || '-- Brak kodu procedury';
+        if (wfPlsqlProc) wfPlsqlProc.textContent = wf.apex_workflow_spec?.path_b?.plsql_code || '-- Brak kodu ścieżki B';
 
         renderApexWorkflowGuide(wf);
 
@@ -1397,19 +1413,31 @@ end;</div>
           (spec.parameters || []).map(param => [param.static_id, param.data_type, param.required ? 'Tak' : 'Nie', param.default_value, param.description]));
         renderTable(variablesTable, ['Static ID', 'Typ', 'Rola / mapowanie'],
           (spec.variables || []).map(variable => [variable.static_id, variable.data_type, [variable.field_binding, variable.role].filter(Boolean).join(' — ')]));
-        (spec.activities || []).forEach((activity, index) => {{
+        function buildActivityCard(activity, label) {{
           const card = document.createElement('article');
           card.className = 'apex-activity-card';
           const title = document.createElement('h4');
-          title.textContent = `${{index + 1}}. ${{activity.title}} (${{activity.node_id}})`;
+          title.textContent = `${{label}}. ${{activity.title}} (${{activity.node_id}})`;
           const type = document.createElement('p');
           type.textContent = `Activity Type: ${{activity.activity_type}} · ${{activity.ui_location}}`;
           card.append(title, type);
+          Object.entries(activity.settings || {{}}).forEach(([key, value]) => {{
+            const paragraph = document.createElement('p');
+            paragraph.textContent = `${{key}}: ${{value}}`;
+            card.appendChild(paragraph);
+          }});
           (activity.config_notes || []).forEach(note => {{
             const paragraph = document.createElement('p');
             paragraph.textContent = `• ${{note}}`;
             card.appendChild(paragraph);
           }});
+          if ((activity.parameter_mapping || []).length) {{
+            const mappingTable = document.createElement('table');
+            mappingTable.className = 'card-table';
+            renderTable(mappingTable, ['Parametr', 'Źródło', 'Wartość'],
+              activity.parameter_mapping.map(m => [m.parameter, m.source, m.value]));
+            card.appendChild(mappingTable);
+          }}
           (activity.transitions || []).forEach(transition => {{
             const paragraph = document.createElement('p');
             paragraph.textContent = `Transition ${{
@@ -1430,8 +1458,60 @@ end;</div>
             }});
             card.append(button, code);
           }}
-          activities.appendChild(card);
+          return card;
+        }}
+
+        function codeBlock(text) {{
+          const pre = document.createElement('pre');
+          pre.className = 'code-box';
+          pre.textContent = text;
+          return pre;
+        }}
+
+        const additional = spec.additional_data || {{}};
+        const additionalBox = document.getElementById('apex-additional-data');
+        additionalBox.replaceChildren();
+        (additional.notes || []).forEach(note => {{
+          const paragraph = document.createElement('p');
+          paragraph.textContent = `• ${{note}}`;
+          additionalBox.appendChild(paragraph);
         }});
+        if ((additional.params || []).length) {{
+          const paramsCfgTable = document.createElement('table');
+          paramsCfgTable.className = 'card-table';
+          renderTable(paramsCfgTable, ['Parametr P_', 'Kolumna NINTEX_PARAMS', 'Wartość', 'Opis'],
+            additional.params.map(param => [param.alias, param.column, param.value, param.description]));
+          additionalBox.appendChild(paramsCfgTable);
+        }}
+        if (additional.sql) additionalBox.appendChild(codeBlock(additional.sql));
+        if (additional.merge_sql) additionalBox.appendChild(codeBlock(additional.merge_sql));
+
+        const standardBox = document.getElementById('apex-standard-activities');
+        standardBox.replaceChildren();
+        (spec.standard_activities || []).forEach((activity, index) => {{
+          standardBox.appendChild(buildActivityCard(activity, String(index + 1)));
+        }});
+
+        (spec.activities || []).forEach((activity, index) => {{
+          activities.appendChild(buildActivityCard(activity, `A${{index + 1}}`));
+        }});
+
+        const pathBBox = document.getElementById('apex-path-b');
+        pathBBox.replaceChildren();
+        if (spec.path_b) pathBBox.appendChild(buildActivityCard(spec.path_b, 'B1'));
+
+        function showPath(path) {{
+          activities.style.display = path === 'A' ? '' : 'none';
+          pathBBox.style.display = path === 'B' ? '' : 'none';
+          document.querySelectorAll('.apex-path-btn').forEach(btn => {{
+            btn.style.fontWeight = btn.dataset.path === path ? '700' : '400';
+            btn.setAttribute('aria-pressed', btn.dataset.path === path ? 'true' : 'false');
+          }});
+        }}
+        document.querySelectorAll('.apex-path-btn').forEach(btn => {{
+          btn.onclick = () => showPath(btn.dataset.path);
+        }});
+        showPath('A');
       }}
 
       function renderFieldsTable(wf) {{
@@ -1448,6 +1528,7 @@ end;</div>
           `;
           fieldsTbody.appendChild(tr);
         }});
+        filterFieldsTable(searchInput.value);
 
         // Obsluga kopiowania
         fieldsTbody.querySelectorAll('.copy-btn').forEach(btn => {{
@@ -1505,48 +1586,27 @@ end;</div>
       }});
 
       // Globalna wyszukiwarka
-      const searchInput = document.getElementById('global-search');
       searchInput.addEventListener('input', (e) => {{
         const q = e.target.value.toLowerCase().trim();
         const matchingIndexes = filterWorkflowTabs(q);
-
-        const rows = fieldsTbody.querySelectorAll('tr');
-        rows.forEach(r => {{
-          const text = r.textContent.toLowerCase();
-          r.style.display = (!q || text.includes(q)) ? '' : 'none';
-        }});
-
-        // Nawigacja sekcji z uwzględnieniem sticky headera.
-        document.querySelectorAll('.nav-btn').forEach(btn => {{
-          btn.addEventListener('click', () => {{
-            const target = document.getElementById(btn.dataset.target);
-            if (!target) return;
-            document.querySelectorAll('.nav-btn').forEach(item => item.classList.remove('active'));
-            btn.classList.add('active');
-            target.scrollIntoView({{ behavior: 'smooth', block: 'start' }});
-          }});
-        }});
+        filterFieldsTable(q);
 
         if (q && matchingIndexes.length > 0 && !matchingIndexes.includes(activeIndex)) {{
           activeIndex = matchingIndexes[0];
           renderTabs();
-          filterWorkflowTabs(q);
           renderActiveWorkflow();
         }} else if (!q) {{
           renderTabs();
-          renderFieldsTable(workflows[activeIndex]);
+          if (workflows.length > 0) renderFieldsTable(workflows[activeIndex]);
         }}
       }});
 
       // Inicjalizacja
       window.addEventListener('mermaidReady', () => {{
-        renderTabs();
         renderActiveWorkflow();
       }});
-      if (window._mermaid) {{
-        renderTabs();
-        renderActiveWorkflow();
-      }}
+      renderTabs();
+      renderActiveWorkflow();
     }})();
   </script>
 </body>

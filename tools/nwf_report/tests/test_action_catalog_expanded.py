@@ -22,7 +22,7 @@ def test_describe_build_string(empty_resolver: FieldResolver) -> None:
     desc = describe_action(node, empty_resolver)
     assert "ZmiennaTekstowa" in desc.summary
     assert "PREFIX-{WorkflowVariable:Numer}-SUFFIX" in desc.summary
-    assert "l_zmiennatekstowa :=" in desc.plsql_code
+    assert ":ZMIENNATEKSTOWA :=" in desc.plsql_code
 
 
 def test_describe_business_process(empty_resolver: FieldResolver) -> None:
@@ -62,7 +62,7 @@ def test_describe_calculate_date(empty_resolver: FieldResolver) -> None:
     assert "+1 mies." in desc.summary
     assert "+5 dni" in desc.summary
     assert "+2 godz." in desc.summary
-    assert "l_terminrealizacji :=" in desc.plsql_code
+    assert ":TERMINREALIZACJI :=" in desc.plsql_code
     assert "ADD_MONTHS" in desc.plsql_code
 
 
@@ -80,7 +80,7 @@ def test_describe_collection(empty_resolver: FieldResolver) -> None:
     assert "Zlicz" in desc.summary
     assert "ListaKierownikow" in desc.summary
     assert "LiczbaKierownikow" in desc.summary
-    assert "l_liczbakierownikow := l_listakierownikow.COUNT;" in desc.plsql_code
+    assert ":LICZBAKIEROWNIKOW := :LISTAKIEROWNIKOW.COUNT;" in desc.plsql_code
 
 
 def test_describe_create_site_specific_item(empty_resolver: FieldResolver) -> None:
@@ -93,7 +93,8 @@ def test_describe_create_site_specific_item(empty_resolver: FieldResolver) -> No
     desc = describe_action(node, empty_resolver)
     assert "Zadania_DORA" in desc.summary
     assert "NoweZadanieID" in desc.summary
-    assert "shp_api.create_list_item" in desc.plsql_code
+    assert "l_resp := LCDT.SHP_API.add_list_item(" in desc.plsql_code
+    assert ":NOWEZADANIEID := json_value(l_resp, '$.item_id' RETURNING NUMBER);" in desc.plsql_code
     assert "p_list_title  => 'Zadania_DORA'" in desc.plsql_code
 
 
@@ -105,7 +106,9 @@ def test_describe_delay_for(empty_resolver: FieldResolver) -> None:
     )
     desc = describe_action(node, empty_resolver)
     assert "3 godz., 15 min" in desc.summary
-    assert "DBMS_SESSION.SLEEP(11700);" in desc.plsql_code
+    assert "DBMS_SESSION.SLEEP" not in desc.plsql_code
+    assert "Wait" in desc.plsql_code
+    assert "(195 min)" in desc.plsql_code
 
 
 def test_describe_for_each_loop(empty_resolver: FieldResolver) -> None:
@@ -126,7 +129,7 @@ def test_describe_for_each_loop(empty_resolver: FieldResolver) -> None:
     desc = describe_action(node, empty_resolver)
     assert "KolekcjaAdresatow" in desc.summary
     assert "BiezacyAdresat" in desc.summary
-    assert "FOR i IN 1..l_kolekcjaadresatow.COUNT LOOP" in desc.plsql_code
+    assert "FOR i IN 1..:KOLEKCJAADRESATOW.COUNT LOOP" in desc.plsql_code
 
 
 def test_describe_query_list(empty_resolver: FieldResolver) -> None:
@@ -158,7 +161,8 @@ def test_describe_query_list(empty_resolver: FieldResolver) -> None:
     assert "Aktywny jest równe '1'" in desc.summary
     assert "vStatusID" in desc.summary
     assert "vNazwaStatusu" in desc.summary
-    assert "shp_api.get_list_items" in desc.plsql_code
+    assert "LCDT.SHP_API.get_list_items" in desc.plsql_code
+    assert "p_list_title => 'Slownik_Statusow'" in desc.plsql_code
     assert len(desc.reads) == 1
     assert desc.reads[0].internal_name == "Aktywny"
 
@@ -199,7 +203,9 @@ def test_describe_start_workflow2(empty_resolver: FieldResolver) -> None:
     )
     desc = describe_action(node, empty_resolver)
     assert "Akceptacja_Kierownika" in desc.summary
-    assert "process_wf_akceptacja_kierownika" in desc.plsql_code
+    assert "apex_workflow.start_workflow(" in desc.plsql_code
+    assert "'WF_AKCEPTACJA_KIEROWNIKA'" in desc.plsql_code
+    assert "'P_PAYLOAD_BODY'" in desc.plsql_code
 
 
 def test_describe_update_multiple_item(empty_resolver: FieldResolver) -> None:
@@ -212,6 +218,7 @@ def test_describe_update_multiple_item(empty_resolver: FieldResolver) -> None:
     desc = describe_action(node, empty_resolver)
     assert "RejestrWnioskow" in desc.summary
     assert "Status jest równe 'Nowy'" in desc.summary
-    assert "shp_api.update_list_item" in desc.plsql_code
+    assert "LCDT.SHP_API.update_list_item" in desc.plsql_code
+    assert "LCDT.SHP_API.get_list_items" in desc.plsql_code
     assert len(desc.writes) == 1
     assert desc.writes[0].internal_name == "Status"

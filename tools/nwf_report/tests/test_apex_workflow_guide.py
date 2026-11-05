@@ -50,8 +50,11 @@ def test_set_variable_maps_to_execute_code_and_uses_bind_variable() -> None:
     activity = spec["activities"][0]
 
     assert activity["activity_type"] == "Execute Code"
-    assert "Activity Properties > PL/SQL Code" == activity["ui_location"]
-    assert ":STATUS := json_value" in activity["plsql_code"]
+    assert "Activity Properties > Code > PL/SQL Code" == activity["ui_location"]
+    assert ":STATUS := :SP_STATUS_X0020_POLA;" in activity["plsql_code"]
+    assert any(var["static_id"] == "SP_STATUS_X0020_POLA" for var in spec["variables"])
+    parse_code = spec["standard_activities"][3]["plsql_code"]
+    assert ":SP_STATUS_X0020_POLA := apex_json.get_varchar2(p_path => 'data.Status_x0020_Pola');" in parse_code
     assert "apex_workflow.set_variable" not in activity["plsql_code"]
     assert any(var["static_id"] == "STATUS" for var in spec["variables"])
     assert steps[0].node_id == activity["node_id"]
@@ -119,9 +122,11 @@ def test_sharepoint_update_maps_fields_to_shp_api_execute_code() -> None:
     activity = spec["activities"][0]
 
     assert activity["activity_type"] == "Execute Code"
-    assert "shp_api.update_list_item" in activity["plsql_code"]
+    assert "LCDT.SHP_API.update_list_item" in activity["plsql_code"]
     assert "'Kwota' VALUE :SP_KWOTA" in activity["plsql_code"]
-    assert "P_ITEM_ID" in activity["plsql_code"]
+    assert "p_item_id     => :V_ITEM_ID" in activity["plsql_code"]
+    assert "p_list_title  => :V_LIST_TITLE" in activity["plsql_code"]
+    assert spec["shp_query"] == "$select=Kwota"
     assert any(variable["field_binding"] == "Kwota" for variable in spec["variables"])
 
 
@@ -167,10 +172,12 @@ def test_cross_list_lookup_reads_related_item_from_target_list() -> None:
     spec = build_workflow_data(wf, resolver)["apex_workflow_spec"]
     code = spec["activities"][0]["plsql_code"]
 
-    assert "p_list_title => 'Lista źródłowa'" in code
+    assert "LCDT.SHP_API.get_list_item(" in code
     assert "p_list_title => 'Lista referencyjna'" in code
-    assert "l_ref_id := json_value(l_item_json, '$.data.LookupId' RETURNING NUMBER)" in code
+    assert "p_item_id    => :SP_LOOKUPID_ID" in code
+    assert "p_query      => '$select=Nazwa_x0020_Ref'" in code
     assert ":NAZWAREF := json_value(l_ref_json, '$.data.Nazwa_x0020_Ref')" in code
+    assert spec["shp_query"] == "$select=LookupId/Id,LookupId/Title&$expand=LookupId"
 
 
 def test_parameters_markdown_and_html_include_apex_workflow_guide() -> None:
@@ -187,15 +194,22 @@ def test_parameters_markdown_and_html_include_apex_workflow_guide() -> None:
     report = build_report(wf, resolver)
     html = _generate_html([build_workflow_data(wf, resolver)])
 
-    assert [param["static_id"] for param in spec["parameters"]] == [
-        "P_ITEM_ID",
-        "P_SITE_URL",
-        "P_LIST_TITLE",
-        "P_INITIATOR",
-        "P_PAYLOAD",
+    assert [param["static_id"] for param in spec["parameters"]] == ["P_PAYLOAD_BODY"]
+    assert [activity["node_id"] for activity in spec["standard_activities"]] == [
+        "std_start",
+        "std_payload",
+        "std_get_item",
+        "std_parse",
     ]
+    assert spec["path_b"]["activity_type"] == "Execute Code"
+    assert ":STATUS := 'Gotowy';" in spec["path_b"]["plsql_code"]
     assert "Shared Components > Workflows" in report
     assert "Workflow Parameters" in report
     assert "GET_VARIABLE_VALUE" in report
+    assert "Kroki standardowe (1–4)" in report
+    assert "RAISE_APPLICATION_ERROR(-20010" in report
+    assert "Ścieżka B" in report
+    assert "WHEN 'Test APEX Workflow' THEN l_static_id := 'WF_TEST_APEX_WORKFLOW';" in report
     assert "sec-apex-workflows" in html
+    assert "apex-path-b" in html
     assert "apex_workflow_spec" in html

@@ -1,147 +1,196 @@
 # ExtractWorkflowFromSharePoint
 
-Narzędzie analizuje eksporty workflow Nintex ze środowiska SharePoint 2019 i generuje czytelne raporty Markdown opisujące logikę przepływów: warunki, pola odczytywane, pola zapisywane, listy SharePoint, zmienne oraz kolejność akcji.
+Narzędzie wspierające migrację workflow Nintex ze środowiska SharePoint 2019 do Oracle APEX. Program:
 
-## Obecna funkcjonalność
+1. **pobiera** z witryny SharePoint metadane list, kolumny witryny i definicje workflow Nintex (`.nwf`),
+2. **analizuje** workflow i generuje raporty Markdown z diagramami Mermaid,
+3. **przygotowuje** materiały wdrożeniowe dla Oracle APEX: procedury PL/SQL `SHP_API`, pakiet dyspozytora ORDS oraz przewodnik APEX Workflow Designer,
+4. **buduje** interaktywny portal HTML do przeglądania przepływów i planowania migracji.
 
-Program:
+Wszystkie funkcje są dostępne z wiersza poleceń oraz z graficznego interfejsu (GUI).
 
-- parsuje pliki `.nwf` zawierające zewnętrzny XML oraz escapowany XML workflow wewnątrz;
-- odczytuje tytuł, opis, identyfikator i konfigurację workflow;
-- rozpoznaje listę źródłową oraz dodatkowe listy używane przez workflow;
-- analizuje zagnieżdżone akcje znajdujące się pod `ChildActivities/NWActionConfig`;
-- rozpoznaje warunki, gałęzie `Tak/Nie`, sekwencje i akcje równoległe;
-- odczytuje parametry proste oraz złożone, w tym `Variable` i `ListLookup`;
-- rozpoznaje odczyty i zapisy pól SharePoint;
-- rozwiązuje nazwy techniczne `InternalName` na nazwy biznesowe;
-- zachowuje kontekst listy przy rozwiązywaniu pól, aby uniknąć kolizji identycznych `InternalName` na różnych listach;
-- tłumaczy znane akcje Nintex na opisy biznesowe w języku polskim;
-- zachowuje fallback dla nieznanych typów akcji i zapisuje je w `out/index.md`;
-- generuje diagram przepływu w składni Mermaid;
-- generuje listę kroków workflow ze szczegółami technicznymi;
-- generuje tabelę pól odczytywanych i zapisywanych;
-- obsługuje błędy pojedynczych plików bez przerywania całego przetwarzania;
-- zawiera interaktywny manual HTML dotyczący planowanej integracji z Oracle APEX;
-- pokazuje pełny diagram Mermaid dla każdego z czterech workflow oraz rozwijane źródło Mermaid;
-- prezentuje techniczne identyfikatory list, GUID-y, `InternalName` pól i relacje lookup;
-- rozróżnia kolorami listy, pola, lookupy, workflow, zmienne i elementy APEX/REST.
+Autor: REMBIASZ GRC Tech Solutions Tomasz Rembiasz, NIP: 8871550162
+Aplikacja powstała dla Credit-Agricole Bank Polska S.A.
+Wersja: 3.0
 
-## Uruchomienie generatora i zarządzanie projektem
+## Wymagania i instalacja
 
-Zarządzanie środowiskiem wirtualnym i bibliotekami realizowane jest za pomocą **`uv`**:
+- Windows z dostępem do witryny SharePoint 2019 (dla ekstrakcji; uwierzytelnienie Windows SSO/SSPI lub NTLM),
+- Python 3.14 oraz menedżer [`uv`](https://docs.astral.sh/uv/).
+
+Instalacja zależności (tworzy `.venv` na podstawie `pyproject.toml` i `uv.lock`):
 
 ```powershell
-uv run python tools\nwf_report\generate_report.py --input DaneZeSkryptu --output out
-# lub bezpośrednio przez launcher py:
-py tools\nwf_report\generate_report.py --input DaneZeSkryptu --output out
+uv sync
 ```
 
-Uruchomienie testów jednostkowych:
+Wszystkie polecenia poniżej uruchamiaj z katalogu głównego repozytorium.
+
+## Tryb graficzny (GUI)
+
+### Uruchomienie
+
 ```powershell
-uv run pytest
+uv run python tools\gui.py
 ```
 
-Zarządzanie zależnościami:
-- Projekt wykorzystuje `uv` (`pyproject.toml`, `.venv`).
-- Kod i testy korzystają z najbardziej dopasowanych i odpowiednich bibliotek.
-- Instalacja nowych pakietów produkcyjnych: `uv add <pakiet>`
-- Instalacja pakietów deweloperskich / testowych: `uv add --dev <pakiet>`
+Alternatywnie dwuklik na [run_gui.bat](run_gui.bat) — uruchamia GUI bez okna konsoli, korzystając z `.venv\Scripts\pythonw.exe` (jeśli `.venv` nie istnieje, używa systemowego `pythonw`). Przed pierwszym użyciem wykonaj `uv sync`.
 
-Po wykonaniu polecenia w katalogu `out/` powstają:
+### Budowa okna
 
-- osobny raport Markdown dla każdego pliku `.nwf`;
-- `index.md` z listą workflow i ewentualną listą typów akcji bez dedykowanego opisu;
-- `walkthrough.md` zawierający statystyki wykonania, liczbę akcji w każdym workflow, listę źródeł oraz statusy;
-- `workflow-migration-manual.html` pozostaje osobnym manualem HTML i nie jest nadpisywany przez generator;
-- raporty Markdown są źródłem weryfikacyjnym dla manuala HTML, ale manual nie jest obecnie generowany automatycznie z Markdown.
+- **Nagłówek** z tytułem aplikacji i przyciskiem **O aplikacji** (autor, przeznaczenie, wersja).
+- **Zakładka „1. Ekstrakcja z SharePoint”** — pobieranie danych z witryny.
+- **Zakładka „2. Generowanie raportów i portalu”** — generowanie raportów, pakietu PL/SQL i portalu HTML.
+- **Dziennik zdarzeń** — logi operacji w czasie rzeczywistym.
+- **Pasek stanu** — bieżący status i wskaźnik postępu.
+
+Operacje działają w tle, więc okno pozostaje responsywne; przycisk uruchomionej operacji jest zablokowany do jej zakończenia. Błędy są pokazywane w oknie komunikatu i w dzienniku.
+
+### Krok 1 — ekstrakcja z SharePoint
+
+1. W polu **Adres URL witryny SharePoint** wpisz adres witryny (np. `https://sp.domena.local/sites/dora`).
+2. **Katalog docelowy**: pozostaw zaznaczone **Automatycznie numeruj (DaneZeSkryptu_nnn)**, aby utworzyć kolejny katalog `DaneZeSkryptu_001`, `DaneZeSkryptu_002`, … albo odznacz opcję i wpisz własną nazwę katalogu (względem katalogu repozytorium).
+3. Opcje:
+   - **Pobierz dane list (20_dane_*.json)** — dodatkowo eksportuje wiersze list (dane biznesowe; domyślnie wyłączone),
+   - **Ignoruj certyfikat SSL (--insecure)** — tylko dla środowisk z certyfikatem niezaufanym.
+4. Kliknij **Rozpocznij pobieranie z SharePoint**. GUI uwierzytelnia się bieżącym kontem Windows (SSO/SSPI).
+5. Po sukcesie zakładka 2 zostanie automatycznie uzupełniona: katalog wejściowy `DaneZeSkryptu_nnn` i wyjściowy `out_nnn`.
+
+Logowanie innym kontem (NTLM) jest dostępne tylko w [wierszu poleceń](#ekstrakcja-z-sharepoint).
+
+### Krok 2 — generowanie raportów i portalu
+
+1. **Katalog z danymi (.nwf i JSON)** — katalog z eksportem (np. `DaneZeSkryptu_002`); przycisk **Przeglądaj...** pozwala go wskazać. Po wyborze katalogu z sufiksem `_nnn` katalog wyjściowy ustawia się automatycznie na `out_nnn`.
+2. **Katalog wyjściowy raportów** — katalog na wyniki (np. `out_002`).
+3. Kliknij **Generuj raporty i portal HTML**.
+4. **Otwórz portal w przeglądarce** — otwiera `workflow-migration-manual.html` z katalogu wyjściowego.
+5. **Otwórz katalog w Eksploratorze** — otwiera katalog wyjściowy z raportami.
+
+Przy starcie GUI automatycznie podpowiada najnowszy istniejący katalog `DaneZeSkryptu*` i odpowiadający mu katalog `out*`.
+
+## Wiersz poleceń (CLI)
+
+### Ekstrakcja z SharePoint
+
+```powershell
+# Windows SSO, automatyczny katalog DaneZeSkryptu_nnn
+uv run python tools\sp_extractor\cli.py https://sp.domena.local/sites/dora
+
+# NTLM, własny katalog, z danymi list
+uv run python tools\sp_extractor\cli.py --url https://sp.domena.local/sites/dora -u login -p haslo -d DOMENA -o DaneZeSkryptu_test --include-data
+```
+
+| Opcja | Znaczenie |
+|---|---|
+| `URL` / `--url` | adres witryny SharePoint (wymagany) |
+| `-o`, `--output` | katalog docelowy; domyślnie kolejny `DaneZeSkryptu_nnn` |
+| `--base-dir` | katalog, w którym szukane są istniejące `DaneZeSkryptu_nnn` (domyślnie `.`) |
+| `-u`, `-p`, `-d` | login, hasło i domena NTLM; bez nich używane jest Windows SSO/SSPI |
+| `--include-data` | eksport wierszy list (`20_dane_*.json`) |
+| `--include-permissions` | zarezerwowane — obecnie tylko odnotowywane w manifeście, eksport uprawnień `30_*` nie jest jeszcze zaimplementowany |
+| `--insecure` | wyłączenie weryfikacji certyfikatu SSL |
+| `-v`, `--verbose` | szczegółowe logi |
+
+Hasła nie należy przekazywać w skryptach ani zapisywać w repozytorium.
+
+### Generowanie raportów
+
+```powershell
+uv run python tools\nwf_report\generate_report.py --input DaneZeSkryptu_002 --output out_002
+```
+
+## Co powstaje
+
+### Katalog eksportu `DaneZeSkryptu*`
+
+| Plik | Zawartość |
+|---|---|
+| `00_wlasciwosci.json`, `00_kolumny_witryny.json` | właściwości i kolumny witryny |
+| `10_00_wszystkie_listy.json`, `10_lista_*.json` | lista list oraz definicje i schematy pól |
+| `20_dane_*.json` | wiersze list (tylko z opcją danych) |
+| `*.nwf` | definicje workflow Nintex |
+| `Workflow-Inventory.csv` | inwentaryzacja workflow |
+| `extraction_manifest.json` | podsumowanie ekstrakcji |
+
+Konwencje nazw są zgodne z [manualem eksportu SharePoint](manual-sharepoint-2019-dla-poczatkujacych-v3%20(1).md). Generator raportów korzysta z plików `.nwf`, `00_kolumny_witryny.json` i `10_lista_*.json`.
+
+### Katalog wyników `out*`
+
+- **Raport Markdown dla każdego workflow**: podstawowe informacje i listy, diagram Mermaid, kroki workflow ze szczegółami technicznymi, zmienne, pola odczytywane/zapisywane ze słownikiem `InternalName`, przewodnik Oracle APEX (*Shared Components > Workflows*: parametry, zmienne, aktywności), kompletna procedura PL/SQL oparta na `SHP_API` oraz opis integracji wyzwalacza SharePoint z ORDS.
+- `index.md` — lista workflow oraz typy akcji bez dedykowanego opisu.
+- `walkthrough.md` — statystyki przetwarzania, liczba akcji, źródła i statusy.
+- `pkg_shp_dispatcher.sql` — pakiet PL/SQL dyspozytora ORDS kierujący wywołania do procedur workflow.
+- `workflow-migration-manual.html` — interaktywny portal migracji (poniżej).
+
+## Portal HTML
+
+Pojedynczy plik otwierany lokalnie w przeglądarce, bez serwera. Zawiera:
+
+1. pulpit inwentaryzacji (liczba workflow, akcji, list i pól),
+2. eksplorator przepływu z diagramem Mermaid (zoom, przesuwanie, reset) i inspektorem kafelka: warunki, odczyty/zapisy pól, wskazówki i kod PL/SQL do skopiowania,
+3. słownik pól i identyfikatorów technicznych (GUID list, `InternalName`, lookupy),
+4. kontrakt integracyjny SharePoint (`workflow.xaml`) ↔ ORDS REST API,
+5. architekturę wdrożenia w Oracle APEX i pakiet `SHP_API`,
+6. przewodnik APEX Workflow Designer,
+7. kryteria odbioru i checklistę wdrożenia.
+
+W belce pod nagłówkiem znajduje się tylko wyszukiwarka (bez przycisków nawigacji sekcji). Filtruje zakładki workflow i wiersze słownika pól po nazwach, opisach akcji i `InternalName`; po wyczyszczeniu pola przywraca wszystkie wyniki. Filtr pozostaje aktywny przy zmianie workflow i motywu. W nagłówku dostępne są przełącznik trybu jasnego/ciemnego oraz okno **O aplikacji**. Diagramy Mermaid są renderowane biblioteką z CDN (wymaga dostępu do sieci); wyszukiwanie i pozostała zawartość działają offline.
+
+## Analiza workflow Nintex
+
+- Parsowanie plików `.nwf` — zewnętrzny XML z escapowanym wewnętrznym XML workflow.
+- Analiza zagnieżdżonych akcji pod `ChildActivities/NWActionConfig`: warunki i gałęzie `Tak/Nie`, sekwencje, akcje równoległe.
+- Parametry proste i złożone (m.in. `Variable`, `ListLookup`), odczyty i zapisy pól SharePoint.
+- Rozwiązywanie `InternalName` na nazwy biznesowe z zachowaniem kontekstu listy (te same nazwy techniczne na różnych listach nie kolidują).
+- 22 wpisy `TYPE_HANDLERS` w katalogu akcji, w tym handlery strukturalne. Typy bez dedykowanego handlera otrzymują opis awaryjny, nie przerywają generowania i są raportowane w `index.md`.
+- Błąd pojedynczego pliku `.nwf` nie zatrzymuje przetwarzania pozostałych.
+
+## Ochrona danych
+
+Katalogi `DaneZeSkryptu*` i `out*` zawierają dane i konfigurację biznesową. Są ignorowane przez Git (`.gitignore`) i **nie mogą** być publikowane w repozytorium — nie dodawaj ich przez `git add -f`.
 
 ## Struktura projektu
 
 ```text
-DaneZeSkryptu/                 Eksport SharePoint: JSON, CSV i pliki .nwf
-tools/nwf_report/
-  nwf_parser.py                Parser podwójnie kodowanego XML .nwf
-  metadata_loader.py           Loader metadanych list i pól SharePoint
-  action_catalog.py             Katalog opisów akcji Nintex
-  report_builder.py             Generator raportu Markdown i Mermaid
-  generate_report.py           Interfejs wiersza poleceń
-out/                            Wygenerowane raporty i manual HTML
-PROJECT_CONTEXT.md              Szczegółowa dokumentacja techniczna projektu
-AGENTS.md                       Instrukcje dla agentów AI
+tools/
+  gui.py                       Interfejs graficzny (Tkinter)
+  sp_extractor/                Ekstraktor SharePoint 2019
+    cli.py                     Interfejs wiersza poleceń
+    client.py                  Klient REST (SSO/SSPI, NTLM)
+    extractor.py               Eksport list, kolumn, workflow i manifestu
+    naming.py                  Nazwy plików i katalogi DaneZeSkryptu_nnn
+    tests/
+  nwf_report/                  Generator raportów i portalu
+    generate_report.py         Interfejs wiersza poleceń
+    nwf_parser.py              Parser podwójnie kodowanego XML .nwf
+    metadata_loader.py         Metadane list i pól SharePoint
+    action_catalog.py          Katalog opisów akcji Nintex
+    report_builder.py          Raport Markdown, Mermaid i PL/SQL
+    apex_workflow_guide.py     Przewodnik APEX Workflow Designer
+    html_builder.py            Portal HTML
+    app_info.py                Autor i wersja aplikacji
+    tests/
+run_gui.bat                    Uruchamianie GUI bez konsoli
+PROJECT_CONTEXT.md             Szczegółowa dokumentacja techniczna
+AGENTS.md                      Instrukcje dla agentów AI
 ```
 
-## Obsługiwane akcje Nintex
+## Testy i rozwój
 
-W obecnych przykładach obsługiwane są między innymi:
+```powershell
+uv run pytest
+```
 
-- `NWWorkflowVariablesAdapter`;
-- `WFIfElseAdapter` i `WFIfElseBranchAdapter`;
-- `NWWriteToHistoryListAdapter`;
-- `SPUpdateItemWithKeyAdapter`;
-- `SPSetFieldWithKeyAdapter`;
-- `SPSetVariableAdapter`;
-- `NWRunIf2Adapter`;
-- `NWCommitAdapter`;
-- `WFParallelAdapter`;
-- `WFSequenceAdapter`.
+Zależności dodawaj przez `uv add <pakiet>` (produkcyjne) lub `uv add --dev <pakiet>` (deweloperskie).
 
-Nowe lub nieznane typy nie zatrzymują generowania. Otrzymują opis awaryjny i są raportowane w `index.md`.
+## Ograniczenia
 
-## Obecnie przeanalizowane workflow
-
-- **DT01 Mechanizm Kwalifikacji Usługi** — wylicza trzy pola kwalifikacyjne w liście `Kwalifikacja Usług`.
-- **DT01 Wypełnienie pól Nr RKU oraz Nazwa** — uzupełnia `Nr RKU` i `Title`, jeżeli pola są puste.
-- **RT0202 Pobranie danych z Kwalifikacji Usługi** — kopiuje dane z `Kwalifikacja Usług` do `Rejestr Usług ICT` przez lookup.
-- **RT0701 Pobranie danych z Kwalifikacji Usługi do RT0701** — kopiuje dane z `Kwalifikacja Usług` do `Rejestr Ocen` przez lookup.
-
-## Manual HTML
-
-Plik [out/workflow-migration-manual.html](out/workflow-migration-manual.html) jest pojedynczym manualem działającym lokalnie w przeglądarce. Zawiera:
-
-- opis obecnego stanu workflow SharePoint/Nintex;
-- kontrakt REST dla wariantu synchronicznego i asynchronicznego;
-- przykłady requestów i odpowiedzi;
-- szkice `APEX_WEB_SERVICE` i ORDS/PLSQL;
-- mapowanie akcji Nintex na APEX i SharePoint REST;
-- karty czterech workflow;
-- diagramy Mermaid i ich źródła;
-- identyfikatory list, pól, lookupów i workflow;
-- kolorową legendę obiektów `LISTA`, `POLE`, `LOOKUP`, `WORKFLOW`, `ZMIENNA` i `APEX/REST`;
-- pełne diagramy Mermaid odpowiadające diagramom z raportów Markdown, z fallbackiem w postaci kodu źródłowego;
-- wyszukiwanie, filtrowanie, rozwijane sekcje, kopiowanie przykładów i tryb wydruku.
-
-Diagramy Mermaid są renderowane z użyciem CDN, dlatego ich wizualizacja wymaga dostępu do sieci. Pełny kod diagramów jest osadzony w pliku jako fallback i pozostaje dostępny offline. Sam manual otwiera się lokalnie bez serwera.
-
-## Dane wejściowe
-
-Najważniejsze konwencje katalogu `DaneZeSkryptu/`:
-
-- `00_` — konfiguracja witryny i kolumny witryny;
-- `10_` — definicje list i ich schematy;
-- `20_` — dane elementów list;
-- `30_` — użytkownicy i uprawnienia;
-- `60_` — custom actions i event receivers;
-- pliki `.nwf` — eksporty workflow;
-- `Workflow-Inventory.csv` — inwentaryzacja workflow w kodowaniu UTF-16.
-
-Generator korzysta przede wszystkim z plików `.nwf`, `00_kolumny_witryny.json` i `10_lista_*.json`. `Workflow-Inventory.csv` został odczytany i potwierdził cztery workflow odpowiadające eksportom `.nwf`, ale nie jest jeszcze automatycznie wczytywany przez generator. Pozostałe dane stanowią materiał referencyjny dla dalszej analizy i migracji.
-
-## Ważne ograniczenia
-
-- Eksport potwierdza obecne triggery SharePoint: utworzenie elementu, zmiana elementu i uruchomienie ręczne. Nie zawiera publicznego endpointu Nintex do wywołania zewnętrznego.
-- Manual APEX opisuje docelową warstwę integracyjną, a nie gotowe wdrożenie produkcyjne.
-- Połączenie Oracle APEX/ORDS z SharePoint, w szczególności uwierzytelnienie NTLM/Kerberos, wymaga osobnego POC w środowisku docelowym.
-- `Workflow-Inventory.csv` jest odczytywany jako UTF-16.
-- Duże pliki `.nwf` mogą zawierać bardzo długie lub pojedyncze linie XML; do ich analizy należy używać parsera XML albo małych skryptów, a nie polegać wyłącznie na podglądzie tekstu.
-- Automatyczne testy jednostkowe nie zostały jeszcze utworzone. Dotychczasowa weryfikacja obejmuje cztery przykładowe workflow i ręczne porównanie raportów.
-
-## Stan repozytorium
-
-Ostatni zsynchronizowany commit na GitHub to `acd6105` (`Document project and expand workflow manual`). Zawiera README oraz rozbudowany manual HTML z diagramami Mermaid. Gałąź `master` śledzi `origin/master`.
+- Eksport Nintex zawiera triggery SharePoint (utworzenie, zmiana elementu, uruchomienie ręczne), ale nie zawiera publicznego endpointu do wywołania z zewnątrz.
+- Materiały APEX/ORDS opisują docelową warstwę integracyjną i wymagają weryfikacji w środowisku docelowym — w szczególności uwierzytelnienie Oracle APEX/ORDS do SharePoint (NTLM/Kerberos) wymaga osobnego POC.
+- GUI obsługuje wyłącznie uwierzytelnienie bieżącym kontem Windows; NTLM z innym kontem jest dostępny w CLI.
 
 ## Dokumentacja
 
-- [PROJECT_CONTEXT.md](PROJECT_CONTEXT.md) — szczegółowe ustalenia techniczne, format `.nwf`, architektura i otwarte tematy.
-- [AGENTS.md](AGENTS.md) — instrukcje pracy agentów AI w tym repozytorium.
-- [manual SharePoint 2019](manual-sharepoint-2019-dla-poczatkujacych-v3%20(1).md) — procedura eksportu danych SharePoint.
-- [raporty workflow](out/index.md) — indeks wygenerowanych raportów Markdown.
+- [PROJECT_CONTEXT.md](PROJECT_CONTEXT.md) — format `.nwf`, architektura, decyzje i otwarte tematy.
+- [AGENTS.md](AGENTS.md) — zasady pracy agentów AI w repozytorium.
+- [Manual SharePoint 2019](manual-sharepoint-2019-dla-poczatkujacych-v3%20(1).md) — ręczna procedura eksportu danych SharePoint.

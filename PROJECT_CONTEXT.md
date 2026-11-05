@@ -23,7 +23,7 @@ Mermaid, źródło każdego diagramu, identyfikatory list i pól, legendę typó
 kontrakt REST sync/async z przykładami APEX/ORDS.
 
 Portal jest generowany przez `tools/nwf_report/html_builder.py` i zawiera interaktywny
-przełącznik workflow, inspektor kroków, wyszukiwarkę oraz nawigację sekcji. Diagram ma
+przełącznik workflow, inspektor kroków oraz wyszukiwarkę (od 2026-11-05 bez przycisków nawigacji sekcji). Diagram ma
 ograniczony viewport z przesuwaniem pointer/touch, zoomem kółkiem/przyciskami i resetem;
 kliknięcie węzła mapuje identyfikator Mermaid do `steps[node_id]` i aktualizuje inspektor.
 Zmiany z 2026-09-19 zostały wygenerowane do `out/workflow-migration-manual.html`.
@@ -464,6 +464,8 @@ dedykowany handler.
 
 ## 11. Integracja z pakietem SHP_API (2026-09-24)
 
+> **Zastąpione przez sekcję 20** (2026-11-06): kod używa `LCDT.SHP_API` i bindów APEX; procedury `process_wf_*` usunięto.
+
 - **Pakiet źródłowy**: `shp_api.sql` — pakiet PL/SQL do bezpośredniej integracji z SharePoint SE 2019 (NTLMv2, endpointy REST `_api/web/lists`).
 - **Zastąpienie pseudokodu**: Teoretyczny pseudokod (`UPDATE tabela SET ...`) został zastąpiony konkretnymi wywołaniami funkcji pakietu:
   - `shp_api.get_list_item(p_site_url, p_list_title, p_item_id)` — pobranie rekordu i odczyt przez `json_value(l_item_json, '$.data.<InternalName>')`.
@@ -493,12 +495,14 @@ dedykowany handler.
 
 ## 13. Rozszerzenie katalogu akcji Nintex (2026-10-31)
 
-- Rozszerzono `tools/nwf_report/action_catalog.py` o 11 nowych typów akcji (łącznie 56 akcji w katalogu):
-  `Math`, `CreateItem`, `DeleteItem`, `QueryList`, `UpdateXml`, `QueryXml`, `StateMachine`, `SetWorkflowVariable`, `RegularExpression`, `CallWebService`, `Switch`.
+- Rozszerzono `tools/nwf_report/action_catalog.py` o 11 nowych handlerów akcji. Aktualnie `TYPE_HANDLERS` zawiera 22 wpisy, w tym handlery strukturalne; typy bez dedykowanego handlera są obsługiwane przez fallback i raportowane przez `UNKNOWN_TYPES_SEEN`.
+  Nowe handlery obejmują m.in. operacje na kolekcjach, zapytania do list, opóźnienia, pętle i wysyłanie wiadomości.
 - Dodano testy jednostkowe w `tools/nwf_report/tests/test_action_catalog_expanded.py`.
 - Zapewniono pełne mapowanie parametrów akcji oraz wywołań `shp_api` / operacji bazodanowych w raportach Markdown i portalu HTML.
 
 ## 14. Integracja z wyzwalaczem SharePoint (workflow.xaml) i ORDS REST (2026-11-02)
+
+> **Częściowo zastąpione przez sekcję 20**: kontrakt 17 pól jest aktualny, ale dyspozytor uruchamia teraz workflow APEX (`apex_workflow.start_workflow`) zamiast procedur `process_wf_*`.
 
 - **Analiza kontraktu wyzwalacza**: Na podstawie `.___SP/workflow.xaml` (SharePoint Designer 2013 WF4) oraz pakietu `shp_api.sql` zidentyfikowano 17 pól JSON wysyłanych przez SharePoint w wywołaniu POST na endpoint ORDS:
   `POST https://ilapex.{Environment}.creditagricole:8082/ords/shp/nintex/main`
@@ -526,6 +530,8 @@ dedykowany handler.
 
 ## 16. Przewodnik Oracle APEX Shared Components > Workflows (2026-11-03)
 
+> **Rozszerzone w sekcji 20**: parametry `P_ITEM_ID..P_PAYLOAD` zastąpił jeden `P_PAYLOAD_BODY`, a zmienne `SP_*` są zasilane w krokach standardowych 3–4.
+
 - `tools/nwf_report/apex_workflow_guide.py` buduje specyfikację definicji workflow, parametrów,
   zmiennych, typów aktywności, przejść i instrukcji PL/SQL dla aktywności z każdego pliku `.nwf`.
 - `report_builder.py` dołącza przewodnik do raportów Markdown i do danych serializowanych dla portalu;
@@ -546,16 +552,18 @@ dedykowany handler.
 Punkt startowy dla kolejnego agenta/LLM:
 
 1. Przeczytaj `AGENTS.md`, potem ten plik (sekcje 4–5 format i architektura, 11–16 kolejne funkcje).
-2. Weryfikacja środowiska: `uv run pytest` → **65 passed**.
+2. Weryfikacja środowiska: `uv run pytest` → **81 passed** (stan 2026-11-06, sekcja 20).
 3. Regeneracja wyników: `uv run python tools\nwf_report\generate_report.py --input DaneZeSkryptu --output out`
-   — tworzy 4 raporty `.md`, `index.md`, `pkg_shp_dispatcher.sql` i `workflow-migration-manual.html`.
-   Katalog `out/` jest w `.gitignore`, ale jego pliki są śledzone (dodane wymuszeniem) — po
-   regeneracji commituj je jawnie (`git add -f out/...`).
+   — tworzy 4 raporty `.md`, `index.md`, `walkthrough.md`, `pkg_shp_dispatcher.sql`, `nintex_params.sql`
+   i `workflow-migration-manual.html`.
+   Wyniki są wyłącznie lokalne. Katalogi `DaneZeSkryptu/`, `DaneZeSkryptu_nnn/`, `out/`
+   i `out_nnn/` są ignorowane i usunięte z publikowanej historii Git; nie dodawaj ich do Git,
+   również przez `git add -f`.
 4. Smoke test portalu: otwórz `out/workflow-migration-manual.html`, sekcja APEX Workflow Designer
    powinna pokazywać aktywności (w tym syntetyczne `Workflow End`), a kliknięcie węzła Switch na
    diagramie aktualizuje inspektor.
 
-Dane lokalne nieśledzone w git: `DaneZeSkryptu_nnn/` i `out_nnn/` (wyniki `sp_extractor` z
+Dane lokalne nieśledzone w git: `DaneZeSkryptu/`, `DaneZeSkryptu_nnn/`, `out/` i `out_nnn/` (wyniki `sp_extractor` z
 prawdziwej witryny, w tym wiersze list `20_dane_*.json` z danymi biznesowymi). Są ignorowane w
 `.gitignore` i nie mogą trafić do repozytorium.
 
@@ -563,11 +571,120 @@ Otwarte kroki (priorytetowo):
 
 - **APEX**: potwierdzić w docelowej wersji APEX, że bindy `:STATIC_ID` zmiennych workflow są
   zapisywalne w aktywnościach „Execute Code”; skompilować wygenerowany PL/SQL na środowisku.
-- **Mapowanie `SP_<InternalName>`**: zaprojektować zasilanie zmiennych z `SHP_API.get_list_item`
-  (np. aktywność inicjalizująca) i potwierdzić identyfikatory elementów dla akcji cross-list.
-- **Sygnatury `SHP_API`**: zweryfikować zgodność wywołań `update_list_item`/`get_list_item` z
-  wdrożonym pakietem `shp_api.sql`.
+- **Mapowanie `SP_<InternalName>`**: zrealizowane w krokach standardowych 3–4 (sekcja 20);
+  pozostaje potwierdzić identyfikatory elementów dla akcji cross-list z kluczem innym niż ID.
+- **Sygnatury `SHP_API`**: wywołania są zgodne z `SHP_API_spec.sql`; skompilować wygenerowany kod
+  na środowisku z pakietem `LCDT.SHP_API` (sekcja 20, „Do potwierdzenia”).
 - **Kolizje Static ID**: identyfikatory są wyprowadzane z tytułów; dwa tytuły normalizujące się do
   tego samego ID mogą kolidować — dodać deduplikację (sufiks) w `apex_workflow_guide.py`.
 - **Testy przeglądarkowe** (Playwright) dla drag/zoom/kliknięć SVG/wyszukiwania/kopiowania.
 - Pozostałe tematy z sekcji 8 (`Workflow-Inventory.csv`, pętle w Mermaid, nowe operatory).
+
+## 18. Tytuł i informacje „O aplikacji” — 2026-11-05
+
+- Tytuł okna Tkinter: `Migracja Nintex Workflow -> Oracle APEX` (usunięto wyłącznie
+  prefiks `DORA - `). Wewnętrzny nagłówek `DORA: Migracja SharePoint 2019 -> Oracle APEX`
+  oraz tytuły portalu HTML pozostają bez zmian.
+- Przycisk „O aplikacji” w nagłówku Tkinter otwiera `messagebox.showinfo` z głównym oknem
+  jako rodzicem. W portalu przycisk obok przełącznika motywu otwiera natywny `<dialog>`.
+- Oba interfejsy korzystają ze wspólnych stałych w `tools/nwf_report/app_info.py`:
+  `REMBIASZ GRC Tech Solutions Tomasz Rembiasz, NIP: 8871550162`,
+  `Aplikacja powstała dla Credit-Agricole Bank Polska S.A.` oraz `Wersja: 3.0`.
+  To wersja wyświetlana; wersja pakietu w `pyproject.toml` pozostaje bez zmian.
+- Moduł informacji należy do pakietu `nwf_report`, aby działały zarówno importy GUI,
+  jak i bezpośrednie uruchamianie `tools\nwf_report\generate_report.py`.
+- Dialog HTML działa niezależnie od Mermaid, obsługuje oba motywy, zawijanie tekstu,
+  zamknięcie przyciskiem lub Escape i przywrócenie fokusu na przycisk „O aplikacji”.
+- Weryfikacja: 11 testów GUI, HTML i przewodnika APEX przeszło poprawnie. Test CLI
+  sprawdza uruchamianie skryptu z katalogu innego niż repozytorium.
+- Kontrole wykonawcze: brak nakładania się przycisku i nagłówka Tkinter przy szerokości
+  800 i 950 px; dialog portalu przy 375 i 1280 px w obu motywach, klawiatura i brak Mermaid.
+  Sprawdzono również nawigację, wyszukiwanie i zoom diagramu oraz lokalną regenerację 4 raportów.
+
+## 19. Belka wyszukiwania portalu HTML — 2026-11-05
+
+- Usunięto siedem przycisków nawigacji sekcji z belki pod nagłówkiem, wraz z ich stylami
+  i listenerami. W belce pozostało tylko pole `global-search`; wszystkie sekcje treści
+  (inwentaryzacja, diagram, słownik, REST, APEX, Workflow Designer i checklista) pozostają.
+- `renderTabs` ponownie nakłada filtr na zakładki workflow, a `renderFieldsTable` na
+  wiersze słownika za pomocą `filterFieldsTable`. Filtr nie znika po automatycznym
+  lub ręcznym przełączeniu workflow ani po zmianie motywu.
+- Zakładki i dane workflow są inicjalizowane niezależnie od pobrania Mermaid z CDN.
+  Wyszukiwanie działa offline; diagram jest renderowany po zdarzeniu `mermaidReady`.
+- Weryfikacja w przeglądarce: tytuł, typ akcji, `InternalName`, wielkość liter i skrajne
+  spacje, brak dopasowań, wyczyszczenie pola, przełączenie workflow oraz motywu.
+  Sprawdzono działanie bez Mermaid oraz z wyrenderowanym diagramem, bez błędów JavaScript.
+- `uv run pytest tools\nwf_report\tests\test_html_builder.py tools\nwf_report\tests\test_apex_workflow_guide.py`
+  → 10 passed. Test belki potwierdza brak przycisków i zachowanie siedmiu sekcji.
+  Zregenerowano lokalne `out/` dla 4 workflow; katalog pozostaje poza synchronizacją Git.
+
+## 20. Standardowy proces APEX Workflow (NINTEX_PARAMS, kroki 1–4, ścieżki A/B) — 2026-11-06
+
+Wszystkie wyjścia generatora (raporty Markdown, portal HTML, `pkg_shp_dispatcher.sql`, nowy
+`nintex_params.sql`) odwzorowują proces tworzenia workflow w APEX ustalony przez użytkownika.
+
+- **Kroki standardowe** (`apex_workflow_guide._standard_activities`, id `std_start`, `std_payload`,
+  `std_get_item`, `std_parse`):
+  1. *Workflow Start* + *Additional Data* (SQL Query na `NINTEX_PARAMS` złączonej z `apex_workflows`
+     po `workflow_def_static_id`, `WHERE w.workflow_id = :APEX$WORKFLOW_ID`) → parametry `P_*`.
+     `P_*` są niezmienne w czasie trwania przepływu, a `V_*`/`SP_*` można zmieniać.
+  2. *Execute Code „Retrieve Payload”* (`RETRIEVE_PAYLOAD_CODE`, kod użytkownika 1:1) — `:P_PAYLOAD_BODY`
+     → `V_ITEM_ID`, `V_SITE_URL`, `V_LIST_TITLE`, `V_EDITOR`; puste wartości → `-20010` (FAULTED).
+  3. *Invoke API* `LCDT` → `SHP_API` → `GET_LIST_ITEM`. Ręcznie wpisywany jest tylko `p_query`, który
+     `build_shp_query` buduje automatycznie z pól czytanych przez workflow. Wynik trafia do `V_SHP_ANSWER`.
+     - Pola proste trafiają do `$select`.
+     - User: `F/Title,F/EMail,F/Name` + `$expand`.
+     - Lookup: `F/Id,F/Title` + `$expand`.
+     - Bez pól: `$select=Id`.
+     - `SendMessage` dodaje pole `Editor`.
+  4. *Execute Code „Parse”* (`build_parse_code`) — `data.<pole>` z `V_SHP_ANSWER` do `SP_<InternalName>`.
+     - User: `SP_F` (Title), `SP_F_EMAIL`, `SP_F_NAME`.
+     - Lookup: `SP_F` (Title) i `SP_F_ID` (NUMBER).
+     - Number: `get_number`.
+     - DateTime: `TIMESTAMP WITH TIME ZONE` (UTC).
+- **Ścieżka A**: aktywność na każdą akcję Nintex (`spec.activities`, przejście „Ścieżka A” z `std_parse`).
+  **Ścieżka B**: `spec.path_b` — jedna aktywność Execute Code z kodem z `action_catalog.build_path_b_code`
+  (`generate_plsql_statements` + `wrap_plsql_block`, deklaruje `l_resp`/`l_ref_json` tylko gdy użyte).
+- **Konwencje nazw** (`tools/nwf_report/apex_naming.py`):
+  - Static ID workflow: `WF_<TYTUŁ>` (mapowanie `ł`→`l`).
+  - Zmienne pól: `SP_<INTERNALNAME>[_ID|_EMAIL|_NAME]`.
+  - Stałe adresy e-mail: `P_EMAIL_<localpart>` (≤ 30 znaków), nadawca `P_EMAIL_FROM`.
+  - Pakiet zawsze w pełni kwalifikowany: `LCDT.SHP_API`.
+- **Kod akcji** (`action_catalog.py`):
+  - Bindy `:STATIC_ID` zamiast zmiennych lokalnych `l_*`.
+  - Bieżący element to `:V_LIST_TITLE`/`:V_ITEM_ID`. Także `SPUpdateItemWithKey` bez `ListId` lub z `ListId` listy źródłowej.
+  - Lookup jest zapisywany jako `'<pole>Id'`.
+  - User jest zapisywany przez `LCDT.SHP_API.ensure_user_id`.
+  - Cross-list lookup z kluczem ID → `get_list_item`; z innym kluczem → `get_list_items` (`$top=1&$filter`).
+  - `Coercion` `LookupId…` na polu Lookup/User czyta `F/Id` zamiast `F/Title`.
+  - `Delay` → natywna aktywność *Wait* (bez `DBMS_SESSION.SLEEP`).
+  - `StartWorkflow` → `apex_workflow.start_workflow` z `P_PAYLOAD_BODY`.
+  - `SendMessage` → `apex_mail.send` z `p_to => :P_EMAIL_*`, `p_from => :P_EMAIL_FROM`.
+- **`metadata_loader.FieldResolver.get_field_type(name, list_hint)`** — typ pola z uwzględnieniem
+  listy. Kolejność źródeł: ListReferences, potem kolumny listy z metadanych witryny, potem kolumny witryny.
+- **`nintex_params.sql`** (`build_nintex_params_script`):
+  - Zakomentowany DDL tabeli (`WORKFLOW_STATIC_ID`, `P_VAR_01..10`, `P_NUM_01..10`).
+  - `MERGE` dla każdego workflow, na końcu `COMMIT`.
+  - `WHEN MATCHED` aktualizuje tylko znane wartości, więc nie nadpisuje wartości (np. nadawcy) uzupełnionych przez administratora.
+- **`pkg_shp_dispatcher.sql`** (`report_builder.build_dispatcher_package`):
+  - Odczytuje 17 pól payloadu i ignoruje foldery.
+  - `CASE l_association WHEN '<tytuł>' THEN l_static_id := 'WF_…'`; nieznane `association` zwraca 200 z ostrzeżeniem.
+  - Wywołuje `apex_session.create_session` → `apex_workflow.start_workflow(p_parameters => P_PAYLOAD_BODY (CLOB), p_initiator, p_detail_pk => id)` → `delete_session` (także w obsłudze wyjątku).
+  - Stała `c_app_id` jest do uzupełnienia (TODO).
+- **Raport Markdown**: sekcja APEX zawiera kolejno Parameters, Additional Data, Variables, Kroki standardowe (1–4),
+  Ścieżkę A i Ścieżkę B. Sekcję `process_wf_*` zastąpił fragment routingu dyspozytora; klucz `plsql_procedure`
+  w danych portalu zastąpił `apex_workflow_spec.path_b`.
+- **Portal HTML**:
+  - Sekcja 05: przebieg standardowy, P_ vs V_, dyspozytor `start_workflow`, zapytanie NINTEX_PARAMS.
+  - Sekcja 06: Additional Data, karty kroków 1–4 (tabela mapowania Invoke API), przełącznik Ścieżka A / Ścieżka B.
+  - Karta pod diagramem pokazuje kod ścieżki B.
+  - Checklista obejmuje NINTEX_PARAMS, `EXECUTE` na `LCDT.SHP_API`, `c_app_id` i test błędu -20010.
+- **Weryfikacja**:
+  - `uv run pytest` → 81 passed; nowe testy w `tools/nwf_report/tests/test_apex_process.py`.
+  - Regeneracja `out/` dla 4 workflow.
+  - Portal sprawdzony w headless Edge (`uv run --with playwright`): brak błędów JS, 4 karty kroków standardowych, działający przełącznik A/B.
+- **Do potwierdzenia na środowisku**:
+  - Kolumna `apex_workflows.workflow_def_static_id` (przyjęta za zapytaniem użytkownika).
+  - Nazwa aktywności „Invoke Workflow” w APEX 24.2.
+  - Kompilacja wygenerowanego PL/SQL.
+  - Akcje kolekcji/pętli (`:X.COUNT`) generują pseudokod — zmienne workflow APEX są skalarne. Takie akcje nie występują w obecnych danych.

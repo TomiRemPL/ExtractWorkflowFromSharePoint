@@ -12,12 +12,14 @@ from pathlib import Path
 if __package__ in (None, ""):
     sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
     from nwf_report.action_catalog import UNKNOWN_TYPES_SEEN
+    from nwf_report.apex_workflow_guide import build_nintex_params_script
     from nwf_report.html_builder import build_html_manual
     from nwf_report.metadata_loader import FieldResolver, load_site_metadata
     from nwf_report.nwf_parser import iter_actions, parse_nwf
     from nwf_report.report_builder import build_dispatcher_package, build_report, build_workflow_data
 else:
     from .action_catalog import UNKNOWN_TYPES_SEEN
+    from .apex_workflow_guide import build_nintex_params_script
     from .html_builder import build_html_manual
     from .metadata_loader import FieldResolver, load_site_metadata
     from .nwf_parser import iter_actions, parse_nwf
@@ -127,6 +129,14 @@ def main(argv: list[str] | None = None) -> None:
         })
         print(f"OK: {nwf_path.name} -> {out_name}")
 
+    if workflows_data:
+        index_lines.append("")
+        index_lines.append("## Wdrożenie w Oracle APEX")
+        index_lines.append("")
+        index_lines.append("- `nintex_params.sql` — konfiguracja parametrów P_ (tabela `NINTEX_PARAMS`) czytanych w Additional Data każdego workflow.")
+        index_lines.append("- `pkg_shp_dispatcher.sql` — endpoint ORDS dla `workflow.xaml`, uruchamiający workflow APEX przez `apex_workflow.start_workflow`.")
+        index_lines.append("- Każdy raport zawiera kroki standardowe 1–4 (Workflow Start, Retrieve Payload, `LCDT.SHP_API.GET_LIST_ITEM`, Parse) oraz ścieżki A (krok po kroku) i B (jedna aktywność Execute Code).")
+
     if UNKNOWN_TYPES_SEEN:
         index_lines.append("")
         index_lines.append("## Typy akcji bez dedykowanego opisu (do uzupełnienia w action_catalog.py)")
@@ -144,6 +154,9 @@ def main(argv: list[str] | None = None) -> None:
         dispatcher_sql = build_dispatcher_package(workflows_data)
         (output_dir / "pkg_shp_dispatcher.sql").write_text(dispatcher_sql, encoding="utf-8")
         print(f"OK: Wygenerowano pakiet dyspozytora ORDS -> pkg_shp_dispatcher.sql")
+        params_sql = build_nintex_params_script([wf_data["apex_workflow_spec"] for wf_data in workflows_data])
+        (output_dir / "nintex_params.sql").write_text(params_sql, encoding="utf-8")
+        print("OK: Wygenerowano konfiguracje NINTEX_PARAMS -> nintex_params.sql")
 
     # Generowanie interaktywnego portalu manuala migracji w formacie HTML
     if workflows_data:

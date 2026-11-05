@@ -60,11 +60,13 @@ def test_extractor_output_consumed_by_nwf_report(tmp_path: Path):
     assert exit_code == 0
     assert (report_out / "index.md").exists()
     assert (report_out / "workflow-migration-manual.html").exists()
+    assert (report_out / "pkg_shp_dispatcher.sql").exists()
+    assert (report_out / "nintex_params.sql").exists()
     report_md_path = report_out / "Test Workflow.md"
     assert report_md_path.exists()
     report_text = report_md_path.read_text(encoding="utf-8")
-    assert "## Kompletna procedura orkiestracji PL/SQL (Oracle APEX / SHP_API)" in report_text
-    assert "process_wf_test_workflow" in report_text
+    assert "### Ścieżka B — jedna aktywność Execute Code" in report_text
+    assert "WHEN 'Test Workflow' THEN l_static_id := 'WF_TEST_WORKFLOW';" in report_text
 
 
 

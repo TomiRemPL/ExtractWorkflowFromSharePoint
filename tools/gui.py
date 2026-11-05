@@ -21,6 +21,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
+from tools.nwf_report.app_info import APPLICATION_NOTICE, APP_VERSION, AUTHOR
 from tools.nwf_report.generate_report import main as generate_report_main
 from tools.sp_extractor.client import SharePointClient
 from tools.sp_extractor.extractor import SharePointExtractor
@@ -42,7 +43,7 @@ class QueueHandler(logging.Handler):
 class DoraMigrationApp(tk.Tk):
     def __init__(self):
         super().__init__()
-        self.title("DORA - Migracja Nintex Workflow -> Oracle APEX")
+        self.title("Migracja Nintex Workflow -> Oracle APEX")
         
         # Centrowanie okna i wysuniecie na pierwszy plan
         sw = self.winfo_screenwidth()
@@ -65,6 +66,13 @@ class DoraMigrationApp(tk.Tk):
         self._auto_detect_dirs()
         self.after(100, self._process_log_queue)
 
+    def _show_about(self) -> None:
+        messagebox.showinfo(
+            "O aplikacji",
+            f"{AUTHOR}\n{APPLICATION_NOTICE}\nWersja: {APP_VERSION}",
+            parent=self,
+        )
+
     def _setup_logging(self):
         self.queue_handler = QueueHandler(self.log_queue)
         formatter = logging.Formatter("%(asctime)s [%(levelname)s] %(message)s", "%H:%M:%S")
@@ -81,19 +89,24 @@ class DoraMigrationApp(tk.Tk):
         # Naglowek
         header_frame = ttk.Frame(self, padding="15 12 15 8")
         header_frame.pack(fill=tk.X)
+        self.about_button = ttk.Button(
+            header_frame, text="O aplikacji", command=self._show_about
+        )
+        self.about_button.grid(row=0, column=1, sticky=tk.E, padx=(12, 0))
+        header_frame.columnconfigure(0, weight=1)
         title_lbl = ttk.Label(
             header_frame,
             text="DORA: Migracja SharePoint 2019 -> Oracle APEX",
             font=("Segoe UI", 14, "bold"),
         )
-        title_lbl.pack(anchor=tk.W)
+        title_lbl.grid(row=0, column=0, sticky=tk.W)
         subtitle_lbl = ttk.Label(
             header_frame,
             text="Ekstraktor konfiguracji, generator raportów Markdown/PL-SQL i interaktywnego portalu migracji.",
             font=("Segoe UI", 9),
             foreground="#555555",
         )
-        subtitle_lbl.pack(anchor=tk.W, pady=(2, 0))
+        subtitle_lbl.grid(row=1, column=0, columnspan=2, sticky=tk.W, pady=(2, 0))
 
         # Zakladki Notebook
         self.notebook = ttk.Notebook(self)
@@ -374,4 +387,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
