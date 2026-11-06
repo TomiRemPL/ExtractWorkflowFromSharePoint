@@ -95,6 +95,7 @@ class FieldResolver:
     def __init__(self, list_references, site_metadata: SiteMetadata | None = None, source_list_id: str = ""):
         self._by_list_and_name: dict[str, dict[str, str]] = {}  # list_id/list_name (lower) -> {internal_name: title}
         self._by_internal_name: dict[str, str] = {}  # fallback bez kontekstu listy (gdy nazwa jednoznaczna)
+        ambiguous_names: set[str] = set()
         self._types_by_list: dict[str, dict[str, str]] = {}  # list_id/list_name (lower) -> {internal_name: FieldType}
         self._list_id_to_name: dict[str, str] = {}
         self.source_list_id = source_list_id
@@ -113,7 +114,14 @@ class FieldResolver:
                 per_list[f.internal_name.lower()] = title
                 if f.field_type:
                     per_list_types[f.internal_name.lower()] = f.field_type
-                self._by_internal_name.setdefault(f.internal_name.lower(), title)
+                key = f.internal_name.lower()
+                if key not in ambiguous_names:
+                    existing = self._by_internal_name.get(key)
+                    if existing is not None and existing != title:
+                        self._by_internal_name.pop(key)
+                        ambiguous_names.add(key)
+                    else:
+                        self._by_internal_name[key] = title
             if lr.list_id:
                 self._by_list_and_name[_norm_guid(lr.list_id)] = per_list
                 self._types_by_list[_norm_guid(lr.list_id)] = per_list_types
@@ -137,7 +145,7 @@ class FieldResolver:
         list_info = self._site_metadata.lists_by_title.get(list_hint.lower())
         if list_info and list_info.title:
             return list_info.title
-        return self.source_list_name or list_hint
+        return list_hint
 
     def resolve(self, internal_name: str, list_hint: str = "") -> str:
         if not internal_name:
@@ -146,22 +154,23 @@ class FieldResolver:
 
         # Najpierw probujemy dopasowac w kontekscie konkretnej listy (unika kolizji
         # nazw wewnetrznych powtarzajacych sie na roznych listach).
-        if list_hint:
-            per_list = self._by_list_and_name.get(_norm_guid(list_hint)) or self._by_list_and_name.get(list_hint.lower())
+        effective_list = list_hint or self.source_list_id
+        if effective_list:
+            per_list = self._by_list_and_name.get(_norm_guid(effective_list)) or self._by_list_and_name.get(effective_list.lower())
             if per_list and key in per_list:
                 return f"{per_list[key]} ({internal_name})"
 
-        title = self._by_internal_name.get(key)
-        if title:
-            return f"{title} ({internal_name})"
-
-        if list_hint:
-            list_info = self._site_metadata.lists_by_id.get(_norm_guid(list_hint)) or \
-                self._site_metadata.lists_by_title.get(list_hint.lower())
+            list_info = self._site_metadata.lists_by_id.get(_norm_guid(effective_list)) or \
+                self._site_metadata.lists_by_title.get(effective_list.lower())
             if list_info:
                 col = list_info.columns.get(key)
                 if col:
                     return f"{col.title} ({internal_name})"
+            return internal_name
+
+        title = self._by_internal_name.get(key)
+        if title:
+            return f"{title} ({internal_name})"
 
         col = self._site_metadata.site_columns.get(key)
         if col:
@@ -183,6 +192,7 @@ class FieldResolver:
                 self._site_metadata.lists_by_title.get(list_hint.lower())
             if list_info and key in list_info.columns and list_info.columns[key].type_as_string:
                 return list_info.columns[key].type_as_string
+            return ""
         col = self._site_metadata.site_columns.get(key)
         return col.type_as_string if col else ""
 
@@ -193,4 +203,3 @@ class FieldResolver:
         if resolved.endswith(suffix):
             return resolved[:-len(suffix)]
         return resolved
-

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
+from typing import Literal
 from xml.etree import ElementTree as ET
 
 from .apex_naming import (
@@ -28,6 +29,7 @@ from .apex_naming import (
 )
 from .metadata_loader import FieldResolver
 from .nwf_parser import ActionNode, FieldRef
+from .sensitive_data import REDACTED, contains_credential_assignment, is_sensitive_name
 
 
 @dataclass
@@ -43,6 +45,10 @@ class ActionDescription:
     hint_universal: str = ""
     hint_apex: str = ""
     plsql_code: str = ""
+    blocking_reasons: list[str] = field(default_factory=list)
+    path_a_blocking_reasons: list[str] = field(default_factory=list)
+    path_b_blocking_reasons: list[str] = field(default_factory=list)
+    reference_template: str = ""
 
 
 _OPERATOR_PL = {
@@ -71,6 +77,14 @@ _OPERATOR_PL = {
 
 def _short_type(action_type: str) -> str:
     return action_type.rsplit(".", 1)[-1] if action_type else "?"
+
+
+def _technical_parameter_lines(params: dict[str, str]) -> list[str]:
+    lines = []
+    for name, value in params.items():
+        sensitive = is_sensitive_name(name) or contains_credential_assignment(value)
+        lines.append(f"{name} = {REDACTED if sensitive else value}")
+    return lines
 
 
 def _render_value_expr(el: ET.Element | None, resolver: FieldResolver) -> str:
@@ -111,6 +125,17 @@ def _render_value_expr(el: ET.Element | None, resolver: FieldResolver) -> str:
 def _plsql_var(name: str) -> str:
     """Bind zmiennej APEX Workflow (:STATIC_ID) odpowiadajacej zmiennej Nintex."""
     return f":{variable_static_id(name or 'var')}"
+
+
+def _parameter_variable(node: ActionNode, name: str) -> tuple[str, str]:
+    for element in node.parameter_values(name):
+        if element.tag == "Variable":
+            return element.get("Name", "").strip(), element.get("Type", "").strip()
+    return node.params.get(name, "").strip(), ""
+
+
+def _blocked_plsql() -> str:
+    return "RAISE_APPLICATION_ERROR(-20090, 'Migracja Nintex zablokowana; sprawdz raport.');"
 
 
 def _item_property_expr(name: str) -> str:
@@ -318,11 +343,11 @@ def _render_condition(cond_el: ET.Element | None, resolver: FieldResolver) -> st
 
 def _describe_variables_adapter(node: ActionNode, resolver: FieldResolver) -> ActionDescription:
     triggers = []
-    if node.params.get("StartManually") == "true":
+    if node.params.get("StartManually", "").lower() == "true":
         triggers.append("ręcznie")
-    if node.params.get("StartOnCreate") == "true":
+    if node.params.get("StartOnCreate", "").lower() == "true":
         triggers.append("przy utworzeniu elementu")
-    if node.params.get("StartOnChange") == "true":
+    if node.params.get("StartOnChange", "").lower() == "true":
         triggers.append("przy zmianie elementu")
     trig_txt = ", ".join(triggers) if triggers else "brak zdefiniowanych wyzwalaczy"
     name = node.params.get("WorkflowName", "")
@@ -337,7 +362,7 @@ def _describe_variables_adapter(node: ActionNode, resolver: FieldResolver) -> Ac
     hint_apex = f"Kroki standardowe: Additional Data → Retrieve Payload → {SHP_API}.GET_LIST_ITEM → Parse V_SHP_ANSWER."
     return ActionDescription(
         summary=f"Start workflow '{name}'. Uruchamiane: {trig_txt}.",
-        technical_lines=[f"{k} = {v}" for k, v in node.params.items()],
+        technical_lines=_technical_parameter_lines(node.params),
         action_type="NWWorkflowVariablesAdapter",
         label=name or "Start workflow",
         hint_universal=f"Wyzwalacz procesu (Triggers: {trig_txt}). Punkt wejścia przyjmujący parametr itemId.",
@@ -584,11 +609,11 @@ def _describe_structural(node: ActionNode, resolver: FieldResolver) -> ActionDes
 def _parse_caml_query_info(query_str: str, resolver: FieldResolver) -> tuple[str, str, list[str]]:
     """Wyciąga tytuł listy, warunek <Where> i pola <FieldRef> z zagnieżdżonego CAML."""
     if not query_str:
-        return "", "", []
+        return "", "brak zapytania CAML", []
     try:
         root = ET.fromstring(query_str)
-    except Exception:
-        return "", "", []
+    except ET.ParseError:
+        return "", "niepoprawne zapytanie CAML", []
 
     list_el = root.find(".//List")
     list_name = ""
@@ -603,21 +628,40 @@ def _parse_caml_query_info(query_str: str, resolver: FieldResolver) -> tuple[str
         if fn and fn not in fields:
             fields.append(fn)
 
-    where_parts: list[str] = []
-    for comp in root.findall(".//Where/*"):
-        op = comp.tag
-        f_el = comp.find("FieldRef")
-        v_el = comp.find("Value")
-        f_name = f_el.get("Name", "") if f_el is not None else ""
-        v_val = v_el.text or "" if v_el is not None else ""
-        op_pl = _OPERATOR_PL.get(op, op)
-        if f_name and v_val:
-            where_parts.append(f"{f_name} {op_pl} '{v_val}'")
-        elif f_name:
-            where_parts.append(f"{f_name} ({op_pl})")
+    def describe_condition(comp: ET.Element) -> str:
+        if comp.tag in {"And", "Or"}:
+            parts = [describe_condition(child) for child in comp]
+            if len(parts) != 2:
+                return f"niepoprawny warunek CAML ({comp.tag})"
+            return f"({parts[0]} {'AND' if comp.tag == 'And' else 'OR'} {parts[1]})"
+        field_el = comp.find("FieldRef")
+        value_el = comp.find("Value")
+        field_name = field_el.get("Name", "") if field_el is not None else ""
+        if not field_name or comp.tag not in _OPERATOR_PL:
+            return f"nieobsługiwany warunek CAML ({comp.tag})"
+        operator = _OPERATOR_PL[comp.tag]
+        value = value_el.text or "" if value_el is not None else ""
+        return f"{field_name} {operator} '{value}'" if value else f"{field_name} ({operator})"
 
-    where_desc = " AND ".join(where_parts) if where_parts else "wszystkie elementy"
+    where = root if root.tag == "Where" else root.find(".//Where")
+    if where is None:
+        where_desc = "wszystkie elementy (brak filtru CAML)"
+    elif len(where) != 1:
+        where_desc = "niepoprawny warunek CAML (Where)"
+    else:
+        where_desc = describe_condition(where[0])
     return list_name, where_desc, fields
+
+
+def _caml_list_hint(query_str: str) -> str:
+    if not query_str:
+        return ""
+    try:
+        root = ET.fromstring(query_str)
+    except ET.ParseError:
+        return ""
+    list_el = root if root.tag == "List" else root.find(".//List")
+    return (list_el.get("ID") or list_el.get("Title") or "") if list_el is not None else ""
 
 
 def _describe_build_string(node: ActionNode, resolver: FieldResolver) -> ActionDescription:
@@ -701,38 +745,88 @@ def _describe_calculate_date(node: ActionNode, resolver: FieldResolver) -> Actio
     )
 
 
+def _json_text_assignment(collection: str, index: str, output: str, element: str, indent: int) -> str:
+    pad = " " * indent
+    return "\n".join([
+        f"{pad}{element} := {collection}.get({index});",
+        f"{pad}IF {element}.is_null THEN",
+        f"{pad}    {output} := NULL;",
+        f"{pad}ELSIF NOT {element}.is_string THEN",
+        f"{pad}    RAISE_APPLICATION_ERROR(-20093, 'Wartosc kolekcji Nintex nie jest tekstem.');",
+        f"{pad}ELSIF {element}.to_string = '\"\"' THEN",
+        f"{pad}    RAISE_APPLICATION_ERROR(-20092, 'Pusty tekst wymaga recznego odwzorowania Nintex.');",
+        f"{pad}ELSE",
+        f"{pad}    {output} := {collection}.get_string({index});",
+        f"{pad}END IF;",
+    ])
+
+
 def _describe_collection_operation(node: ActionNode, resolver: FieldResolver) -> ActionDescription:
-    target = node.params.get("Target", "kolekcja")
-    op = node.params.get("Operation", "Get")
-    out = node.params.get("Output", "")
-    idx = node.params.get("Index", "")
+    target, _ = _parameter_variable(node, "Target")
+    op = node.params.get("Operation", "")
+    out, out_type = _parameter_variable(node, "Output")
+    index_values = node.parameter_values("Index")
+    index_el = index_values[0] if index_values else None
+    idx = (
+        index_el.get("Name", "") if index_el is not None and index_el.tag == "Variable"
+        else index_el.get("Value", "") if index_el is not None and index_el.tag == "PrimitiveValue"
+        else node.params.get("Index", "")
+    )
     delim = node.params.get("JoinDelimiter", "")
-
-    target_ident = _plsql_var(target)
-    out_ident = _plsql_var(out) if out else "l_res"
-    idx_ident = _plsql_var(idx) if idx else "1"
-
+    reasons: list[str] = []
+    plsql_code = _blocked_plsql()
     if op.lower() == "get":
-        summary = f"Pobierz element z indeksu {idx or '0'} kolekcji {target} do zmiennej {out}."
-        plsql_code = f"{out_ident} := {target_ident}({idx_ident});"
+        summary = f"Pobierz element z indeksu {idx or '(brak)'} kolekcji {target or '(brak)'} do zmiennej {out or '(brak)'}."
+        if not target or not out or not idx:
+            reasons.append("Operacja Get wymaga kolekcji, indeksu i zmiennej wynikowej.")
+        elif out_type.lower() not in {"text", "string"}:
+            reasons.append("Typ lub format wartości kolekcji Get wymaga ręcznej weryfikacji.")
+        elif index_el is not None and index_el.tag not in {"Variable", "PrimitiveValue"}:
+            reasons.append("Nieobsługiwane wyrażenie indeksu kolekcji.")
+        elif index_el is not None and index_el.tag == "PrimitiveValue" and not re.fullmatch(r"-?\d+", idx):
+            reasons.append("Indeks kolekcji nie jest liczbą całkowitą.")
+        else:
+            literal_index = (
+                index_el is not None and index_el.tag == "PrimitiveValue"
+            ) or (index_el is None and bool(re.fullmatch(r"-?\d+", idx)))
+            idx_expr = idx if literal_index else _plsql_var(idx)
+            assignment = _json_text_assignment("l_collection", "l_index", _plsql_var(out), "l_element", 4)
+            plsql_code = f"""DECLARE
+    l_collection JSON_ARRAY_T := JSON_ARRAY_T.parse({_plsql_var(target)});
+    l_index NUMBER := {idx_expr};
+    l_element JSON_ELEMENT_T;
+BEGIN
+    IF l_index IS NULL OR l_index != TRUNC(l_index) OR l_index < 0 OR l_index >= l_collection.get_size THEN
+        RAISE_APPLICATION_ERROR(-20091, 'Indeks kolekcji Nintex poza zakresem.');
+    END IF;
+{assignment}
+END;"""
     elif op.lower() == "count":
         summary = f"Zlicz liczbę elementów w kolekcji {target} do zmiennej {out}."
-        plsql_code = f"{out_ident} := {target_ident}.COUNT;"
+        if not target or not out:
+            reasons.append("Operacja Count wymaga kolekcji i zmiennej wynikowej.")
+        else:
+            plsql_code = f"""DECLARE
+    l_collection JSON_ARRAY_T := JSON_ARRAY_T.parse({_plsql_var(target)});
+BEGIN
+    {_plsql_var(out)} := l_collection.get_size;
+END;"""
     elif op.lower() == "join":
         summary = f"Połącz elementy kolekcji {target} separatorem '{delim}' do zmiennej {out}."
-        plsql_code = f"{out_ident} := apex_string.join({target_ident}, '{delim}');"
+        reasons.append("Operacja Join wymaga potwierdzenia reprezentacji kolekcji.")
     else:
-        summary = f"Operacja '{op}' na kolekcji {target} -> {out}."
-        plsql_code = f"-- Operacja {op} na kolekcji {target_ident}"
+        summary = f"Operacja '{op or '(brak)'}' na kolekcji {target} -> {out}."
+        reasons.append("Nieobsługiwana operacja kolekcji Nintex.")
 
     return ActionDescription(
         summary=summary,
         action_type="NWCollectionAdapter",
         label=node.b_label or node.t_label or f"Kolekcja: {op}",
         hint_universal=f"Operacja tablicowa ({op}) na kolekcji {target}.",
-        hint_apex=plsql_code,
+        hint_apex="Kolekcję ArrayList odwzoruj jako tablicę JSON w CLOB; indeksy zaczynają się od zera.",
         plsql_code=plsql_code,
         technical_lines=[f"Target = {target}", f"Operation = {op}", f"Index = {idx}", f"Output = {out}"],
+        blocking_reasons=reasons,
     )
 
 
@@ -798,30 +892,41 @@ def _describe_delay(node: ActionNode, resolver: FieldResolver) -> ActionDescript
         hint_apex=f"Aktywność APEX 'Wait': {total_sec // 60} min.",
         plsql_code=plsql_code,
         technical_lines=[f"Czas = {dur_desc}", f"Sekundy = {total_sec}"],
+        path_b_blocking_reasons=["Ścieżka B nie może synchronicznie odtworzyć oczekiwania; użyj aktywności Wait."],
     )
 
 
 def _describe_for_each_loop(node: ActionNode, resolver: FieldResolver) -> ActionDescription:
-    target = node.params.get("Target", "kolekcja")
-    val_var = node.params.get("Value", "element")
-    target_ident = _plsql_var(target)
-    val_ident = _plsql_var(val_var)
+    target, _ = _parameter_variable(node, "Target")
+    val_var, value_type = _parameter_variable(node, "Value")
+    index_var, _ = _parameter_variable(node, "Index")
+    break_values = node.parameter_values("Break")
+    reasons: list[str] = []
+    if not target or not val_var:
+        reasons.append("Pętla For Each wymaga kolekcji i zmiennej elementu.")
+    if value_type.lower() not in {"text", "string"}:
+        reasons.append("Typ elementu pętli wymaga potwierdzenia mapowania JSON.")
+    if any(
+        (el.tag == "Variable" and bool(el.get("Name", "").strip()))
+        or (el.tag == "PrimitiveValue" and el.get("Value", "").lower() not in {"", "false", "0"})
+        or el.tag not in {"Variable", "PrimitiveValue"}
+        for el in break_values
+    ):
+        reasons.append("Warunek przerwania pętli wymaga ręcznej migracji.")
 
-    label = node.t_label or f"Dla każdego elementu w {target}"
-    summary = f"Pętla: dla każdego elementu w kolekcji {target} (bieżący element -> {val_var})."
-
-    plsql_code = f"""-- Pętla: {label}
-FOR i IN 1..{target_ident}.COUNT LOOP
-    {val_ident} := {target_ident}(i);"""
+    label = node.t_label or f"Dla każdego elementu w {target or '(brak)'}"
+    summary = f"Pętla: dla każdego elementu w kolekcji {target or '(brak)'} (bieżący element -> {val_var or '(brak)'})."
 
     return ActionDescription(
         summary=summary,
         action_type="NWForEachLoopAdapter",
         label=node.b_label or label,
         hint_universal=f"Iteracja pętli po elementach kolekcji {target}.",
-        hint_apex=f"FOR i IN 1..{target_ident}.COUNT LOOP",
-        plsql_code=plsql_code,
-        technical_lines=[f"Target = {target}", f"Value = {val_var}"],
+        hint_apex="Tablica JSON jest indeksowana od 0; graf APEX wymaga ręcznej weryfikacji pętli.",
+        plsql_code=_blocked_plsql(),
+        technical_lines=[f"Target = {target}", f"Value = {val_var}", f"Index = {index_var}"],
+        path_a_blocking_reasons=["Pętla ścieżki A wymaga ręcznego skonfigurowania i weryfikacji w APEX."],
+        path_b_blocking_reasons=reasons,
     )
 
 
@@ -844,16 +949,8 @@ def _describe_query_list(node: ActionNode, resolver: FieldResolver) -> ActionDes
     map_desc = f" (zapis: {', '.join(mappings)})" if mappings else ""
     summary = f"Wyszukaj elementy na liście '{list_name}' wg warunku: {where_desc}{map_desc}."
 
-    reads = [FieldRef(name=f, internal_name=f) for f in fields]
-
-    select = f"$select={','.join(fields)}" if fields else "$select=Id"
-    plsql_code = f"""-- Pobranie elementów z listy {list_name} (warunek Nintex: {where_desc}):
-l_resp := {SHP_API}.get_list_items(
-    p_site_url   => :{V_SITE_URL},
-    p_list_title => {sql_literal(list_name)},
-    p_query      => {sql_literal(select + '&$filter=')} -- TODO: przepisz warunek CAML na OData $filter
-);
--- Wyniki: json_table(l_resp, '$.data[*]' COLUMNS (...))"""
+    list_hint = _caml_list_hint(raw_query)
+    reads = [FieldRef(name=f, internal_name=f, list_id=list_hint) for f in fields]
 
     return ActionDescription(
         summary=summary,
@@ -861,9 +958,10 @@ l_resp := {SHP_API}.get_list_items(
         action_type="NWQueryListAdapter",
         label=node.b_label or node.t_label or f"Kwerenda: {list_name}",
         hint_universal=f"Wyszukanie elementów na liście {list_name} (warunek: {where_desc}).",
-        hint_apex=f"l_resp := {SHP_API}.get_list_items(:{V_SITE_URL}, '{list_name}', '$select=...&$filter=...');",
-        plsql_code=plsql_code,
+        hint_apex="Przenieś filtr CAML i mapowania wyników; odpowiedź może zawierać next_url, więc pełna paginacja wymaga osobnej integracji.",
+        plsql_code=_blocked_plsql(),
         technical_lines=[f"Lista = {list_name}", f"Warunek = {where_desc}", f"Mapowania = {mappings}"],
+        blocking_reasons=["Query List wymaga poprawnego filtru, mapowania wyników i pełnej paginacji."],
     )
 
 
@@ -957,25 +1055,11 @@ def _describe_update_multiple_items(node: ActionNode, resolver: FieldResolver) -
 
     summary = f"Aktualizuj wiele elementów naraz na liście '{list_name}' (warunek: {where_desc})."
 
-    writes = list(node.field_refs)
-    if not writes and fields:
-        writes = [FieldRef(name=f, internal_name=f) for f in fields]
-    reads = [FieldRef(name=f, internal_name=f) for f in fields]
-
-    plsql_code = f"""-- Masowa aktualizacja elementów listy {list_name} (warunek Nintex: {where_desc}):
-l_resp := {SHP_API}.get_list_items(
-    p_site_url   => :{V_SITE_URL},
-    p_list_title => {sql_literal(list_name)},
-    p_query      => '$select=Id&$filter=' -- TODO: przepisz warunek CAML na OData $filter
-);
-FOR r IN (SELECT id FROM json_table(l_resp, '$.data[*]' COLUMNS (id NUMBER PATH '$.Id'))) LOOP
-    l_ref_json := {SHP_API}.update_list_item(
-        p_site_url    => :{V_SITE_URL},
-        p_list_title  => {sql_literal(list_name)},
-        p_item_id     => r.id,
-        p_fields_json => json_object('Title' VALUE NULL) -- TODO: uzupełnij mapowanie pól
-    );
-END LOOP;"""
+    list_hint = _caml_list_hint(raw_query)
+    writes = [
+        FieldRef(f.name, f.internal_name, f.field_type, list_hint) for f in node.field_refs
+    ]
+    reads = [FieldRef(name=f, internal_name=f, list_id=list_hint) for f in fields]
 
     return ActionDescription(
         summary=summary,
@@ -984,9 +1068,360 @@ END LOOP;"""
         action_type="NWUpdateMultipleItemAdapter",
         label=node.b_label or node.t_label or f"Aktualizuj: {list_name}",
         hint_universal=f"Masowa aktualizacja rekordów na liście {list_name} spełniających warunek {where_desc}.",
-        hint_apex=f"{SHP_API}.get_list_items(...) + pętla {SHP_API}.update_list_item(...);",
-        plsql_code=plsql_code,
+        hint_apex="Przenieś filtr i wartości pól; odpowiedź może zawierać next_url, więc pełna paginacja wymaga osobnej integracji.",
+        plsql_code=_blocked_plsql(),
         technical_lines=[f"Lista = {list_name}", f"Warunek = {where_desc}"],
+        blocking_reasons=["Masowa aktualizacja wymaga poprawnego filtru, mapowania pól i pełnej paginacji."],
+    )
+
+
+_SQL_IDENTIFIER = r"(?:\[[^\]\r\n]+\]|[A-Za-z_][A-Za-z0-9_$#]*)"
+_SQL_SELECT_ITEM_RE = re.compile(
+    rf"^\s*(?:{_SQL_IDENTIFIER}\s*\.\s*)*(?P<name>{_SQL_IDENTIFIER})"
+    rf"(?:\s+(?:AS\s+)?(?P<alias>{_SQL_IDENTIFIER}))?\s*$",
+    re.IGNORECASE,
+)
+
+
+def _sql_result_mappings(node: ActionNode) -> tuple[list[tuple[str, int, str]], str]:
+    query = node.params.get("Query", "")
+    match = re.match(r"\s*SELECT\s+(.*?)\s+FROM\b", query, re.IGNORECASE | re.DOTALL)
+    if not match:
+        return [], "Zapytanie nie jest obsługiwaną projekcją SELECT."
+    positions: dict[str, int] = {}
+    for position, expression in enumerate(match.group(1).split(","), start=1):
+        item = _SQL_SELECT_ITEM_RE.fullmatch(expression)
+        if item is None:
+            return [], "Nie można jednoznacznie ustalić nazw kolumn SELECT."
+        name = (item.group("alias") or item.group("name")).strip("[]")
+        key = name.casefold()
+        if key in positions:
+            return [], "Powtarzająca się nazwa lub alias kolumny SELECT."
+        positions[key] = position
+    storages = node.raw_el.findall(".//ValueStorage") if node.raw_el is not None else []
+    if not storages:
+        return [], "Brak mapowań wyników SQL do kolekcji."
+    mappings: list[tuple[str, int, str]] = []
+    targets: set[str] = set()
+    for storage in storages:
+        name = storage.get("ValueIdentifier", "")
+        target = storage.get("VariableName", "")
+        var_type = storage.get("VariableType", "")
+        position = positions.get(name.casefold())
+        if not name or not target or position is None or var_type.lower() not in {"", "arraylist", "collection"}:
+            return [], "Niepełne lub niejednoznaczne mapowanie kolumny SQL."
+        target_id = variable_static_id(target)
+        if target_id in targets:
+            return [], "Ta sama kolekcja występuje w więcej niż jednym mapowaniu SQL."
+        targets.add(target_id)
+        mappings.append((name, position, target))
+    return mappings, ""
+
+
+def _gateway_reference_template(mappings: list[tuple[str, int, str]]) -> str:
+    if not mappings:
+        return ""
+    link = "MIGRATION_SQLSERVER_LINK"
+    lines = [
+        "-- SZKIC REFERENCYJNY: nie uruchamiaj bez konfiguracji i testów integracyjnych.",
+        "-- DBA musi wskazać dozwolony database link; zapytanie uzupełnij bez haseł.",
+        "-- Typy, puste ciągi, NULL i konwersje wymagają potwierdzenia w środowisku docelowym.",
+        "DECLARE",
+        "    l_cursor INTEGER;",
+        "    l_rows INTEGER;",
+        "    l_value VARCHAR2(32767);",
+    ]
+    for index in range(1, len(mappings) + 1):
+        lines.append(f"    l_collection_{index:02d} JSON_ARRAY_T := JSON_ARRAY_T();")
+    lines.extend([
+        "BEGIN",
+        "    RAISE_APPLICATION_ERROR(-20090, 'Szablon wymaga recznej weryfikacji.');",
+        f"    l_cursor := DBMS_HS_PASSTHROUGH.OPEN_CURSOR@{link};",
+        f"    DBMS_HS_PASSTHROUGH.PARSE@{link}(l_cursor, '<SELECT_DO_UZUPELNIENIA>');",
+        "    LOOP",
+        f"        l_rows := DBMS_HS_PASSTHROUGH.FETCH_ROW@{link}(l_cursor);",
+        "        EXIT WHEN l_rows = 0;",
+    ])
+    for index, (_, position, _) in enumerate(mappings, start=1):
+        lines.extend([
+            f"        DBMS_HS_PASSTHROUGH.GET_VALUE@{link}(l_cursor, {position}, l_value);",
+            "        IF l_value IS NULL THEN",
+            f"            l_collection_{index:02d}.append_null;",
+            "        ELSE",
+            f"            l_collection_{index:02d}.append(l_value);",
+            "        END IF;",
+        ])
+    lines.extend([
+        "    END LOOP;",
+        f"    DBMS_HS_PASSTHROUGH.CLOSE_CURSOR@{link}(l_cursor);",
+        "    l_cursor := NULL;",
+    ])
+    for index, (_, _, target) in enumerate(mappings, start=1):
+        lines.append(f"    {_plsql_var(target)} := l_collection_{index:02d}.to_clob;")
+    lines.extend([
+        "EXCEPTION",
+        "    WHEN OTHERS THEN",
+        "        IF l_cursor IS NOT NULL THEN",
+        "            BEGIN",
+        f"                DBMS_HS_PASSTHROUGH.CLOSE_CURSOR@{link}(l_cursor);",
+        "            EXCEPTION",
+        "                WHEN OTHERS THEN",
+        "                    apex_debug.error('Nie udalo sie zamknac kursora Gateway.');",
+        "            END;",
+        "        END IF;",
+        "        RAISE;",
+        "END;",
+    ])
+    return "\n".join(lines)
+
+
+def _describe_run_sql(node: ActionNode, resolver: FieldResolver) -> ActionDescription:
+    mappings, mapping_error = _sql_result_mappings(node)
+    storage_count = len(node.raw_el.findall(".//ValueStorage")) if node.raw_el is not None else 0
+    reasons = [
+        "SQL Server wymaga konfiguracji Gateway i database linku oraz weryfikacji typów i dostępu."
+    ]
+    if mapping_error:
+        reasons.append(mapping_error)
+    mapping_lines = [
+        f"Kolumna {name} (pozycja SELECT {position}) -> kolekcja {target}"
+        for name, position, target in mappings
+    ]
+    return ActionDescription(
+        summary=f"Uruchom zapytanie SQL Server i zapisz wyniki według {storage_count} mapowań.",
+        action_type="NWRunSqlAdapter",
+        label=node.t_label or node.b_label or "Zapytanie SQL Server",
+        hint_universal="Pobierz wszystkie kolumny jednego wiersza przed przejściem do następnego.",
+        hint_apex=(
+            "DBA konfiguruje Oracle Database Gateway i dozwolony database link. "
+            "Użyj jednego kursora DBMS_HS_PASSTHROUGH: OPEN_CURSOR, PARSE, ewentualnie BIND_VARIABLE, "
+            "FETCH_ROW, GET_VALUE według pozycji SELECT i CLOSE_CURSOR także przy błędzie."
+        ),
+        plsql_code=_blocked_plsql(),
+        technical_lines=[
+            f"Provider = {node.params.get('Provider', '') if node.params.get('Provider', '').lower() == 'mssql' else '(do weryfikacji)'}",
+            "ConnectionString i dane uwierzytelniające = <pominięto>",
+            f"Liczba mapowań = {storage_count}",
+            *mapping_lines,
+            *([f"Mapowanie: {mapping_error}"] if mapping_error else []),
+        ],
+        blocking_reasons=reasons,
+        reference_template=_gateway_reference_template(mappings),
+    )
+
+
+def _create_item_reference_template(node: ActionNode, list_name: str, output: str) -> str:
+    if node.raw_el is None:
+        return ""
+    refs = node.raw_el.findall("FieldReferences/FieldReference")
+    if not refs:
+        return ""
+    pairs = ["'ContentTypeId' VALUE '<DOCELOWY_CONTENT_TYPE_ID>'"]
+    for ref in refs:
+        field_name = ref.get("Value") or ref.get("InternalFieldName") or ""
+        if not field_name:
+            return ""
+        value = next((child for child in ref if child.tag != "Coercion"), None)
+        coercion = ref.findtext("Coercion") or ""
+        if value is not None and value.tag == "Variable" and value.get("Name") and coercion in {"", "AsDNString"}:
+            expression = _plsql_var(value.get("Name", ""))
+        else:
+            expression = "NULL /* TODO: potwierdź wartość i konwersję */"
+        pairs.append(f"{sql_literal(field_name)} VALUE {expression}")
+    pairs_text = ",\n        ".join(pairs)
+    lines = [
+        "-- SZKIC REFERENCYJNY: typ zawartości, konwersje i Overwrite wymagają weryfikacji.",
+        "DECLARE",
+        "    l_resp CLOB;",
+        "BEGIN",
+        "    RAISE_APPLICATION_ERROR(-20090, 'Szablon wymaga recznej weryfikacji.');",
+        f"    l_resp := {SHP_API}.add_list_item(",
+        f"        p_site_url => :{V_SITE_URL},",
+        f"        p_list_title => {sql_literal(list_name)},",
+        "        p_fields_json => JSON_OBJECT(",
+        f"        {pairs_text}",
+        "        RETURNING CLOB)",
+        "    );",
+    ]
+    if output:
+        lines.append(f"    {_plsql_var(output)} := JSON_VALUE(l_resp, '$.item_id' RETURNING NUMBER);")
+    lines.append("END;")
+    return "\n".join(lines)
+
+
+def _describe_create_with_content_type(node: ActionNode, resolver: FieldResolver) -> ActionDescription:
+    list_id = node.params.get("ListId", "")
+    list_name = resolver.get_list_name(list_id) if list_id else "(nieokreślona)"
+    output, _ = _parameter_variable(node, "Output")
+    mappings: list[str] = []
+    if node.raw_el is not None:
+        for ref in node.raw_el.findall("FieldReferences/FieldReference"):
+            field_name = ref.get("Value") or ref.get("InternalFieldName") or ""
+            value = next((child for child in ref if child.tag != "Coercion"), None)
+            expression = _render_value_expr(value, resolver)
+            rendered = _technical_parameter_lines({field_name or "(brak pola)": expression})[0]
+            coercion = ref.findtext("Coercion") or ""
+            mappings.append(f"{rendered}" + (f" (konwersja: {coercion})" if coercion else ""))
+    reasons = [
+        "Tworzenie wymaga potwierdzenia typu zawartości, konwersji pól i semantyki Overwrite w istniejącym SHP_API."
+    ]
+    if not list_id or not mappings:
+        reasons.append("Brak listy docelowej lub mapowań pól tworzonego elementu.")
+    return ActionDescription(
+        summary=f"Utwórz element na liście '{list_name}' z {len(mappings)} mapowaniami pól.",
+        writes=[FieldRef(f.name, f.internal_name, f.field_type, list_id) for f in node.field_refs],
+        action_type="NWCreateItemWithContentTypesAdapter",
+        label=node.t_label or node.b_label or f"Utwórz element w {list_name}",
+        hint_universal="Odwzoruj typ zawartości i każde pole w kontekście listy docelowej.",
+        hint_apex=f"Zweryfikuj {SHP_API}.add_list_item i mapowanie ContentTypeId przed wykonaniem.",
+        plsql_code=_blocked_plsql(),
+        technical_lines=_technical_parameter_lines({
+            "ListId": list_id,
+            "ContentType": node.params.get("ContentType", ""),
+            "Overwrite": node.params.get("Overwrite", ""),
+            "Output": output or "(brak)",
+        }) + mappings,
+        blocking_reasons=reasons,
+        reference_template=_create_item_reference_template(node, list_name, output),
+    )
+
+
+def _numeric_operand(node: ActionNode, name: str) -> tuple[str, str] | None:
+    values = node.parameter_values(name)
+    element = next((value for value in values if value.tag in {"Variable", "PrimitiveValue"}), None)
+    if element is None:
+        return None
+    if element.tag == "Variable":
+        var_name = element.get("Name", "").strip()
+        var_type = element.get("Type", "").lower()
+        if var_name and var_type in {"number", "integer", "decimal", "currency"}:
+            return _plsql_var(var_name), f"zmienna {var_name}"
+        return None
+    value = element.get("Value", "").strip()
+    if re.fullmatch(r"-?(?:\d+(?:\.\d*)?|\.\d+)", value):
+        return value, value
+    return None
+
+
+def _describe_math(node: ActionNode, resolver: FieldResolver) -> ActionDescription:
+    operator = node.params.get("Operator", "")
+    target, target_type = _parameter_variable(node, "VariableName")
+    left = _numeric_operand(node, "Operand1")
+    right = _numeric_operand(node, "Operand2")
+    reasons: list[str] = []
+    if operator.lower() != "mod" or not target or target_type.lower() not in {"number", "integer", "decimal"} or left is None or right is None:
+        reasons.append("Nieobsługiwany operator lub niepełne typowanie operandów SPMath.")
+        code = _blocked_plsql()
+    else:
+        code = f"""IF {left[0]} IS NULL OR {right[0]} IS NULL OR {left[0]} < 0 OR {right[0]} <= 0
+   OR {left[0]} != TRUNC({left[0]}) OR {right[0]} != TRUNC({right[0]}) THEN
+    RAISE_APPLICATION_ERROR(-20092, 'Nieobslugiwane argumenty operacji modulo Nintex.');
+END IF;
+{_plsql_var(target)} := MOD({left[0]}, {right[0]});"""
+    return ActionDescription(
+        summary=f"Oblicz {operator or '(brak operatora)'} i zapisz wynik do zmiennej {target or '(brak)'}.",
+        action_type="SPMathAdapter",
+        label=node.t_label or node.b_label or "Obliczenie matematyczne",
+        hint_universal="Modulo jest obsługiwane dla nieujemnych liczb całkowitych i dodatniego dzielnika.",
+        hint_apex=code,
+        plsql_code=code,
+        technical_lines=[
+            f"Operator = {operator}",
+            f"Operand1 = {left[1] if left else '(nieobsługiwany)'}",
+            f"Operand2 = {right[1] if right else '(nieobsługiwany)'}",
+            f"VariableName = {target}",
+        ],
+        blocking_reasons=reasons,
+    )
+
+
+def _describe_delete_multiple_items(node: ActionNode, resolver: FieldResolver) -> ActionDescription:
+    query = node.params.get("Query", "")
+    list_name, where_desc, fields = _parse_caml_query_info(query, resolver)
+    list_name = list_name or node.b_label or "(nieokreślona)"
+    list_hint = _caml_list_hint(query)
+    return ActionDescription(
+        summary=f"Usuń elementy z listy '{list_name}' według warunku: {where_desc}.",
+        reads=[FieldRef(name=name, internal_name=name, list_id=list_hint) for name in fields],
+        action_type="NWDeleteMultipleItemAdapter",
+        label=node.t_label or node.b_label or "Usuń wiele elementów",
+        hint_universal="Zachowaj warunek wyboru elementów i potwierdź sposób usuwania.",
+        hint_apex=(
+            f"Publiczny interfejs {SHP_API} nie udostępnia usuwania. "
+            "Wymagana jest osobna, zweryfikowana integracja z filtrowaniem i pełną paginacją."
+        ),
+        plsql_code=_blocked_plsql(),
+        technical_lines=[f"Lista = {list_name}", f"Warunek = {where_desc}"],
+        blocking_reasons=["Brak publicznej operacji usuwania w SHP_API oraz potwierdzonego filtrowania i paginacji."],
+    )
+
+
+def _describe_collect_data(node: ActionNode, resolver: FieldResolver) -> ActionDescription:
+    task_name = node.params.get("TaskName", "")
+    if contains_credential_assignment(task_name):
+        task_name = "(pominięto dane uwierzytelniające)"
+    task_id, _ = _parameter_variable(node, "TaskID")
+    workflow_id, _ = _parameter_variable(node, "HumanWorkflowID")
+    details: list[str] = []
+    if node.raw_el is not None:
+        for ref in node.raw_el.findall("FieldReferences/FieldReference"):
+            name = ref.get("Name") or ref.get("Value") or "(bez nazwy)"
+            field_type = ref.get("Type", "")
+            variable = ref.find("Variable")
+            output = variable.get("Name", "") if variable is not None else ""
+            choices = [choice.text or "" for choice in ref.findall("Choice")]
+            detail = f"Pole zadania: {name}; typ = {field_type}; odpowiedź -> {output or '(brak)'}"
+            if choices:
+                detail += f"; wybory = {', '.join(choices)}"
+            details.append(detail)
+        for approver in node.raw_el.findall("Approvers/Approver"):
+            user = approver.get("User", "")
+            rendered = _technical_parameter_lines({"Odbiorca": user})[0]
+            details.append(f"{rendered}; typ = {approver.get('PrincipalType', '')}")
+    reminder_names = (
+        "MinutesReminder", "HoursReminder", "DaysReminder", "RemindersRequired",
+        "ReminderWaitMode", "TaskPriority", "TaskDueDate", "EscalationType",
+        "MinutesEscalation", "HoursEscalation", "DaysEscalation", "EscalationWaitMode",
+    )
+    details.extend(_technical_parameter_lines({name: node.params[name] for name in reminder_names if name in node.params}))
+    return ActionDescription(
+        summary=f"Przypisz zadanie zbierające dane{f' „{task_name}”' if task_name else ''} i zaczekaj na odpowiedź.",
+        action_type="NWCollectDataAdapter",
+        label=node.t_label or task_name or "Zbierz dane",
+        hint_universal="Workflow oczekuje na ukończenie zadania; odpowiedzi są dostępne dopiero po wznowieniu.",
+        hint_apex=(
+            "Skonfiguruj APEX Action Task, formularz, odbiorców, przypomnienia, mapowanie odpowiedzi "
+            "i wznowienie workflow; pojedynczy synchroniczny Execute Code nie zastępuje oczekiwania."
+        ),
+        plsql_code=_blocked_plsql(),
+        technical_lines=[
+            f"TaskID -> {task_id or '(brak)'}",
+            f"HumanWorkflowID -> {workflow_id or '(brak)'}",
+            *details,
+        ],
+        blocking_reasons=["Zadanie wymaga skonfigurowania formularza, odbiorców i asynchronicznego wznowienia APEX."],
+    )
+
+
+def _describe_cancel_workflow(node: ActionNode, resolver: FieldResolver) -> ActionDescription:
+    target = node.params.get("WorkflowName", "")
+    if contains_credential_assignment(target):
+        target = "(pominięto dane uwierzytelniające)"
+    return ActionDescription(
+        summary=f"Zakończ wskazany workflow '{target or '(nieokreślony)'}' dla bieżącego elementu.",
+        action_type="NWCancelWorkflowAdapter",
+        label=node.t_label or node.b_label or "Zakończ inny workflow",
+        hint_universal="Zakończenie dotyczy innych instancji na bieżącym elemencie i jest kolejkowane do punktu commit.",
+        hint_apex=(
+            "APEX_WORKFLOW.TERMINATE wymaga konkretnego p_instance_id. "
+            "Najpierw zweryfikuj witrynę, listę, element, nazwę, stany instancji i semantykę commit."
+        ),
+        plsql_code=_blocked_plsql(),
+        technical_lines=_technical_parameter_lines({
+            "WorkflowName": node.params.get("WorkflowName", ""),
+            "Message": node.params.get("Message", ""),
+        }),
+        blocking_reasons=["Nie potwierdzono bezpiecznego wyboru instancji APEX ani semantyki zakończenia i commit."],
     )
 
 
@@ -1014,6 +1449,12 @@ TYPE_HANDLERS = {
     "NWSendMessageAdapter": _describe_send_message,
     "NWStartWorkflow2Adapter": _describe_start_workflow,
     "NWUpdateMultipleItemAdapter": _describe_update_multiple_items,
+    "NWRunSqlAdapter": _describe_run_sql,
+    "NWCreateItemWithContentTypesAdapter": _describe_create_with_content_type,
+    "SPMathAdapter": _describe_math,
+    "NWDeleteMultipleItemAdapter": _describe_delete_multiple_items,
+    "NWCollectDataAdapter": _describe_collect_data,
+    "NWCancelWorkflowAdapter": _describe_cancel_workflow,
 }
 
 
@@ -1026,8 +1467,16 @@ def describe_action(node: ActionNode, resolver: FieldResolver) -> ActionDescript
     handler = TYPE_HANDLERS.get(short_type)
     if handler is None:
         UNKNOWN_TYPES_SEEN.add(node.type)
-        return _describe_fallback(node, resolver)
-    return handler(node, resolver)
+        description = _describe_fallback(node, resolver)
+    else:
+        description = handler(node, resolver)
+    if node.redacted_fields:
+        fields = ", ".join(node.redacted_fields)
+        description.blocking_reasons.append(
+            f"Pominięto dane uwierzytelniające ({fields}); wymagana bezpieczna konfiguracja."
+        )
+        description.plsql_code = _blocked_plsql()
+    return description
 
 
 def _describe_fallback(node: ActionNode, resolver: FieldResolver) -> ActionDescription:
@@ -1037,16 +1486,17 @@ def _describe_fallback(node: ActionNode, resolver: FieldResolver) -> ActionDescr
     summary = f"[Nieopisana akcja: {label}]"
     if fields_txt:
         summary += f" (pola: {fields_txt})"
-    plsql_code = f"-- TODO: wywołanie {SHP_API} dla akcji {_short_type(node.type)}"
+    plsql_code = _blocked_plsql()
     return ActionDescription(
         summary=summary,
         reads=reads,
-        technical_lines=[f"Type = {node.type}"] + [f"{k} = {v}" for k, v in node.params.items()],
+        technical_lines=[f"Type = {node.type}"] + _technical_parameter_lines(node.params),
         action_type=_short_type(node.type),
         label=label,
         hint_universal="Niestandardowa akcja Nintex - wymaga analizy parametrów technicznych XML.",
         hint_apex=plsql_code,
         plsql_code=plsql_code,
+        blocking_reasons=[f"Nieznana akcja Nintex: {_short_type(node.type)}."],
     )
 
 
@@ -1104,9 +1554,28 @@ def generate_plsql_statements(nodes: list[ActionNode], resolver: FieldResolver, 
             lines.extend(generate_plsql_statements(node.children, resolver, indent_level))
             continue
         if short_type == "NWForEachLoopAdapter":
-            emit(desc.plsql_code, indent_level)
-            lines.extend(generate_plsql_statements(node.children, resolver, indent_level + 1))
-            lines.append(f"{indent}END LOOP;")
+            if desc.blocking_reasons or desc.path_b_blocking_reasons:
+                emit(_blocked_plsql(), indent_level)
+                continue
+            target, _ = _parameter_variable(node, "Target")
+            value, _ = _parameter_variable(node, "Value")
+            index, _ = _parameter_variable(node, "Index")
+            prefix = [
+                "DECLARE",
+                f"    l_nintex_items JSON_ARRAY_T := JSON_ARRAY_T.parse({_plsql_var(target)});",
+                "    l_nintex_element JSON_ELEMENT_T;",
+                "BEGIN",
+                "    IF l_nintex_items.get_size > 0 THEN",
+                "        FOR l_nintex_index IN 0 .. l_nintex_items.get_size - 1 LOOP",
+            ]
+            if index:
+                prefix.append(f"            {_plsql_var(index)} := l_nintex_index;")
+            prefix.append(_json_text_assignment(
+                "l_nintex_items", "l_nintex_index", _plsql_var(value), "l_nintex_element", 12
+            ))
+            emit("\n".join(prefix), indent_level)
+            lines.extend(generate_plsql_statements(node.children, resolver, indent_level + 3))
+            emit("        END LOOP;\n    END IF;\nEND;", indent_level)
             continue
         if desc.is_structural:
             continue
@@ -1132,8 +1601,34 @@ def wrap_plsql_block(statements: list[str] | str, header_comment: str = "") -> s
     return f"{head}BEGIN\n{body}\nEND;"
 
 
-def build_path_b_code(nodes: list[ActionNode], resolver: FieldResolver, workflow_title: str = "") -> str:
+def collect_blocking_reasons(
+    nodes: list[ActionNode], resolver: FieldResolver, path: Literal["A", "B", "common"]
+) -> list[str]:
+    if path not in {"A", "B", "common"}:
+        raise ValueError(f"Nieznana ścieżka migracji: {path!r}")
+    reasons: list[str] = []
+    for node in nodes:
+        if not node.enabled:
+            continue
+        desc = describe_action(node, resolver)
+        reasons.extend(desc.blocking_reasons)
+        if path == "A":
+            reasons.extend(desc.path_a_blocking_reasons)
+        elif path == "B":
+            reasons.extend(desc.path_b_blocking_reasons)
+        reasons.extend(collect_blocking_reasons(node.children, resolver, path))
+    return list(dict.fromkeys(reasons))
+
+
+def build_path_b_code(
+    nodes: list[ActionNode],
+    resolver: FieldResolver,
+    workflow_title: str = "",
+    extra_blocking_reasons: list[str] | None = None,
+) -> str:
     """Kod jednej aktywnosci Execute Code (sciezka B) realizujacej cala logike workflow Nintex."""
+    if extra_blocking_reasons or collect_blocking_reasons(nodes, resolver, "B"):
+        return wrap_plsql_block(_blocked_plsql(), "Ścieżka B zablokowana przed wykonaniem akcji")
     statements = generate_plsql_statements(nodes, resolver, indent_level=1)
     title = workflow_title.replace("'", "''")
     statements = [

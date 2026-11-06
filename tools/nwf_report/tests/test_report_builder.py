@@ -163,6 +163,32 @@ def test_build_report_structure(sample_resolver: FieldResolver) -> None:
     assert "Wartość Kwoty (Kwota)" in report
 
 
+def test_report_keeps_same_internal_name_separate_for_each_list() -> None:
+    source = ListReference("Source", "source", True, [FieldRef("Source title", "Shared", "Text")])
+    target = ListReference("Target", "target", False, [FieldRef("Target title", "Shared", "Choice")])
+    resolver = FieldResolver([source, target], source_list_id="source")
+    actions = [
+        ActionNode("SPUpdateItemWithKeyAdapter", field_refs=[FieldRef("", "Shared", "Text")]),
+        ActionNode(
+            "NWCreateItemWithContentTypesAdapter",
+            params={"ListId": "target"},
+            field_refs=[FieldRef("", "Shared", "Choice")],
+        ),
+    ]
+    wf = WorkflowModel("Test", "", [source, target], actions, Path("test.nwf"))
+
+    data = build_workflow_data(wf, resolver)
+    shared = [item for item in data["fields"] if item["internal_name"] == "Shared"]
+    assert {(item["list_name"], item["display_name"], item["field_type"]) for item in shared} == {
+        ("Source", "Source title", "Text"),
+        ("Target", "Target title", "Choice"),
+    }
+    assert all(item["is_written"] for item in shared)
+    report = build_report(wf, resolver)
+    assert "Source title (Shared) [Source]" in report
+    assert "Target title (Shared) [Target]" in report
+
+
 def test_build_workflow_data_extracts_migration_contract(sample_resolver: FieldResolver) -> None:
     trigger = ActionNode(
         type="Nintex.Workflow.Activities.Adapters.NWWorkflowVariablesAdapter",
@@ -294,6 +320,7 @@ def test_build_path_b_code(sample_resolver: FieldResolver) -> None:
         ],
         actions=[update],
         source_path=Path("DaneZeSkryptu/test.nwf"),
+        workflow_type="List",
     )
 
     data = build_workflow_data(wf, sample_resolver)
@@ -317,6 +344,7 @@ def test_build_dispatcher_package() -> None:
             "title": "Kwalifikacja Uslugi",
             "source_file": "kwalifikacja.nwf",
             "source_list_name": "Karty wskaźników SIZ",
+            "workflow_type": "List",
         }
     ]
 
@@ -333,4 +361,3 @@ def test_build_dispatcher_package() -> None:
     assert "apex_session.delete_session;" in sql
     assert "l_content_type = 'Folder'" in sql
     assert "process_wf_" not in sql
-

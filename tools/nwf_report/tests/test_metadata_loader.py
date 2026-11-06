@@ -66,6 +66,13 @@ def test_field_resolver_list_aware_collision() -> None:
 
     res_b_title = resolver.resolve("Wspolna_x0020_Nazwa", list_hint="Lista B")
     assert res_b_title == "Kolumna Lookup do C (Wspolna_x0020_Nazwa)"
+    assert resolver.resolve("Wspolna_x0020_Nazwa") == res_a_guid
+    assert resolver.resolve("Wspolna_x0020_Nazwa", list_hint="Nieznana lista") == "Wspolna_x0020_Nazwa"
+    assert resolver.get_list_name("Nieznana lista") == "Nieznana lista"
+    assert resolver.get_field_type("Wspolna_x0020_Nazwa", "Nieznana lista") == ""
+
+    without_context = FieldResolver(list_refs)
+    assert without_context.resolve("Wspolna_x0020_Nazwa") == "Wspolna_x0020_Nazwa"
 
 
 def test_field_resolver_fallback_internal_name() -> None:

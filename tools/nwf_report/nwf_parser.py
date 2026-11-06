@@ -18,12 +18,15 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from xml.etree import ElementTree as ET
 
+from .sensitive_data import sanitize_action_xml
+
 
 @dataclass
 class FieldRef:
     name: str  # nazwa wyswietlana uzyta w danym kontekscie (moze byc pusta)
     internal_name: str  # InternalName / StaticName pola w SharePoint
     field_type: str = ""
+    list_id: str = ""
 
 
 @dataclass
@@ -43,6 +46,15 @@ class ActionNode:
     r_label: str = ""  # prawa etykieta galezi warunku
     condition_el: ET.Element | None = None  # surowy XML <Condition> (dla akcji warunkowych)
     raw_el: ET.Element | None = None  # caly surowy wezel XML <NWActionConfig>
+    redacted_fields: list[str] = field(default_factory=list)
+
+    def parameter_values(self, name: str) -> list[ET.Element]:
+        if self.raw_el is not None:
+            for parameter in self.raw_el.findall("Parameters/Parameter"):
+                if parameter.get("Name") == name:
+                    return _parameter_value_elements(parameter)
+        element = self.param_elements.get(name)
+        return [element] if element is not None else []
 
 
 @dataclass
@@ -60,6 +72,7 @@ class WorkflowModel:
     list_references: list[ListReference]  # listy uzyte przez workflow + ich slownik pol
     actions: list[ActionNode]
     source_path: Path
+    workflow_type: str = ""
 
     @property
     def source_list(self) -> "ListReference | None":
@@ -83,6 +96,10 @@ def _parse_parameters(action_el: ET.Element) -> dict[str, str]:
     return params
 
 
+def _parameter_value_elements(param_el: ET.Element) -> list[ET.Element]:
+    return [child for child in param_el if child.tag != "RunNowOptions"]
+
+
 def _parse_param_elements(action_el: ET.Element) -> dict[str, ET.Element]:
     """Zwraca surowy element wartosci kazdego parametru (PrimitiveValue/Variable/ListLookup/...).
 
@@ -95,11 +112,10 @@ def _parse_param_elements(action_el: ET.Element) -> dict[str, ET.Element]:
         return elements
     for param_el in params_el.findall("Parameter"):
         name = param_el.get("Name", "")
-        child = next(iter(param_el), None)
+        child = next(iter(_parameter_value_elements(param_el)), None)
         if child is not None:
             elements[name] = child
     return elements
-    return params
 
 
 def _parse_field_refs(action_el: ET.Element) -> list[FieldRef]:
@@ -118,7 +134,13 @@ def _parse_field_refs(action_el: ET.Element) -> list[FieldRef]:
     return refs
 
 
-def _parse_action(action_el: ET.Element, branch_label: str = "") -> ActionNode:
+def _parse_action(
+    action_el: ET.Element,
+    branch_label: str = "",
+    _redactions: dict[int, list[str]] | None = None,
+) -> ActionNode:
+    if _redactions is None:
+        action_el, _redactions = sanitize_action_xml(action_el)
     node = ActionNode(
         type=_text(action_el.find("Type")),
         enabled=_text(action_el.find("Enabled")).lower() == "true",
@@ -133,6 +155,7 @@ def _parse_action(action_el: ET.Element, branch_label: str = "") -> ActionNode:
         r_label=_text(action_el.find("RLabel")),
         condition_el=action_el.find("Condition"),
         raw_el=action_el,
+        redacted_fields=_redactions.get(id(action_el), []),
     )
 
     # Zagniezdzone akcje (warunki, petle, action sety) zawsze siedza pod
@@ -142,7 +165,7 @@ def _parse_action(action_el: ET.Element, branch_label: str = "") -> ActionNode:
         child_els = child_activities_el.findall("NWActionConfig")
         labels = _branch_labels(node.type, action_el, len(child_els))
         for child_el, label in zip(child_els, labels):
-            node.children.append(_parse_action(child_el, branch_label=label))
+            node.children.append(_parse_action(child_el, branch_label=label, _redactions=_redactions))
     return node
 
 
@@ -211,6 +234,7 @@ def parse_nwf(path: str | Path) -> WorkflowModel:
         list_references=list_references,
         actions=actions,
         source_path=path,
+        workflow_type=_text(outer_root.find("WorkflowType")).strip(),
     )
 
 

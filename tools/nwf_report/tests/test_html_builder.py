@@ -1,3 +1,5 @@
+import json
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -26,10 +28,49 @@ def test_portal_includes_application_information_dialog():
     assert html.index("aboutDialog.showModal()") < html.index("<!-- Skrypt Mermaid -->")
 
 
+def test_portal_documents_nintex_params_schema_and_extensions():
+    html = _generate_html([])
+
+    for column_range in ("P_VAR_01..04", "P_NUM_01..04", "P_DATE_01..04", "P_CLOB_01..02"):
+        assert column_range in html
+    assert "P_VAR_01..10" not in html and "P_NUM_01..10" not in html
+    assert "NINTEX_PARAMS_BIU" in html
+    assert "<code>IS_ACTIVE</code> = 0" in html
+    assert "Additional Data nie filtruje tej flagi" in html
+    assert "Dodatkowe pola lub typy dodaje" in html
+    assert "administrator" in html
+
+
 def test_build_html_manual_persists_application_information(tmp_path):
     path = build_html_manual([], tmp_path / "portal.html")
 
     assert path.read_text(encoding="utf-8") == _generate_html([])
+
+
+def test_portal_json_keeps_script_end_tag_as_data():
+    workflows = [{"title": "Synthetic </script><script>unexpected()</script> & value"}]
+    html = _generate_html(workflows)
+    match = re.search(
+        r'<script id="workflows-data" type="application/json">\s*(.*?)\s*</script>',
+        html,
+        re.DOTALL,
+    )
+
+    assert match is not None
+    assert json.loads(match.group(1)) == workflows
+    assert "<script>unexpected()" not in html
+
+
+def test_portal_escapes_dynamic_field_names_in_html():
+    html = _generate_html([])
+
+    for expression in (
+        "escapeHtml(r.display_name)", "escapeHtml(r.internal_name)",
+        "escapeHtml(w.display_name)", "escapeHtml(w.internal_name)",
+        "escapeHtml(f.display_name)", "escapeHtml(f.internal_name)",
+        "escapeHtml(f.list_name || wf.source_list_name)",
+    ):
+        assert expression in html
 
 
 def test_portal_toolbar_keeps_only_search_and_preserves_report_sections():

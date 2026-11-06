@@ -10,7 +10,12 @@ from .app_info import APPLICATION_NOTICE, APP_VERSION, AUTHOR
 
 def _generate_html(workflows_data: list[dict]) -> str:
     """Generuje kompletny, responsywny kod HTML ze wsparciem Dark/Light mode, Mermaid i interaktywnym inspektorem."""
-    json_payload = json.dumps(workflows_data, ensure_ascii=False, indent=2)
+    json_payload = (
+        json.dumps(workflows_data, ensure_ascii=False, indent=2)
+        .replace("<", "\\u003c")
+        .replace(">", "\\u003e")
+        .replace("&", "\\u0026")
+    )
 
     return f"""<!doctype html>
 <html lang="pl" class="dark">
@@ -870,17 +875,18 @@ Content-Type: application/json
     <section id="sec-apex">
       <h2 class="section-title"><span class="number">05.</span> Architektura wdrożenia w Oracle APEX &amp; pakiet LCDT.SHP_API</h2>
       <div class="docs-card" style="margin-bottom:24px;">
-        <h3>Standardowy przebieg każdego workflow APEX</h3>
+        <h3>Standardowy przebieg workflow listy w APEX</h3>
         <ol style="margin:8px 0 12px 20px; line-height:1.7;">
           <li><strong>Workflow Start</strong> — <em>Additional Data</em> (SQL Query na <code>NINTEX_PARAMS</code>) ustawia parametry <code>P_*</code> (np. <code>P_EMAIL_*</code>, <code>P_KWOTA</code>).</li>
           <li><strong>Execute Code „Retrieve Payload”</strong> — rozparsowanie <code>:P_PAYLOAD_BODY</code> na <code>V_ITEM_ID</code>, <code>V_SITE_URL</code>, <code>V_LIST_TITLE</code>, <code>V_EDITOR</code>; puste wartości → błąd <code>-20010</code> (instancja FAULTED).</li>
           <li><strong>Invoke API</strong> — PL/SQL Package <code>LCDT</code> → <code>SHP_API</code> → <code>GET_LIST_ITEM</code>; ręcznie wpisywany jest tylko <code>p_query</code> (<code>$select</code> + <code>$expand</code>), wynik trafia do <code>V_SHP_ANSWER</code>.</li>
           <li><strong>Execute Code „Parse”</strong> — odczyt <code>V_SHP_ANSWER</code> (<code>data.*</code>) do zmiennych <code>SP_*</code>.</li>
-          <li><strong>Logika użytkownika</strong> — <em>Ścieżka A</em> (aktywność na każdą akcję Nintex) albo <em>Ścieżka B</em> (jedna aktywność Execute Code z gotowym kodem).</li>
+          <li><strong>Logika użytkownika</strong> — <em>Ścieżka A</em> (aktywność na każdą akcję Nintex) albo <em>Ścieżka B</em> (jedna aktywność Execute Code). Sprawdź blokady i zweryfikuj kod przed wdrożeniem.</li>
         </ol>
         <div class="callout callout-warn">
           <strong>P_</strong> — parametry niezmienne w czasie trwania przepływu (payload i konfiguracja z <code>NINTEX_PARAMS</code>).
           <strong>V_</strong> / <strong>SP_</strong> — zmienne, które aktywności mogą odczytywać i nadpisywać.
+          Workflow witryny (<code>Site</code>) wymaga ręcznej migracji uruchomienia, nie korzysta z tych kroków listy ani dyspozytora list.
         </div>
       </div>
 
@@ -912,7 +918,12 @@ apex_session.delete_session;</div>
       <div class="docs-card">
         <h3>Konfiguracja NINTEX_PARAMS (Additional Data)</h3>
         <p style="color:var(--text-muted); margin:8px 0 16px;">
-          Stałe konfiguracyjne (adresy e-mail, kwoty) są przechowywane w tabeli <code>NINTEX_PARAMS</code> (kolumny <code>P_VAR_01..10</code>, <code>P_NUM_01..10</code>). Skrypt <code>nintex_params.sql</code> zawiera DDL (zakomentowany) i instrukcje MERGE dla każdego workflow.
+          Bazowa tabela <code>NINTEX_PARAMS</code> zawiera kolumny <code>P_VAR_01..04</code>,
+          <code>P_NUM_01..04</code>, <code>P_DATE_01..04</code>, <code>P_CLOB_01..02</code> oraz
+          kolumny <code>C_*</code> typu <code>VARCHAR2(4000)</code>. Dodatkowe pola lub typy dodaje
+          administrator. Skrypt <code>nintex_params.sql</code> zawiera zakomentowany DDL tabeli i triggera
+          <code>NINTEX_PARAMS_BIU</code> oraz instrukcje MERGE dla każdego workflow. Nowe wiersze mają
+          domyślnie <code>IS_ACTIVE</code> = 0; Additional Data nie filtruje tej flagi.
         </p>
         <div class="code-box">SELECT p.P_VAR_01 AS P_EMAIL,
        p.P_NUM_01 AS P_KWOTA
@@ -942,10 +953,10 @@ apex_session.delete_session;</div>
           <div id="apex-additional-data"></div>
         </div>
       </div>
-      <h3 style="margin:24px 0 12px;">Kroki standardowe 1–4</h3>
+      <h3 style="margin:24px 0 12px;">Kroki uruchomienia (standardowe 1–4 dla workflow listy)</h3>
       <div id="apex-standard-activities"></div>
       <div style="display:flex; gap:10px; align-items:center; margin:24px 0 12px; flex-wrap:wrap;">
-        <h3 style="margin:0;">Logika workflow po kroku 4:</h3>
+        <h3 style="margin:0;">Logika workflow (po kroku 4 dla workflow listy):</h3>
         <button class="copy-btn apex-path-btn" type="button" data-path="A">Ścieżka A — krok po kroku</button>
         <button class="copy-btn apex-path-btn" type="button" data-path="B">Ścieżka B — jedna aktywność Execute Code</button>
       </div>
@@ -962,7 +973,7 @@ apex_session.delete_session;</div>
           <li>&#9989; <strong>Współbieżność:</strong> Obsługa nagłówków ETag / optymistycznego blokowania.</li>
           <li>&#9989; <strong>Idempotencja:</strong> Ponowne wywołanie z tym samym kluczem nie duplikuje danych.</li>
           <li>&#9989; <strong>Audit Log:</strong> Zapis każdego przejścia procesu do tabeli historii wykonania.</li>
-          <li>&#9989; <strong>NINTEX_PARAMS:</strong> Uruchomiony <code>nintex_params.sql</code> i uzupełnione wartości <code>P_VAR_xx</code> / <code>P_NUM_xx</code>.</li>
+          <li>&#9989; <strong>NINTEX_PARAMS:</strong> Włączony trigger <code>NINTEX_PARAMS_BIU</code>, dodane wymagane kolumny, wykonany MERGE z <code>nintex_params.sql</code> i uzupełnione wartości parametrów.</li>
           <li>&#9989; <strong>Uprawnienia:</strong> Schemat aplikacji APEX ma <code>EXECUTE</code> na <code>LCDT.SHP_API</code>.</li>
           <li>&#9989; <strong>Dyspozytor:</strong> Ustawione <code>c_app_id</code> w <code>pkg_shp_dispatcher</code>; Static ID workflow zgodne z routingiem.</li>
           <li>&#9989; <strong>Błąd -20010:</strong> Test pustego payloadu kończy instancję jako FAULTED widoczną w Workflow Console.</li>
@@ -1009,6 +1020,11 @@ apex_session.delete_session;</div>
       let activeIndex = 0;
       let activeNodeId = null;
       let activeWorkflow = null;
+
+      const htmlEscapes = {{ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }};
+      function escapeHtml(value) {{
+        return String(value ?? '').replace(/[&<>"']/g, character => htmlEscapes[character]);
+      }}
 
       // Elementy UI
       const wfTabsContainer = document.getElementById('wf-tabs');
@@ -1298,9 +1314,16 @@ apex_session.delete_session;</div>
         }}
 
         document.getElementById('ins-node-id').textContent = 'KROK ' + nodeId;
-        document.getElementById('ins-type-badge').textContent = step.short_type || 'Akcja';
+        document.getElementById('ins-type-badge').textContent =
+          (step.short_type || 'Akcja') + (step.migration_status ? ' · ' + step.migration_status : '');
         document.getElementById('ins-title').textContent = step.label || step.summary;
-        document.getElementById('ins-summary').textContent = step.summary || 'Brak opisu.';
+        const limitations = [
+          ...(step.blocking_reasons || []),
+          ...(step.path_a_blocking_reasons || []).map(reason => 'Ścieżka A: ' + reason),
+          ...(step.path_b_blocking_reasons || []).map(reason => 'Ścieżka B: ' + reason),
+        ];
+        document.getElementById('ins-summary').textContent =
+          (step.summary || 'Brak opisu.') + (limitations.length ? '\\nBlokady: ' + limitations.join(' ') : '');
 
         const condGroup = document.getElementById('group-condition');
         if (step.condition_text) {{
@@ -1314,7 +1337,7 @@ apex_session.delete_session;</div>
         const readsBox = document.getElementById('ins-reads');
         if (step.reads && step.reads.length > 0) {{
           readsBox.innerHTML = step.reads.map(r =>
-            `<span class="tag-badge tag-read">&#128269; ${{r.display_name}} (<code>${{r.internal_name}}</code>)</span>`
+            `<span class="tag-badge tag-read">&#128269; ${{escapeHtml(r.display_name)}} (<code>${{escapeHtml(r.internal_name)}}</code>)</span>`
           ).join(' ');
         }} else {{
           readsBox.textContent = 'Brak (nie odczytuje pól)';
@@ -1324,7 +1347,7 @@ apex_session.delete_session;</div>
         const writesBox = document.getElementById('ins-writes');
         if (step.writes && step.writes.length > 0) {{
           writesBox.innerHTML = step.writes.map(w =>
-            `<span class="tag-badge tag-write">&#9998; ${{w.display_name}} (<code>${{w.internal_name}}</code>)</span>`
+            `<span class="tag-badge tag-write">&#9998; ${{escapeHtml(w.display_name)}} (<code>${{escapeHtml(w.internal_name)}}</code>)</span>`
           ).join(' ');
         }} else {{
           writesBox.textContent = 'Brak (nie zapisuje pól)';
@@ -1332,7 +1355,8 @@ apex_session.delete_session;</div>
 
         // Hints
         document.getElementById('ins-hint-univ').textContent = step.hint_universal || 'Brak dedykowanej wskazówki.';
-        document.getElementById('ins-hint-apex').textContent = step.plsql_code || step.hint_apex || '-- Standardowa procedura PL/SQL.';
+        document.getElementById('ins-hint-apex').textContent =
+          [step.hint_apex, step.plsql_code, step.reference_template].filter(Boolean).join('\\n\\n') || '-- Brak dedykowanej wskazówki APEX.';
 
         // Raw
         document.getElementById('ins-raw').textContent = (step.technical_lines && step.technical_lines.length > 0)
@@ -1376,7 +1400,7 @@ apex_session.delete_session;</div>
         const paramsTable = document.getElementById('apex-parameters-table');
         const variablesTable = document.getElementById('apex-variables-table');
         definition.textContent = spec
-          ? `${{spec.name}} · Static ID: ${{spec.static_id}} · Category: ${{spec.category}} · Wyzwalacze: ${{(spec.start_triggers || []).join(', ')}}`
+          ? `${{spec.name}} · Static ID: ${{spec.static_id}} · Category: ${{spec.category}} · Wyzwalacze: ${{(spec.start_triggers || []).join(', ')}} · Gotowość: ${{spec.migration_status || 'Wymaga weryfikacji'}} · Ścieżka A: ${{spec.path_a_status || 'Wymaga weryfikacji'}} · Ścieżka B: ${{spec.path_b_status || 'Wymaga weryfikacji'}}`
           : 'Brak wygenerowanej specyfikacji APEX Workflow.';
         activities.replaceChildren();
 
@@ -1519,12 +1543,12 @@ apex_session.delete_session;</div>
         wf.fields.forEach(f => {{
           const tr = document.createElement('tr');
           tr.innerHTML = `
-            <td><strong>${{f.display_name}}</strong></td>
-            <td><code>${{f.internal_name}}</code></td>
-            <td><span class="tag-badge tag-list">${{f.list_name || wf.source_list_name}}</span></td>
+            <td><strong>${{escapeHtml(f.display_name)}}</strong></td>
+            <td><code>${{escapeHtml(f.internal_name)}}</code></td>
+            <td><span class="tag-badge tag-list">${{escapeHtml(f.list_name || wf.source_list_name)}}</span></td>
             <td>${{f.is_read ? '<span class="tag-badge tag-read">TAK</span>' : '-'}}</td>
             <td>${{f.is_written ? '<span class="tag-badge tag-write">TAK</span>' : '-'}}</td>
-            <td><button class="copy-btn" data-copy="${{f.internal_name}}">Kopiuj</button></td>
+            <td><button class="copy-btn" data-copy="${{escapeHtml(f.internal_name)}}">Kopiuj</button></td>
           `;
           fieldsTbody.appendChild(tr);
         }});

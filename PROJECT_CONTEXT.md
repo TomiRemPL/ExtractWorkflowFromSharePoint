@@ -552,7 +552,7 @@ dedykowany handler.
 Punkt startowy dla kolejnego agenta/LLM:
 
 1. Przeczytaj `AGENTS.md`, potem ten plik (sekcje 4–5 format i architektura, 11–16 kolejne funkcje).
-2. Weryfikacja środowiska: `uv run pytest` → **81 passed** (stan 2026-11-06, sekcja 20).
+2. Weryfikacja środowiska: `uv run pytest` → **140 passed** (obsługa eksportu 008, sekcja 21).
 3. Regeneracja wyników: `uv run python tools\nwf_report\generate_report.py --input DaneZeSkryptu --output out`
    — tworzy 4 raporty `.md`, `index.md`, `walkthrough.md`, `pkg_shp_dispatcher.sql`, `nintex_params.sql`
    i `workflow-migration-manual.html`.
@@ -663,9 +663,20 @@ Wszystkie wyjścia generatora (raporty Markdown, portal HTML, `pkg_shp_dispatche
 - **`metadata_loader.FieldResolver.get_field_type(name, list_hint)`** — typ pola z uwzględnieniem
   listy. Kolejność źródeł: ListReferences, potem kolumny listy z metadanych witryny, potem kolumny witryny.
 - **`nintex_params.sql`** (`build_nintex_params_script`):
-  - Zakomentowany DDL tabeli (`WORKFLOW_STATIC_ID`, `P_VAR_01..10`, `P_NUM_01..10`).
-  - `MERGE` dla każdego workflow, na końcu `COMMIT`.
-  - `WHEN MATCHED` aktualizuje tylko znane wartości, więc nie nadpisuje wartości (np. nadawcy) uzupełnionych przez administratora.
+  - Zakomentowany, referencyjny DDL tabeli zgodny z podaną definicją: `ID` jako identity i klucz główny,
+    unikalny `WORKFLOW_STATIC_ID VARCHAR2(500)`, pola audytowe i `RESPONSIBLE`. Bazowe pola parametrów
+    to `P_VAR_01..04`, `P_NUM_01..04`, `P_DATE_01..04` i `P_CLOB_01..02`; wszystkie `C_*` mają typ
+    `VARCHAR2(4000)` (także `C_NUM_*`, `C_DATE_*` i `C_CLOB_*`).
+  - Zakomentowany DDL triggera `NINTEX_PARAMS_BIU` uzupełniającego obowiązkowe pola audytu przy `INSERT`
+    i `UPDATE`. Trigger musi być włączony przed uruchomieniem `MERGE`.
+  - `MERGE` dla każdego workflow, na końcu `COMMIT`. `WHEN MATCHED` aktualizuje tylko znane wartości,
+    więc nie nadpisuje pustych wartości (np. nadawcy) uzupełnionych przez administratora.
+  - Nowe wiersze otrzymują domyślne `IS_ACTIVE = 0`; `MERGE` nie zmienia tej flagi, a Additional Data
+    jej nie filtruje. Generator nie decyduje o aktywacji workflow.
+  - Obecnie automatycznie wykrywane są stałe adresy e-mail i mapowane kolejno do `P_VAR_nn` bez limitu.
+    Jeśli kolumny nie ma w bazowym DDL, raport i skrypt ostrzegają o wymaganym rozszerzeniu przed `MERGE`
+    i użyciem Additional Data. Administrator weryfikuje schemat i dodaje potrzebne kolumny lub typy;
+    generator nie odczytuje schematu bazy i nie wykonuje `ALTER TABLE`.
 - **`pkg_shp_dispatcher.sql`** (`report_builder.build_dispatcher_package`):
   - Odczytuje 17 pól payloadu i ignoruje foldery.
   - `CASE l_association WHEN '<tytuł>' THEN l_static_id := 'WF_…'`; nieznane `association` zwraca 200 z ostrzeżeniem.
@@ -687,4 +698,59 @@ Wszystkie wyjścia generatora (raporty Markdown, portal HTML, `pkg_shp_dispatche
   - Kolumna `apex_workflows.workflow_def_static_id` (przyjęta za zapytaniem użytkownika).
   - Nazwa aktywności „Invoke Workflow” w APEX 24.2.
   - Kompilacja wygenerowanego PL/SQL.
-  - Akcje kolekcji/pętli (`:X.COUNT`) generują pseudokod — zmienne workflow APEX są skalarne. Takie akcje nie występują w obecnych danych.
+  - Kolekcje/pętle JSON w CLOB i ich ograniczenia opisuje sekcja 21; kod wymaga testów na docelowej wersji Oracle/APEX.
+
+## 21. Eksport 008 — akcje Nintex, blokady i bezpieczeństwo raportów
+
+- Katalog `tools/nwf_report/action_catalog.py` zawiera 28 handlerów, w tym
+  `NWRunSqlAdapter`, `NWCreateItemWithContentTypesAdapter`, `SPMathAdapter`,
+  `NWDeleteMultipleItemAdapter`, `NWCollectDataAdapter` i `NWCancelWorkflowAdapter`.
+  Rozpoznanie typu nie oznacza gotowości do wykonania. Nieznane typy nadal używają fallbacku,
+  a `UNKNOWN_TYPES_SEEN` jest zerowany przy każdym uruchomieniu generatora.
+- Parser zachowuje `WorkflowType`, wielowartościowe parametry, metadane list i powiązania
+  kolumna–kolekcja. `tools/nwf_report/sensitive_data.py` usuwa rozpoznane poświadczenia z kopii
+  XML akcji przed budowaniem modelu; pominięcie jest widoczne i blokuje wykonanie. Ochrona jest
+  heurystyczna: nietypowe nazwy lub formaty sekretów wymagają dodatkowej kontroli.
+- SQL Server pozostaje źródłem danych. Wymagany jest uzgodniony Oracle Database Gateway,
+  uprawnienia i zweryfikowany przez administratora database link. Mapowanie wyników następuje
+  po nazwie lub aliasie projekcji `SELECT`, nie po kolejności XML. Dla wystąpień w eksporcie 008
+  rozpoznano 34 i 5 kolumn; w pierwszym 30 pozycji mapowań ma inną kolejność niż projekcja.
+  Raport i inspektor HTML zawierają **niewykonywalny szablon referencyjny** z jednym kursorem,
+  obsługą `NULL` i zamknięciem kursora również przy błędzie. Nie zawiera surowego SQL ani
+  poświadczeń; nazwa linku i zapytanie są placeholderami. Typy, wiązania, puste ciągi, uprawnienia
+  i zgodność Gateway wymagają ręcznej konfiguracji i testów integracyjnych. Akcja pozostaje zablokowana.
+- Tworzenie z typem zawartości opisuje listę, `Overwrite`, pola i konwersje oraz dostarcza
+  blokowany szablon payloadu. Nie zakłada zgodności typu zawartości ani `Overwrite` z istniejącym
+  `LCDT.SHP_API`; daty i liczby wymagają ręcznej konwersji. Pusta zmienna wyjściowa nie powoduje
+  wymyślenia ID. `mod` jest generowany tylko dla nieujemnych liczb całkowitych i dodatniego
+  dzielnika, z jawnym błędem dla pozostałych wartości.
+- `Query List`, masowa aktualizacja i usuwanie są zablokowane do potwierdzenia filtru,
+  mapowań i pełnej paginacji (`next_url`). Publiczne `SHP_API` nie udostępnia usuwania.
+  Nie generuje się niezawężonej aktualizacji ani wywołania nieistniejącego API.
+- `Collect Data` wymaga zadania APEX, formularza, mapowania odpowiedzi i wznowienia po jego
+  ukończeniu; synchroniczna ścieżka B nie udaje oczekiwania. `Cancel Workflow` dotyczy innych
+  instancji na bieżącym elemencie i wymaga potwierdzenia doboru instancji, uprawnień oraz
+  semantyki Nintex wykonywanej przy commit. Obie operacje są zablokowane.
+- Kolekcje `ArrayList` są modelowane jako tablice JSON w CLOB, indeksowane od zera. Tekstowe
+  `Get` i pętla ścieżki B zachowują `NULL`, kontrolują zakres i odrzucają nieobsługiwane typy
+  oraz pusty tekst, którego Oracle nie odróżnia bezpośrednio od `NULL`. `DateTime Get`,
+  niepotwierdzony `Break` i pętla ścieżki A wymagają ręcznej migracji lub weryfikacji.
+  Wygenerowane fragmenty nie zostały uruchomione na Oracle/APEX.
+- Blokady wspólne są umieszczane przed akcjami standardowymi, a dla blokady samej ścieżki A
+  używany jest osobny guard. Zablokowana ścieżka B zawiera wyłącznie błąd przed zapisami.
+  Kolizje znormalizowanych Static ID zmiennych, parametrów i pól także blokują obie ścieżki;
+  wymagają ręcznego mapowania. Kolizje Static ID samych aktywności pozostają otwartym tematem.
+- Workflow `Site` oraz brakujący lub nierozpoznany `WorkflowType` mają ręczną migrację startu,
+  nie są włączane do dyspozytora list i nie otrzymują standardowego kroku `GET_LIST_ITEM`.
+  Dla `Site` nie wywnioskowano harmonogramu. Tożsamość pól w raportach uwzględnia listę
+  i `InternalName`. Portal zabezpiecza osadzony JSON oraz renderowanie nazw pól jako tekst.
+- Testy: `uv run pytest` → **140 passed**; `python -m compileall` dla generatora zakończony
+  poprawnie. Lokalna kontrola eksportu 008 potwierdziła 8 workflow, 0 nieznanych typów, mapowania
+  SQL i pól oraz blokady A/B. Testy Edge offline na danych syntetycznych i wygenerowanym portalu
+  008 sprawdziły przełączanie A/B, status, `Site` i bezpieczne renderowanie pól; nie obejmowały
+  zewnętrznego skryptu Mermaid.
+- Wyniki dla 008 generuj do nowego ignorowanego katalogu, nie nadpisuj `out_008/`.
+  Istniejący eksport i starsze raporty mogą zawierać dane uwierzytelniające: ogranicz dostęp
+  i rozważ rotację zgodnie z polityką organizacji. Nie commituj danych ani katalogów wynikowych.
+  Testów integracyjnych Oracle, SQL Server, APEX i SharePoint nie wykonano; przed wdrożeniem
+  wymagają uzgodnionego środowiska, syntetycznych danych i odpowiednich uprawnień.

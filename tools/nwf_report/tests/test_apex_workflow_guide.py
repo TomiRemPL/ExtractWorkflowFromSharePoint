@@ -5,8 +5,8 @@ from xml.etree import ElementTree as ET
 
 from tools.nwf_report.html_builder import _generate_html
 from tools.nwf_report.metadata_loader import FieldResolver
-from tools.nwf_report.nwf_parser import ActionNode, FieldRef, ListReference, WorkflowModel
-from tools.nwf_report.report_builder import _build_mermaid_with_steps, build_report, build_workflow_data
+from tools.nwf_report.nwf_parser import ActionNode, FieldRef, ListReference, WorkflowModel, _parse_action
+from tools.nwf_report.report_builder import _build_mermaid_with_steps, build_dispatcher_package, build_report, build_workflow_data
 
 
 SOURCE_ID = "{AAAAAAAA-1111-2222-3333-444444444444}"
@@ -28,6 +28,7 @@ def _workflow(actions: list[ActionNode]) -> tuple[WorkflowModel, FieldResolver]:
         list_references=[source],
         actions=actions,
         source_path=Path("test.nwf"),
+        workflow_type="List",
     )
     return wf, FieldResolver([source], source_list_id=SOURCE_ID)
 
@@ -58,6 +59,256 @@ def test_set_variable_maps_to_execute_code_and_uses_bind_variable() -> None:
     assert "apex_workflow.set_variable" not in activity["plsql_code"]
     assert any(var["static_id"] == "STATUS" for var in spec["variables"])
     assert steps[0].node_id == activity["node_id"]
+
+
+def test_collection_variables_and_loop_transitions() -> None:
+    loop = _parse_action(ET.fromstring("""<NWActionConfig>
+      <Type>NWForEachLoopAdapter</Type><Enabled>true</Enabled><TLabel>Loop</TLabel><Parameters>
+        <Parameter Name="Target"><Variable Name="Items" Type="ArrayList" /></Parameter>
+        <Parameter Name="Value"><Variable Name="Item" Type="Text" /></Parameter>
+        <Parameter Name="Index"><Variable Name="Index" Type="Number" /></Parameter>
+        <Parameter Name="Break"><PrimitiveValue Value="false" /><Variable Name="" Type="Boolean" /></Parameter>
+      </Parameters><ChildActivities><NWActionConfig>
+        <Type>NWWriteToHistoryListAdapter</Type><Enabled>true</Enabled><TLabel>Body</TLabel>
+      </NWActionConfig></ChildActivities></NWActionConfig>"""))
+    after = ActionNode("NWWriteToHistoryListAdapter", t_label="After")
+    wf, resolver = _workflow([loop, after])
+
+    spec = build_workflow_data(wf, resolver)["apex_workflow_spec"]
+    activities = {activity["title"]: activity for activity in spec["activities"]}
+    variables = {variable["static_id"]: variable["data_type"] for variable in spec["variables"]}
+
+    assert variables["ITEMS"] == "CLOB"
+    assert variables["ITEM"] == "VARCHAR2"
+    assert variables["INDEX"] == "NUMBER"
+    assert any(edge["target_node_id"] == activities["Loop"]["node_id"] for edge in activities["Body"]["transitions"])
+    assert any(
+        edge["condition"] == "Po zakończeniu pętli" and edge["target_node_id"] == activities["After"]["node_id"]
+        for edge in activities["Loop"]["transitions"]
+    )
+
+
+def test_run_if_sequences_true_branch_and_bypasses_it_on_false() -> None:
+    first = ActionNode("NWWriteToHistoryListAdapter", t_label="First")
+    second = ActionNode("NWWriteToHistoryListAdapter", t_label="Second")
+    branch = ActionNode("WFSequenceAdapter", children=[first, second])
+    run_if = ActionNode("NWRunIf2Adapter", t_label="Condition", children=[branch])
+    after = ActionNode("NWWriteToHistoryListAdapter", t_label="After")
+    wf, resolver = _workflow([run_if, after])
+
+    spec = build_workflow_data(wf, resolver)["apex_workflow_spec"]
+    activities = {activity["title"]: activity for activity in spec["activities"]}
+    transitions = activities["Condition"]["transitions"]
+    assert any(edge["condition"] == "True" and edge["target_node_id"] == activities["First"]["node_id"] for edge in transitions)
+    assert any(edge["condition"] == "False" and edge["target_node_id"] == activities["After"]["node_id"] for edge in transitions)
+    assert any(edge["target_node_id"] == activities["Second"]["node_id"] for edge in activities["First"]["transitions"])
+    assert any(edge["target_node_id"] == activities["After"]["node_id"] for edge in activities["Second"]["transitions"])
+
+
+def test_conditional_at_end_of_loop_body_returns_to_loop_on_both_branches() -> None:
+    loop = _parse_action(ET.fromstring("""<NWActionConfig><Type>NWForEachLoopAdapter</Type><Enabled>true</Enabled>
+      <TLabel>Loop</TLabel><Parameters>
+        <Parameter Name="Target"><Variable Name="Items" Type="ArrayList" /></Parameter>
+        <Parameter Name="Value"><Variable Name="Item" Type="Text" /></Parameter>
+        <Parameter Name="Break"><PrimitiveValue Value="false" /><Variable Name="" /></Parameter>
+      </Parameters><ChildActivities><NWActionConfig>
+        <Type>NWRunIf2Adapter</Type><Enabled>true</Enabled><TLabel>Condition</TLabel>
+        <ChildActivities><NWActionConfig>
+          <Type>NWWriteToHistoryListAdapter</Type><Enabled>true</Enabled><TLabel>Body</TLabel>
+        </NWActionConfig></ChildActivities>
+      </NWActionConfig></ChildActivities></NWActionConfig>"""))
+    wf, resolver = _workflow([loop, ActionNode("NWWriteToHistoryListAdapter", t_label="After")])
+    spec = build_workflow_data(wf, resolver)["apex_workflow_spec"]
+    activities = {activity["title"]: activity for activity in spec["activities"]}
+
+    assert any(
+        edge["condition"] == "False" and edge["target_node_id"] == activities["Loop"]["node_id"]
+        for edge in activities["Condition"]["transitions"]
+    )
+    assert any(edge["target_node_id"] == activities["Loop"]["node_id"] for edge in activities["Body"]["transitions"])
+    assert not any(
+        edge["condition"] == "False" and edge["target_node_id"] == "stop"
+        for edge in activities["Condition"]["transitions"]
+    )
+
+
+def test_empty_run_if_has_true_and_false_exit_paths() -> None:
+    wf, resolver = _workflow([ActionNode("NWRunIf2Adapter", t_label="Condition")])
+    spec = build_workflow_data(wf, resolver)["apex_workflow_spec"]
+    condition = next(activity for activity in spec["activities"] if activity["title"] == "Condition")
+
+    assert {(edge["condition"], edge["target_node_id"]) for edge in condition["transitions"]} == {
+        ("True", "stop"), ("False", "stop")
+    }
+
+
+def test_if_else_empty_branch_at_end_reaches_workflow_end() -> None:
+    empty = ActionNode("WFSequenceAdapter", branch_label="Nie")
+    body = ActionNode("NWWriteToHistoryListAdapter", t_label="Body")
+    populated = ActionNode("WFSequenceAdapter", branch_label="Tak", children=[body])
+    condition = ActionNode("WFIfElseAdapter", t_label="Condition", children=[empty, populated])
+    wf, resolver = _workflow([condition])
+    spec = build_workflow_data(wf, resolver)["apex_workflow_spec"]
+    activities = {activity["title"]: activity for activity in spec["activities"]}
+
+    assert any(
+        edge["condition"] == "Nie" and edge["target_node_id"] == "stop"
+        for edge in activities["Condition"]["transitions"]
+    )
+    assert any(
+        edge["condition"] == "Tak" and edge["target_node_id"] == activities["Body"]["node_id"]
+        for edge in activities["Condition"]["transitions"]
+    )
+    assert any(edge["target_node_id"] == "stop" for edge in activities["Body"]["transitions"])
+
+
+def test_blocked_action_gates_both_paths_before_prior_write() -> None:
+    update = ActionNode(
+        "SPUpdateItemWithKeyAdapter",
+        field_refs=[FieldRef("Status", "Status_x0020_Pola", "Choice")],
+    )
+    cancel = ActionNode("NWCancelWorkflowAdapter", params={"WorkflowName": "Other"})
+    wf, resolver = _workflow([update, cancel])
+
+    data = build_workflow_data(wf, resolver)
+    spec = data["apex_workflow_spec"]
+    start, guard = spec["standard_activities"][:2]
+    assert start["transitions"][0]["target_node_id"] == guard["node_id"] == "migration_guard"
+    assert "RAISE_APPLICATION_ERROR" in guard["plsql_code"]
+    assert spec["path_a_status"] == "Zablokowana"
+    assert spec["path_b_status"] == "Zablokowana"
+    assert "RAISE_APPLICATION_ERROR" in spec["path_b"]["plsql_code"]
+    assert "update_list_item" not in spec["path_b"]["plsql_code"]
+    assert any(step["blocking_reasons"] for step in data["steps"] if step["short_type"] == "NWCancelWorkflowAdapter")
+    assert "**Zablokowane (obie ścieżki)**" in build_report(wf, resolver)
+
+
+def test_colliding_variable_static_ids_block_both_paths() -> None:
+    def set_variable(name: str) -> ActionNode:
+        return _parse_action(ET.fromstring(f"""<NWActionConfig>
+          <Type>SPSetVariableAdapter</Type><Enabled>true</Enabled><Parameters>
+            <Parameter Name="VariableName"><Variable Name="{name}" Type="Text" /></Parameter>
+            <Parameter Name="Value"><PrimitiveValue Value="test" /></Parameter>
+          </Parameters></NWActionConfig>"""))
+
+    update = ActionNode(
+        "SPUpdateItemWithKeyAdapter",
+        field_refs=[FieldRef("Status", "Status_x0020_Pola", "Choice")],
+    )
+    wf, resolver = _workflow([update, set_variable("Result A"), set_variable("Result-A")])
+    spec = build_workflow_data(wf, resolver)["apex_workflow_spec"]
+
+    assert spec["path_a_status"] == "Zablokowana"
+    assert spec["path_b_status"] == "Zablokowana"
+    assert any("RESULT_A" in reason for reason in spec["path_a_blocking_reasons"])
+    assert spec["standard_activities"][1]["node_id"] == "migration_guard"
+    assert "RAISE_APPLICATION_ERROR" in spec["path_b"]["plsql_code"]
+    assert "update_list_item" not in spec["path_b"]["plsql_code"]
+
+
+def test_sql_reference_template_is_visible_in_markdown_and_portal() -> None:
+    action = _parse_action(ET.fromstring("""<NWActionConfig><Type>NWRunSqlAdapter</Type><Enabled>true</Enabled>
+      <Parameters><Parameter Name="Query"><PrimitiveValue Value="SELECT A FROM T" /></Parameter></Parameters>
+      <ValueStorages><ValueStorageItems>
+        <ValueStorage ValueIdentifier="A" VariableName="Results" VariableType="ArrayList" />
+      </ValueStorageItems></ValueStorages></NWActionConfig>"""))
+    wf, resolver = _workflow([action])
+
+    data = build_workflow_data(wf, resolver)
+    step = next(step for step in data["steps"] if step["short_type"] == "NWRunSqlAdapter")
+    template = step["reference_template"]
+    report = build_report(wf, resolver)
+    html = _generate_html([data])
+
+    assert "Szablon referencyjny" in report
+    assert "DBMS_HS_PASSTHROUGH.GET_VALUE@" in report
+    assert "DBMS_HS_PASSTHROUGH.GET_VALUE@" in html
+    assert "step.reference_template" in html
+    assert "RAISE_APPLICATION_ERROR" in template
+    assert data["apex_workflow_spec"]["path_b_status"] == "Zablokowana"
+
+
+def test_variable_colliding_with_standard_or_field_id_blocks_execution() -> None:
+    for name in ("V_ITEM_ID", "P_PAYLOAD_BODY", "SP_STATUS_X0020_POLA"):
+        action = _parse_action(ET.fromstring(f"""<NWActionConfig><Type>SPSetVariableAdapter</Type>
+          <Enabled>true</Enabled><Parameters>
+            <Parameter Name="VariableName"><Variable Name="{name}" Type="Text" /></Parameter>
+            <Parameter Name="Value"><ListLookup LookupType="ThisItemLookup">
+              <Field Name="Status_x0020_Pola" Type="Choice" />
+            </ListLookup></Parameter>
+          </Parameters></NWActionConfig>"""))
+        wf, resolver = _workflow([action])
+        spec = build_workflow_data(wf, resolver)["apex_workflow_spec"]
+
+        assert any(name in reason and "Kolizja" in reason for reason in spec["path_a_blocking_reasons"])
+        assert spec["path_b_status"] == "Zablokowana"
+        assert spec["standard_activities"][1]["node_id"] == "migration_guard"
+
+
+def test_site_workflow_has_manual_start_and_no_list_dispatcher() -> None:
+    wf = WorkflowModel(
+        title="Site Example",
+        description="",
+        list_references=[],
+        actions=[ActionNode("NWWriteToHistoryListAdapter", params={"Message": "hello"})],
+        source_path=Path("site.nwf"),
+        workflow_type="Site",
+    )
+    resolver = FieldResolver([])
+
+    data = build_workflow_data(wf, resolver)
+    spec = data["apex_workflow_spec"]
+    assert data["workflow_type"] == "Site"
+    assert "ręcznej migracji" in spec["migration_status"]
+    assert [activity["node_id"] for activity in spec["standard_activities"]] == ["std_start", "migration_guard"]
+    assert "RAISE_APPLICATION_ERROR" in spec["standard_activities"][1]["plsql_code"]
+    assert "RAISE_APPLICATION_ERROR" in spec["path_b"]["plsql_code"]
+    assert not spec["parameters"]
+    assert "WHEN 'Site Example' THEN" not in build_dispatcher_package([data])
+    report = build_report(wf, resolver)
+    assert "Workflow witryny nie jest podłączany do dyspozytora" in report
+    assert "harmonogram nie został potwierdzony" in report
+    assert "GET_LIST_ITEM" not in report
+    html = _generate_html([data])
+    assert '"workflow_type": "Site"' in html
+    assert '"migration_guard"' in html
+    assert "Standardowy przebieg workflow listy w APEX" in html
+    assert "Workflow witryny (<code>Site</code>) wymaga ręcznej migracji uruchomienia" in html
+
+
+def test_missing_or_unknown_workflow_type_is_not_assumed_to_be_a_list() -> None:
+    for workflow_type in ("", "Unrecognized"):
+        wf, resolver = _workflow([ActionNode("NWWriteToHistoryListAdapter", params={"Message": "hello"})])
+        wf.workflow_type = workflow_type
+
+        data = build_workflow_data(wf, resolver)
+        spec = data["apex_workflow_spec"]
+        report = build_report(wf, resolver)
+        assert spec["path_a_status"] == "Zablokowana"
+        assert spec["path_b_status"] == "Zablokowana"
+        assert [activity["node_id"] for activity in spec["standard_activities"]] == ["std_start", "migration_guard"]
+        assert not spec["parameters"]
+        assert "GET_LIST_ITEM" not in report
+        assert "WHEN 'Test APEX Workflow' THEN" not in build_dispatcher_package([data])
+        assert "ręcznej" in report
+
+
+def test_loop_blocks_only_path_a_before_action_execution() -> None:
+    loop = _parse_action(ET.fromstring("""<NWActionConfig><Type>NWForEachLoopAdapter</Type><Enabled>true</Enabled>
+      <Parameters>
+        <Parameter Name="Target"><Variable Name="Items" Type="ArrayList" /></Parameter>
+        <Parameter Name="Value"><Variable Name="Item" Type="Text" /></Parameter>
+        <Parameter Name="Break"><PrimitiveValue Value="false" /><Variable Name="" /></Parameter>
+      </Parameters></NWActionConfig>"""))
+    wf, resolver = _workflow([loop])
+    spec = build_workflow_data(wf, resolver)["apex_workflow_spec"]
+
+    assert spec["path_a_status"] == "Zablokowana"
+    assert spec["path_b_status"] == "Wymaga weryfikacji"
+    assert spec["activities"][0]["node_id"] == "path_a_guard"
+    assert "RAISE_APPLICATION_ERROR" in spec["activities"][0]["plsql_code"]
+    assert spec["standard_activities"][-1]["transitions"][0]["target_node_id"] == "path_a_guard"
+    assert "FOR l_nintex_index IN 0" in spec["path_b"]["plsql_code"]
 
 
 def test_if_else_maps_to_switch_expression_and_branch_transitions() -> None:
@@ -168,7 +419,7 @@ def test_cross_list_lookup_reads_related_item_from_target_list() -> None:
             ),
         },
     )
-    wf = WorkflowModel("Lookup workflow", "", [source, target], [action], Path("lookup.nwf"))
+    wf = WorkflowModel("Lookup workflow", "", [source, target], [action], Path("lookup.nwf"), workflow_type="List")
     spec = build_workflow_data(wf, resolver)["apex_workflow_spec"]
     code = spec["activities"][0]["plsql_code"]
 

@@ -39,6 +39,18 @@ def test_parse_nwf_structure(tmp_path: Path) -> None:
     assert model.source_list.list_name == "Lista Testowa A"
     assert model.source_list.is_source_list is True
     assert len(model.actions) == 2
+    assert model.workflow_type == ""
+
+
+def test_parse_site_workflow_type(tmp_path: Path) -> None:
+    xml_content = build_exported_nwf_xml().replace(
+        "</ExportedWorkflowWithListMetdata>",
+        "<WorkflowType>Site</WorkflowType></ExportedWorkflowWithListMetdata>",
+    )
+    file_path = tmp_path / "site.nwf"
+    file_path.write_text(xml_content, encoding="utf-8")
+
+    assert parse_nwf(file_path).workflow_type == "Site"
 
 
 def test_parse_action_parameters() -> None:
@@ -69,6 +81,56 @@ def test_parse_action_parameters() -> None:
     assert param_elements["VariableName"].attrib["Name"] == "varTest"
     assert "Value" in param_elements
     assert param_elements["Value"].tag == "ListLookup"
+
+
+def test_parameter_metadata_and_multiple_values_are_preserved() -> None:
+    action_xml = """<NWActionConfig>
+      <Type>NWForEachLoopAdapter</Type><Enabled>true</Enabled>
+      <Parameters>
+        <Parameter Name="Target">
+          <RunNowOptions /><Variable Name="Items" Type="ArrayList" />
+        </Parameter>
+        <Parameter Name="Break">
+          <RunNowOptions /><PrimitiveValue Value="false" /><Variable Name="Stop" Type="Boolean" />
+        </Parameter>
+      </Parameters>
+    </NWActionConfig>"""
+    node = _parse_action(ET.fromstring(action_xml))
+
+    assert node.param_elements["Target"].get("Name") == "Items"
+    assert node.param_elements["Break"].get("Value") == "false"
+    assert [element.tag for element in node.parameter_values("Break")] == ["PrimitiveValue", "Variable"]
+    assert node.parameter_values("Break")[1].get("Name") == "Stop"
+
+
+def test_nested_sensitive_values_are_redacted_without_mutating_input_xml() -> None:
+    original = ET.fromstring("""<NWActionConfig><Type>WFSequenceAdapter</Type><Enabled>true</Enabled>
+      <ChildActivities><NWActionConfig><Type>SPSetVariableAdapter</Type><Enabled>true</Enabled>
+        <Parameters>
+          <Parameter Name="DbPassword"><PrimitiveValue Value="synthetic_secret" /></Parameter>
+          <Parameter Name="Value"><PrimitiveValue Value="UID=synthetic_user;Pwd=synthetic_password" /></Parameter>
+        </Parameters>
+        <FieldReferences><FieldReference Name="Password" Value="Password" Type="Text">
+          <PrimitiveValue Value="synthetic_field_secret" />
+        </FieldReference></FieldReferences>
+        <Message><Body><Part />UID=synthetic_tail_user;Pwd=synthetic_tail_password</Body></Message>
+      </NWActionConfig></ChildActivities></NWActionConfig>""")
+
+    parent = _parse_action(original)
+    child = parent.children[0]
+    original_xml = ET.tostring(original, encoding="unicode")
+    assert "synthetic_secret" in original_xml
+    assert child.raw_el is not None
+    safe_xml = ET.tostring(child.raw_el, encoding="unicode")
+    assert all(value not in safe_xml for value in (
+        "synthetic_secret", "synthetic_user", "synthetic_password", "synthetic_field_secret",
+        "synthetic_tail_user", "synthetic_tail_password"
+    ))
+    assert "parametr DbPassword" in child.redacted_fields
+    assert "parametr Value" in child.redacted_fields
+    assert "pole Password" in child.redacted_fields
+    assert not parent.redacted_fields
+    assert parent.raw_el is not None and "synthetic_user" not in ET.tostring(parent.raw_el, encoding="unicode")
 
 
 def test_branch_labels_for_if_else() -> None:

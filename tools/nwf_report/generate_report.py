@@ -49,14 +49,14 @@ def _build_walkthrough(items: list[dict], unknown_types: set[str]) -> str:
         "",
         "## Wykaz przepływów",
         "",
-        "| Lp. | Workflow | Plik źródłowy | Lista źródłowa | Liczba akcji | Raport Markdown | Status |",
-        "|---|---|---|---|---|---|---|",
+        "| Lp. | Workflow | Plik źródłowy | Lista źródłowa | Liczba akcji | Raport Markdown | Status | Gotowość migracji |",
+        "|---|---|---|---|---|---|---|---|",
     ]
 
     for idx, it in enumerate(items, start=1):
         report_link = f"[{it['out_name']}]({it['out_name']})" if it.get("out_name") != "-" else "-"
         lines.append(
-            f"| {idx} | {it['title']} | `{it['nwf_name']}` | {it['source_list']} | {it['actions_count']} | {report_link} | {it['status']} |"
+            f"| {idx} | {it['title']} | `{it['nwf_name']}` | {it['source_list']} | {it['actions_count']} | {report_link} | {it['status']} | {it.get('migration_status', '—')} |"
         )
 
     if unknown_types:
@@ -75,6 +75,7 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--input", required=True, help="Katalog z plikami .nwf i metadanymi JSON (DaneZeSkryptu)")
     parser.add_argument("--output", required=True, help="Katalog docelowy na raporty Markdown")
     args = parser.parse_args(argv)
+    UNKNOWN_TYPES_SEEN.clear()
 
     input_dir = Path(args.input)
     output_dir = Path(args.output)
@@ -113,10 +114,9 @@ def main(argv: list[str] | None = None) -> None:
 
         out_name = _safe_filename(wf.title or nwf_path.stem) + ".md"
         (output_dir / out_name).write_text(report_md, encoding="utf-8")
-        src_list = wf.source_list
-        src_name = src_list.list_name if src_list else "?"
+        src_name = wf_data["source_list_name"]
         index_lines.append(
-            f"- [{wf.title}]({out_name}) — lista: {src_name}"
+            f"- [{wf.title}]({out_name}) — lista: {src_name}; migracja: {wf_data['migration_status']}"
         )
         actions_count = len(list(iter_actions(wf.actions)))
         summary_items.append({
@@ -126,6 +126,7 @@ def main(argv: list[str] | None = None) -> None:
             "out_name": out_name,
             "actions_count": actions_count,
             "status": "OK",
+            "migration_status": wf_data["migration_status"],
         })
         print(f"OK: {nwf_path.name} -> {out_name}")
 
@@ -135,8 +136,10 @@ def main(argv: list[str] | None = None) -> None:
         index_lines.append("")
         index_lines.append("- `nintex_params.sql` — konfiguracja parametrów P_ (tabela `NINTEX_PARAMS`) czytanych w Additional Data każdego workflow.")
         index_lines.append("- `pkg_shp_dispatcher.sql` — endpoint ORDS dla `workflow.xaml`, uruchamiający workflow APEX przez `apex_workflow.start_workflow`.")
-        index_lines.append("- Każdy raport zawiera kroki standardowe 1–4 (Workflow Start, Retrieve Payload, `LCDT.SHP_API.GET_LIST_ITEM`, Parse) oraz ścieżki A (krok po kroku) i B (jedna aktywność Execute Code).")
+        index_lines.append("- Raport workflow listy opisuje kroki standardowe 1–4 (Workflow Start, Retrieve Payload, `LCDT.SHP_API.GET_LIST_ITEM`, Parse) oraz ścieżki A i B. Workflow witryny wymaga ręcznej migracji uruchomienia.")
 
+    index_lines.append("")
+    index_lines.append(f"- **Nierozpoznane typy akcji:** {len(UNKNOWN_TYPES_SEEN)}")
     if UNKNOWN_TYPES_SEEN:
         index_lines.append("")
         index_lines.append("## Typy akcji bez dedykowanego opisu (do uzupełnienia w action_catalog.py)")

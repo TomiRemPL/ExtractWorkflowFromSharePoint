@@ -42,7 +42,10 @@ def test_extractor_output_consumed_by_nwf_report(tmp_path: Path):
         return []
 
     mock_client.get_all.side_effect = mock_get_all
-    mock_client.export_nintex_workflow.return_value = build_exported_nwf_xml()
+    mock_client.export_nintex_workflow.return_value = build_exported_nwf_xml().replace(
+        "</ExportedWorkflowWithListMetdata>",
+        "<WorkflowType>List</WorkflowType></ExportedWorkflowWithListMetdata>",
+    )
 
     # 1. Run extractor
     data_dir = tmp_path / "DaneZeSkryptu_001"
@@ -67,6 +70,5 @@ def test_extractor_output_consumed_by_nwf_report(tmp_path: Path):
     report_text = report_md_path.read_text(encoding="utf-8")
     assert "### Ścieżka B — jedna aktywność Execute Code" in report_text
     assert "WHEN 'Test Workflow' THEN l_static_id := 'WF_TEST_WORKFLOW';" in report_text
-
 
 

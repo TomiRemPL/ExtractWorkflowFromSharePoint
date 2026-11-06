@@ -5,7 +5,7 @@ from .action_catalog import ActionDescription, describe_action, generate_plsql_s
 from .apex_naming import P_PAYLOAD_BODY, SHP_API, sql_literal, workflow_static_id
 from .apex_workflow_guide import format_markdown_apex_section, generate_apex_workflow_spec
 from .metadata_loader import FieldResolver
-from .nwf_parser import ActionNode, WorkflowModel
+from .nwf_parser import ActionNode, FieldRef, WorkflowModel
 
 
 @dataclass
@@ -172,15 +172,15 @@ def _extract_triggers_and_guid(actions: list[ActionNode]) -> tuple[list[str], st
     guid = ""
     for n in actions:
         if n.type.endswith("NWWorkflowVariablesAdapter"):
-            if n.params.get("StartManually") == "true":
+            if n.params.get("StartManually", "").lower() == "true":
                 triggers.append("ręcznie")
-            if n.params.get("StartOnCreate") == "true":
+            if n.params.get("StartOnCreate", "").lower() == "true":
                 triggers.append("utworzenie elementu")
-            if n.params.get("StartOnChange") == "true":
+            if n.params.get("StartOnChange", "").lower() == "true":
                 triggers.append("zmiana elementu")
             guid = n.params.get("Id", "")
             break
-    return triggers or ["ręcznie"], guid
+    return triggers or ["nie ustalono"], guid
 
 
 # Zgodnosc wsteczna: generator instrukcji PL/SQL przeniesiono do action_catalog (sciezka B).
@@ -191,6 +191,8 @@ def build_dispatcher_package(workflows_data: list[dict]) -> str:
     """Generuje pakiet pkg_shp_dispatcher: webhook SharePoint (workflow.xaml) -> apex_workflow.start_workflow."""
     case_branches = []
     for wf in workflows_data:
+        if wf.get("workflow_type", "").strip().casefold() != "list":
+            continue
         title = wf.get("title", "")
         spec = wf.get("apex_workflow_spec") or {}
         static_id = spec.get("static_id") or workflow_static_id(title or wf.get("source_file", ""))
@@ -324,6 +326,60 @@ END pkg_shp_dispatcher;
 /"""
 
 
+def _collect_report_fields(
+    wf: WorkflowModel, steps: list[Step], resolver: FieldResolver
+) -> tuple[dict[str, tuple[list[dict], list[dict]]], dict[tuple[str, str], dict]]:
+    source = wf.source_list
+    source_id = source.list_id if source else ""
+    source_name = source.list_name if source else "(nieznana)"
+    fields: dict[tuple[str, str], dict] = {}
+    step_fields: dict[str, tuple[list[dict], list[dict]]] = {}
+
+    def field_info(ref: FieldRef, fallback_list: str) -> tuple[tuple[str, str], dict]:
+        hint = ref.list_id or fallback_list
+        normalized = hint.strip("{}").casefold()
+        list_ref = next(
+            (lr for lr in wf.list_references if normalized and normalized in {
+                lr.list_id.strip("{}").casefold(), lr.list_name.casefold()
+            }),
+            None,
+        )
+        list_id = (list_ref.list_id or hint) if list_ref else hint
+        list_name = list_ref.list_name if list_ref else (resolver.get_list_name(hint) if hint else source_name)
+        key = (list_id.strip("{}").casefold(), ref.internal_name.casefold())
+        return key, {
+            "internal_name": ref.internal_name,
+            "display_name": resolver.get_title(ref.internal_name, list_id),
+            "field_type": resolver.get_field_type(ref.internal_name, list_id) or ref.field_type,
+            "list_id": list_id,
+            "list_name": list_name,
+        }
+
+    for step in steps:
+        reads_info: list[dict] = []
+        writes_info: list[dict] = []
+        target_id = step.node.params.get("ListId") or source_id
+        for refs, fallback, is_read, result in (
+            (step.desc.reads, source_id, True, reads_info),
+            (step.desc.writes, target_id, False, writes_info),
+        ):
+            for ref in refs:
+                if not ref.internal_name:
+                    continue
+                key, info = field_info(ref, fallback)
+                result.append(info)
+                aggregate = fields.setdefault(key, {**info, "is_read": False, "is_written": False})
+                aggregate["is_read" if is_read else "is_written"] = True
+        step_fields[step.node_id] = (reads_info, writes_info)
+
+    for lr in wf.list_references:
+        for ref in lr.fields:
+            if ref.internal_name:
+                key, info = field_info(ref, lr.list_id or lr.list_name)
+                fields.setdefault(key, {**info, "is_read": False, "is_written": False})
+    return step_fields, fields
+
+
 def build_workflow_data(wf: WorkflowModel, resolver: FieldResolver) -> dict:
     """Buduje ustrukturyzowany slownik z danymi workflow do celow serializacji JSON / raportu HTML."""
     mermaid_code, steps = _build_mermaid_with_steps(wf.actions, resolver)
@@ -332,12 +388,13 @@ def build_workflow_data(wf: WorkflowModel, resolver: FieldResolver) -> dict:
     variables = _extract_variables(wf.actions)
 
     src = wf.source_list
-    src_name = src.list_name if src else "(nieznana)"
+    is_site = wf.workflow_type.strip().casefold() == "site"
+    is_list = wf.workflow_type.strip().casefold() == "list"
+    src_name = src.list_name if src else ("(workflow witryny)" if is_site else "(nieznana)")
     src_id = src.list_id if src else ""
     other_lists = [lr.list_name for lr in wf.list_references if not lr.is_source_list]
 
-    all_reads: dict[str, dict] = {}
-    all_writes: dict[str, dict] = {}
+    step_fields, fields_dict = _collect_report_fields(wf, steps, resolver)
 
     steps_data: list[dict] = []
     steps_data.append({
@@ -345,50 +402,37 @@ def build_workflow_data(wf: WorkflowModel, resolver: FieldResolver) -> dict:
         "label": "Start",
         "type": "WorkflowStart",
         "short_type": "Start",
-        "summary": f"Uruchomienie workflow dla listy {src_name}.",
+        "summary": (
+            "Uruchomienie workflow witryny wymaga ręcznej migracji."
+            if is_site else f"Uruchomienie workflow dla listy {src_name}."
+            if is_list else "Typ workflow nie został potwierdzony; uruchomienie wymaga ręcznej migracji."
+        ),
         "branch_label": "",
         "depth": 0,
         "condition_text": "",
         "reads": [],
         "writes": [],
         "hint_universal": "Odtwórz te same reguły uruchomienia w docelowym mechanizmie orkiestracji.",
-        "hint_apex": f"Kroki standardowe APEX: Additional Data (NINTEX_PARAMS) → Retrieve Payload → {SHP_API}.GET_LIST_ITEM → Parse V_SHP_ANSWER.",
-        "plsql_code": apex_workflow_spec.standard_activities[2].plsql_code,
+        "hint_apex": (
+            "Workflow Site nie ma bieżącego elementu listy; uruchomienie należy zaprojektować ręcznie."
+            if is_site else f"Kroki standardowe APEX: Additional Data (NINTEX_PARAMS) → Retrieve Payload → {SHP_API}.GET_LIST_ITEM → Parse V_SHP_ANSWER."
+            if is_list else "Nie przypisuj kroków listy przed ręcznym potwierdzeniem typu workflow."
+        ),
+        "plsql_code": next(
+            (activity.plsql_code for activity in apex_workflow_spec.standard_activities if activity.node_id == "std_get_item"),
+            "",
+        ),
         "technical_lines": ["Triggery: " + ", ".join(triggers), f"Lista źródłowa: {src_name}", f"ID listy: {src_id}"],
         "is_structural": True,
         "enabled": True,
+        "migration_status": apex_workflow_spec.migration_status,
+        "blocking_reasons": list(dict.fromkeys(apex_workflow_spec.path_a_blocking_reasons + apex_workflow_spec.path_b_blocking_reasons)),
+        "path_a_blocking_reasons": apex_workflow_spec.path_a_blocking_reasons,
+        "path_b_blocking_reasons": apex_workflow_spec.path_b_blocking_reasons,
     })
     for s in steps:
         short_type = s.node.type.rsplit(".", 1)[-1]
-        reads_info = []
-        for r in s.desc.reads:
-            if not r.internal_name:
-                continue
-            title = resolver.get_title(r.internal_name, src_id)
-            reads_info.append({
-                "internal_name": r.internal_name,
-                "display_name": title,
-                "field_type": r.field_type,
-                "list_id": src_id,
-                "list_name": src_name,
-            })
-            all_reads[r.internal_name] = reads_info[-1]
-
-        writes_info = []
-        target_list_id = s.node.params.get("ListId") or src_id
-        target_list_name = src_name if target_list_id == src_id else target_list_id
-        for w in s.desc.writes:
-            if not w.internal_name:
-                continue
-            title = resolver.get_title(w.internal_name, target_list_id)
-            writes_info.append({
-                "internal_name": w.internal_name,
-                "display_name": title,
-                "field_type": w.field_type,
-                "list_id": target_list_id,
-                "list_name": target_list_name,
-            })
-            all_writes[w.internal_name] = writes_info[-1]
+        reads_info, writes_info = step_fields[s.node_id]
 
         steps_data.append({
             "node_id": s.node_id,
@@ -407,6 +451,15 @@ def build_workflow_data(wf: WorkflowModel, resolver: FieldResolver) -> dict:
             "technical_lines": s.desc.technical_lines,
             "is_structural": s.desc.is_structural,
             "enabled": s.node.enabled,
+            "migration_status": (
+                "Zablokowana" if s.desc.blocking_reasons else
+                "Ograniczona" if s.desc.path_a_blocking_reasons or s.desc.path_b_blocking_reasons else
+                "Wymaga weryfikacji"
+            ),
+            "blocking_reasons": s.desc.blocking_reasons,
+            "path_a_blocking_reasons": s.desc.path_a_blocking_reasons,
+            "path_b_blocking_reasons": s.desc.path_b_blocking_reasons,
+            "reference_template": s.desc.reference_template,
         })
     steps_data.append({
         "node_id": "stop",
@@ -427,37 +480,7 @@ def build_workflow_data(wf: WorkflowModel, resolver: FieldResolver) -> dict:
         "enabled": True,
     })
 
-    # Zbiorczy slownik pol
-    fields_dict: dict[str, dict] = {}
-    for internal_name in set(all_reads) | set(all_writes):
-        read_obj = all_reads.get(internal_name)
-        write_obj = all_writes.get(internal_name)
-        base = read_obj or write_obj
-        fields_dict[internal_name] = {
-            "internal_name": internal_name,
-            "display_name": base["display_name"] if base else resolver.get_title(internal_name),
-            "list_name": base["list_name"] if base else src_name,
-            "list_id": base["list_id"] if base else src_id,
-            "field_type": base.get("field_type", "") if base else "",
-            "is_read": internal_name in all_reads,
-            "is_written": internal_name in all_writes,
-        }
-
-    # Dolaczenie pol ze zdefiniowanych list references
-    for lr in wf.list_references:
-        for f in lr.fields:
-            if f.internal_name and f.internal_name not in fields_dict:
-                fields_dict[f.internal_name] = {
-                    "internal_name": f.internal_name,
-                    "display_name": f.name or resolver.get_title(f.internal_name, lr.list_id),
-                    "list_name": lr.list_name,
-                    "list_id": lr.list_id,
-                    "field_type": f.field_type,
-                    "is_read": False,
-                    "is_written": False,
-                }
-
-    sorted_fields = [fields_dict[k] for k in sorted(fields_dict.keys(), key=lambda x: fields_dict[x]["display_name"].lower())]
+    sorted_fields = sorted(fields_dict.values(), key=lambda item: (item["display_name"].casefold(), item["list_name"].casefold()))
 
     key = "".join(c if c.isalnum() or c in " _-." else "_" for c in (wf.title or wf.source_path.stem)).strip()
 
@@ -468,6 +491,8 @@ def build_workflow_data(wf: WorkflowModel, resolver: FieldResolver) -> dict:
         "source_file": wf.source_path.name,
         "source_list_name": src_name,
         "source_list_id": src_id,
+        "workflow_type": wf.workflow_type,
+        "migration_status": apex_workflow_spec.migration_status,
         "other_lists": other_lists,
         "triggers": triggers,
         "workflow_guid": guid,
@@ -495,6 +520,8 @@ def build_report(wf: WorkflowModel, resolver: FieldResolver) -> str:
     lines.append("## Podstawowe informacje")
     lines.append("")
     lines.append(f"- **Lista źródłowa:** {src.list_name if src else '(nieznana)'}")
+    lines.append(f"- **Typ workflow:** {wf.workflow_type or '(nie ustalono)'}")
+    lines.append(f"- **Gotowość migracji:** {apex_workflow_spec.migration_status}")
     lines.append(f"- **Plik źródłowy:** `{wf.source_path.name}`")
     other_lists = [lr.list_name for lr in wf.list_references if not lr.is_source_list]
     if other_lists:
@@ -520,6 +547,15 @@ def build_report(wf: WorkflowModel, resolver: FieldResolver) -> str:
         lines.append(f"{indent}- {node_id_badge}{branch_prefix}{step.desc.summary}{status}")
         if step.desc.hint_universal:
             lines.append(f"{indent}  > **Wskazówka migracji**: {step.desc.hint_universal}")
+        if step.desc.hint_apex and step.desc.hint_apex != step.desc.plsql_code:
+            lines.append(f"{indent}  > **Oracle APEX**: {step.desc.hint_apex}")
+        for path, reasons in (
+            ("obie ścieżki", step.desc.blocking_reasons),
+            ("ścieżka A", step.desc.path_a_blocking_reasons),
+            ("ścieżka B", step.desc.path_b_blocking_reasons),
+        ):
+            if reasons:
+                lines.append(f"{indent}  > **Zablokowane ({path})**: {'; '.join(reasons)}")
         if step.desc.plsql_code:
             lines.append(f"{indent}  ```plsql")
             for tl in step.desc.plsql_code.splitlines():
@@ -531,6 +567,14 @@ def build_report(wf: WorkflowModel, resolver: FieldResolver) -> str:
             lines.append(f"{indent}  ```")
             for tl in step.desc.technical_lines:
                 lines.append(f"{indent}  {tl}")
+            lines.append(f"{indent}  ```")
+            lines.append(f"{indent}  </details>")
+        if step.desc.reference_template:
+            lines.append(f"{indent}  <details><summary>Szablon referencyjny — nie uruchamiać bez migracji i testów</summary>")
+            lines.append("")
+            lines.append(f"{indent}  ```text")
+            for template_line in step.desc.reference_template.splitlines():
+                lines.append(f"{indent}  {template_line}")
             lines.append(f"{indent}  ```")
             lines.append(f"{indent}  </details>")
     lines.append("")
@@ -545,25 +589,31 @@ def build_report(wf: WorkflowModel, resolver: FieldResolver) -> str:
             lines.append(f"| `{v['name']}` | {v['type']} | {v['description']} |")
         lines.append("")
 
-    all_reads = {f.internal_name: f for s in steps for f in s.desc.reads if f.internal_name}
-    all_writes = {f.internal_name: f for s in steps for f in s.desc.writes if f.internal_name}
+    _, report_fields = _collect_report_fields(wf, steps, resolver)
+    used_fields = sorted(
+        (item for item in report_fields.values() if item["is_read"] or item["is_written"]),
+        key=lambda item: (item["internal_name"].casefold(), item["list_name"].casefold()),
+    )
 
     lines.append("## Pola odczytywane / zapisywane")
     lines.append("")
     lines.append("| Pole | Odczyt | Zapis |")
     lines.append("|---|---|---|")
-    for internal_name in sorted(set(all_reads) | set(all_writes)):
-        readable = resolver.resolve(internal_name)
-        lines.append(f"| {readable} | {'X' if internal_name in all_reads else ''} | {'X' if internal_name in all_writes else ''} |")
+    for item in used_fields:
+        readable = resolver.resolve(item["internal_name"], item["list_id"])
+        lines.append(f"| {readable} [{item['list_name']}] | {'X' if item['is_read'] else ''} | {'X' if item['is_written'] else ''} |")
     lines.append("")
 
     lines.append("### Słownik pól i identyfikatory techniczne")
     lines.append("")
     lines.append("| Nazwa biznesowa | SharePoint InternalName | Typ | Odczyt | Zapis |")
     lines.append("|---|---|---|---|---|")
-    for internal_name in sorted(set(all_reads) | set(all_writes)):
-        title = resolver.get_title(internal_name)
-        lines.append(f"| {title} | `{internal_name}` | Tekst/Ref | {'Tak' if internal_name in all_reads else '-'} | {'Tak' if internal_name in all_writes else '-'} |")
+    for item in used_fields:
+        lines.append(
+            f"| {item['display_name']} [{item['list_name']}] | `{item['internal_name']}` | "
+            f"{item['field_type'] or 'Tekst/Ref'} | {'Tak' if item['is_read'] else '-'} | "
+            f"{'Tak' if item['is_written'] else '-'} |"
+        )
     lines.append("")
 
     lines.append(format_markdown_apex_section(apex_workflow_spec))
@@ -572,7 +622,21 @@ def build_report(wf: WorkflowModel, resolver: FieldResolver) -> str:
     association = wf.title or wf.source_path.stem
     lines.append("## Integracja z wyzwalaczem SharePoint (workflow.xaml) & ORDS")
     lines.append("")
-    lines.append("Ten workflow jest wyzwalany automatycznie przez wyzwalacz SharePoint Designer (`workflow.xaml`), który wysyła żądanie `POST` do endpointu ORDS:")
+    if wf.workflow_type.strip().casefold() == "site":
+        lines.append(
+            "Workflow witryny nie jest podłączany do dyspozytora elementów listy. "
+            "Uruchomienie należy zmigrować ręcznie; harmonogram nie został potwierdzony."
+        )
+        lines.append("")
+        return "\n".join(lines)
+    if wf.workflow_type.strip().casefold() != "list":
+        lines.append(
+            "Typ workflow nie został potwierdzony. Nie podłączaj go do dyspozytora listy; "
+            "uruchomienie wymaga ręcznej weryfikacji i migracji."
+        )
+        lines.append("")
+        return "\n".join(lines)
+    lines.append("Po skonfigurowaniu zgodnego wyzwalacza listy SharePoint Designer (`workflow.xaml`) może wysyłać żądanie `POST` do endpointu ORDS:")
     lines.append("- **Endpoint ORDS:** `POST https://ilapex.{Environment}.creditagricole:8082/ords/shp/nintex/main`")
     lines.append(f"- **Klucz powiązania (`association`):** `{association}`")
     lines.append(f"- **Lista źródłowa (`list_name`):** `{src.list_name if src else '(nieznana)'}`")
