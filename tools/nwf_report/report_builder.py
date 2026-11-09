@@ -5,7 +5,7 @@ from .action_catalog import ActionDescription, describe_action, generate_plsql_s
 from .apex_naming import P_PAYLOAD_BODY, SHP_API, sql_literal, workflow_static_id
 from .apex_workflow_guide import format_markdown_apex_section, generate_apex_workflow_spec
 from .metadata_loader import FieldResolver
-from .nwf_parser import ActionNode, FieldRef, WorkflowModel
+from .nwf_parser import ActionNode, FieldRef, WorkflowModel, collect_workflow_variables
 
 
 @dataclass
@@ -38,9 +38,9 @@ def _build_mermaid_with_steps(actions: list[ActionNode], resolver: FieldResolver
         desc = describe_action(node, resolver)
         return _mermaid_label(desc.summary or node.t_label or node.type.rsplit(".", 1)[-1])
 
-    def connect(from_ids: list[str], to_id: str, label: str = "") -> None:
-        arrow = f" -- {label} -->" if label else " -->"
-        for fid in from_ids:
+    def connect(ends: list[tuple[str, str]], to_id: str) -> None:
+        for fid, label in ends:
+            arrow = f" -- {label} -->" if label else " -->"
             lines.append(f"  {fid}{arrow} {to_id}")
 
     def walk_tree_for_steps(nodes: list[ActionNode], depth: int = 0) -> None:
@@ -51,63 +51,60 @@ def _build_mermaid_with_steps(actions: list[ActionNode], resolver: FieldResolver
             steps.append(Step(node=node, desc=desc, depth=depth, node_id=nid))
             walk_tree_for_steps(node.children, depth + 1)
 
-    def walk(nodes: list[ActionNode], entry_ids: list[str], entry_label: str = "") -> list[str]:
-        current_ends = entry_ids
-        current_label = entry_label
+    def walk(nodes: list[ActionNode], entry: list[tuple[str, str]]) -> list[tuple[str, str]]:
+        """Zwraca koncowki przeplywu jako pary (id wezla, etykieta krawedzi wychodzacej)."""
+        current = entry
         for node in nodes:
             short_type = node.type.rsplit(".", 1)[-1]
             if short_type in ("WFSequenceAdapter", "WFParallelAdapter", "WFIfElseBranchAdapter"):
-                current_ends = walk(node.children, current_ends, current_label)
-                current_label = ""
+                current = walk(node.children, current)
                 continue
             if short_type == "WFIfElseAdapter":
                 nid = new_id()
                 node_id_map[id(node)] = nid
                 lines.append(f'  {nid}{{"{label_for(node)}"}}')
-                connect(current_ends, nid, current_label)
-                current_label = ""
-                branch_ends: list[str] = []
+                connect(current, nid)
+                branch_ends: list[tuple[str, str]] = []
                 for child in node.children:
-                    if child.children:
-                        branch_ends.extend(walk(child.children, [nid], child.branch_label))
-                    else:
-                        branch_ends.append(nid)  # pusta galaz - laczy sie bezposrednio dalej
-                current_ends = branch_ends or [nid]
+                    branch_entry = [(nid, child.branch_label)]
+                    # pusta galaz laczy sie bezposrednio dalej, z zachowaniem etykiety
+                    branch_ends.extend(walk(child.children, branch_entry) if child.children else branch_entry)
+                current = branch_ends or [(nid, "")]
+                continue
+            if short_type == "NWRunIf2Adapter":
+                nid = new_id()
+                node_id_map[id(node)] = nid
+                lines.append(f'  {nid}{{"{label_for(node)}"}}')
+                connect(current, nid)
+                true_ends = walk(node.children, [(nid, "Tak")]) if node.children else [(nid, "Tak")]
+                current = [(nid, "Nie"), *true_ends]
                 continue
             if short_type == "NWBusinessProcessAdapter":
-
                 nid = new_id()
                 node_id_map[id(node)] = nid
                 lines.append(f'  {nid}[["{label_for(node)}"]]')
-                connect(current_ends, nid, current_label)
-                current_label = ""
-                if node.children:
-                    current_ends = walk(node.children, [nid], "")
-                else:
-                    current_ends = [nid]
+                connect(current, nid)
+                current = walk(node.children, [(nid, "")]) if node.children else [(nid, "")]
                 continue
             if short_type == "NWForEachLoopAdapter":
                 nid = new_id()
                 node_id_map[id(node)] = nid
                 lines.append(f'  {nid}{{"{label_for(node)}"}}')
-                connect(current_ends, nid, current_label)
-                current_label = ""
+                connect(current, nid)
                 if node.children:
-                    loop_ends = walk(node.children, [nid], "Kolejny element")
-                    connect(loop_ends, nid, "Następny")
-                current_ends = [nid]
-                current_label = "Koniec pętli"
+                    loop_ends = walk(node.children, [(nid, "Kolejny element")])
+                    connect([(end_id, label or "Następny") for end_id, label in loop_ends], nid)
+                current = [(nid, "Koniec pętli")]
                 continue
             nid = new_id()
             node_id_map[id(node)] = nid
             lines.append(f'  {nid}["{label_for(node)}"]')
+            connect(current, nid)
+            # nieznane kontenery: nie gub akcji zagniezdzonych
+            current = walk(node.children, [(nid, "")]) if node.children else [(nid, "")]
+        return current
 
-            connect(current_ends, nid, current_label)
-            current_label = ""
-            current_ends = [nid]
-        return current_ends
-
-    final_ends = walk(actions, ["start"])
+    final_ends = walk(actions, [("start", "")])
     lines.append("  stop((Koniec))")
     connect(final_ends, "stop")
 
@@ -137,34 +134,11 @@ def _build_mermaid(actions: list[ActionNode], resolver: FieldResolver) -> str:
 
 def _extract_variables(actions: list[ActionNode]) -> list[dict[str, str]]:
     """Wyszukuje definicje i uzycia zmiennych workflow w akcjach."""
-    variables: dict[str, dict[str, str]] = {}
-
-    def walk(nodes: list[ActionNode]):
-        for n in nodes:
-            if n.type.endswith("SPSetVariableAdapter"):
-                var_el = n.param_elements.get("VariableName")
-                if var_el is not None:
-                    name = var_el.get("Name", "")
-                    if name:
-                        variables[name] = {
-                            "name": name,
-                            "type": var_el.get("Type", "Text"),
-                            "description": var_el.get("Description", "") or n.t_label or "Zmienna robocza",
-                        }
-            for p_val in n.params.values():
-                if "{WorkflowVariable:" in p_val:
-                    for part in p_val.split("{WorkflowVariable:")[1:]:
-                        v_name = part.split("}")[0].strip()
-                        if v_name and v_name not in variables:
-                            variables[v_name] = {
-                                "name": v_name,
-                                "type": "Text",
-                                "description": "Używana w wyrażeniach warunkowych/komunikatach",
-                            }
-            walk(n.children)
-
-    walk(actions)
-    return [variables[k] for k in sorted(variables.keys())]
+    variables = collect_workflow_variables(actions)
+    return [
+        {"name": name, "type": variables[name].nintex_type, "description": variables[name].description}
+        for name in sorted(variables)
+    ]
 
 
 def _extract_triggers_and_guid(actions: list[ActionNode]) -> tuple[list[str], str]:

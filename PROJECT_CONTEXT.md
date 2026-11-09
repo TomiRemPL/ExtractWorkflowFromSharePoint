@@ -259,7 +259,8 @@ Funkcje:
 
 ### `metadata_loader.py`
 
-- `ColumnInfo(title, internal_name, type_as_string="", formula="")`
+- `ColumnInfo` przechowuje m.in. `InternalName`, `EntityPropertyName`, identyfikator pola,
+  `LookupField`, `LookupList` i `SchemaXml` potrzebne do mapowania odczytów REST.
 - `ListInfo(title, list_id, columns: dict[internal_name_lower -> ColumnInfo])`
 - `SiteMetadata(lists_by_id, lists_by_title, site_columns)` — wypełniane przez
   `load_site_metadata(dane_dir)` z plików `00_kolumny_witryny.json` i `10_lista_*.json`.
@@ -290,14 +291,17 @@ Funkcje:
   - `SPSetFieldWithKeyAdapter` → ustawienie jednego pola (`LookupField`/`LookupFieldValue`), `writes`.
   - `SPSetVariableAdapter` → zapis do zmiennej workflow (`VariableName`/`Value` z `param_elements`,
     NIE z `params` — `Value` bywa `ListLookup`), `reads` = pola użyte w wyrażeniu wartości.
-  - `NWRunIf2Adapter` → "Wykonaj TYLKO JEŻELI ..." (warunek bez jawnego "else"), `reads`.
+  - `NWRunIf2Adapter` → "Wykonaj TYLKO JEŻELI ..." (warunek bez jawnego "else"), `reads`. Dzieci (zawsze
+    opakowane w `WFSequenceAdapter`) są rozpisywane w Mermaid (krawędzie `Tak`/`Nie`), otrzymują `node_id`,
+    a `plsql_code` zawiera pełny blok `IF ... THEN <kod dzieci> END IF;` (sekcja 22).
   - `NWCommitAdapter` → "Zapisz (zatwierdź) zebrane zmiany" (commit zmian zebranych przez
     wcześniejsze `SetField`/`UpdateItem` w tej samej "transakcji").
   - `NWBuildStringAdapter` → dynamiczne łączenie ciągów tekstowych/zmiennych (`Input` -> `Output`).
   - `NWBusinessProcessAdapter` → wydzielone etapy procesu biznesowego (`StageName`), kontener podrzędnych akcji.
   - `NWCalculateDateAdapter` → przesunięcia dat o dni/miesiące/godziny (`Date`, `Days`, `Months`, `Hours` -> `Output`).
   - `NWCollectionAdapter` → operacje na kolekcjach (Get, Count, Join, etc.).
-  - `NWCreateSiteSpecificItemAdapter` → tworzenie nowych rekordów na listach SharePoint (`shp_api.create_list_item`).
+  - `NWCreateSiteSpecificItemAdapter` → tworzenie nowych rekordów na listach SharePoint (`SHP_API.add_list_item`;
+    pola z `FieldReferences`, ID do zmiennej `Output` typu `Variable`).
   - `NWDelayForAdapter` → opóźnienia i wstrzymania wykonania (`DBMS_SESSION.SLEEP`).
   - `NWForEachLoopAdapter` → iteracje po elementach kolekcji (`Target`, `Value`), kontener pętli.
   - `NWQueryListAdapter` → kwerendy CAML po listach SharePoint z mapowaniem do zmiennych (`ValueStorage`).
@@ -552,7 +556,7 @@ dedykowany handler.
 Punkt startowy dla kolejnego agenta/LLM:
 
 1. Przeczytaj `AGENTS.md`, potem ten plik (sekcje 4–5 format i architektura, 11–16 kolejne funkcje).
-2. Weryfikacja środowiska: `uv run pytest` → **140 passed** (obsługa eksportu 008, sekcja 21).
+2. Weryfikacja środowiska: `uv run pytest -q` → **233 passed** (akcje warunkowe i blokady migracji, sekcja 22).
 3. Regeneracja wyników: `uv run python tools\nwf_report\generate_report.py --input DaneZeSkryptu --output out`
    — tworzy 4 raporty `.md`, `index.md`, `walkthrough.md`, `pkg_shp_dispatcher.sql`, `nintex_params.sql`
    i `workflow-migration-manual.html`.
@@ -632,14 +636,15 @@ Wszystkie wyjścia generatora (raporty Markdown, portal HTML, `pkg_shp_dispatche
      → `V_ITEM_ID`, `V_SITE_URL`, `V_LIST_TITLE`, `V_EDITOR`; puste wartości → `-20010` (FAULTED).
   3. *Invoke API* `LCDT` → `SHP_API` → `GET_LIST_ITEM`. Ręcznie wpisywany jest tylko `p_query`, który
      `build_shp_query` buduje automatycznie z pól czytanych przez workflow. Wynik trafia do `V_SHP_ANSWER`.
-     - Pola proste trafiają do `$select`.
+     - Pola proste trafiają do `$select` pod `EntityPropertyName`, jeśli dostępne.
      - User: `F/Title,F/EMail,F/Name` + `$expand`.
-     - Lookup: `F/Id,F/Title` + `$expand`.
+     - Lookup: `F/Id,F/<LookupField>` + `$expand`; kolumna dodatkowa korzysta z relacji
+       głównej wskazanej przez GUID `FieldRef` w `SchemaXml` (szczegóły w sekcji 23).
      - Bez pól: `$select=Id`.
      - `SendMessage` dodaje pole `Editor`.
   4. *Execute Code „Parse”* (`build_parse_code`) — `data.<pole>` z `V_SHP_ANSWER` do `SP_<InternalName>`.
      - User: `SP_F` (Title), `SP_F_EMAIL`, `SP_F_NAME`.
-     - Lookup: `SP_F` (Title) i `SP_F_ID` (NUMBER).
+     - Lookup: `SP_F` (wartość skonfigurowanego pola docelowego) i `SP_F_ID` (NUMBER).
      - Number: `get_number`.
      - DateTime: `TIMESTAMP WITH TIME ZONE` (UTC).
 - **Ścieżka A**: aktywność na każdą akcję Nintex (`spec.activities`, przejście „Ścieżka A” z `std_parse`).
@@ -655,10 +660,10 @@ Wszystkie wyjścia generatora (raporty Markdown, portal HTML, `pkg_shp_dispatche
   - Bieżący element to `:V_LIST_TITLE`/`:V_ITEM_ID`. Także `SPUpdateItemWithKey` bez `ListId` lub z `ListId` listy źródłowej.
   - Lookup jest zapisywany jako `'<pole>Id'`.
   - User jest zapisywany przez `LCDT.SHP_API.ensure_user_id`.
-  - Cross-list lookup z kluczem ID → `get_list_item`; z innym kluczem → `get_list_items` (`$top=1&$filter`).
-  - `Coercion` `LookupId…` na polu Lookup/User czyta `F/Id` zamiast `F/Title`.
+  - Cross-list lookup z kluczem ID → `get_list_item`; z innym kluczem lub nierozpoznaną listą → blokada i ręczna migracja (sekcja 22).
+  - `Coercion` `LookupId…` na polu Lookup/User czyta `F/Id` zamiast wartości pola docelowego.
   - `Delay` → natywna aktywność *Wait* (bez `DBMS_SESSION.SLEEP`).
-  - `StartWorkflow` → `apex_workflow.start_workflow` z `P_PAYLOAD_BODY`.
+  - `StartWorkflow` bez oczekiwania → `apex_workflow.start_workflow` z `P_PAYLOAD_BODY`; oczekiwanie blokuje ścieżkę B i wymaga konfiguracji `Invoke Workflow` w ścieżce A.
   - `SendMessage` → `apex_mail.send` z `p_to => :P_EMAIL_*`, `p_from => :P_EMAIL_FROM`.
 - **`metadata_loader.FieldResolver.get_field_type(name, list_hint)`** — typ pola z uwzględnieniem
   listy. Kolejność źródeł: ListReferences, potem kolumny listy z metadanych witryny, potem kolumny witryny.
@@ -754,3 +759,81 @@ Wszystkie wyjścia generatora (raporty Markdown, portal HTML, `pkg_shp_dispatche
   i rozważ rotację zgodnie z polityką organizacji. Nie commituj danych ani katalogów wynikowych.
   Testów integracyjnych Oracle, SQL Server, APEX i SharePoint nie wykonano; przed wdrożeniem
   wymagają uzgodnionego środowiska, syntetycznych danych i odpowiednich uprawnień.
+
+## 22. Akcje warunkowe, operatory warunków i tokeny `Common` — 2026-11-07
+
+- **Błąd naprawiony:** `report_builder._build_mermaid_with_steps.walk` nie miał gałęzi dla
+  `NWRunIf2Adapter`, więc dzieci RunIf nie trafiały do Mermaid, nie dostawały `node_id` (brak `[nX]`
+  w raporcie, puste cele przejść ``True → `` `` w przewodniku APEX ścieżki A), a `plsql_code` zawierał
+  tylko placeholder `-- Akcje warunkowe`. `node_id` kroków pochodzą WYŁĄCZNIE z `walk`.
+- `walk` zwraca końce jako pary `(id, etykieta)`: RunIf = romb, dzieci z krawędzią `Tak`, obejście `Nie`;
+  puste gałęzie IfElse zachowują etykietę; nieznane kontenery także rozpisują dzieci.
+  Strukturalne `WFSequenceAdapter` nie dostają `node_id` (tak jak gałęzie IfElse).
+- `action_catalog._conditional_plsql` generuje pełne `IF/ELSE/END IF` z kodem dzieci dla RunIf i IfElse
+  (używane przez `describe_action` i ścieżkę B). Blokady dzieci NIE są agregowane w rodzicu
+  (`collect_blocking_reasons` rekurencyjnie zbiera je z dzieci).
+- Warunki `NWConditionConfig` (`_plsql_condition`, `_condition_parts` pomija `<Coercion>`):
+  `IsEmpty`/`Equal ''` → `IS NULL`; `NotIsEmpty`/`NotEqual ''` → `IS NOT NULL`;
+  `NotEqual` z niepustym literałem → `(l IS NULL OR l != r)`; `Contains`/`NotContains` → `INSTR`,
+  `StartsWith` → `INSTR = 1`, `EndsWith` → `SUBSTR`. Brakujący lub nierozpoznany operator,
+  typ warunku albo nieobsługiwana wartość blokują migrację. Semantyka NULL dla wszystkich
+  dynamicznych porównań nie została potwierdzona.
+- Wartości specjalne: `SpecialReference` (nazwa w tekście elementu) `CurrentDate` → `TRUNC(SYSDATE)`,
+  `CurrentTime` → `SYSDATE`; `WorkflowContextData Name="StartDate"` / `{Common:StartDate}` →
+  `SYSTIMESTAMP /* przybliżenie */` (czas kroku, nie startu workflow). `{Common:WebUrl}` →
+  `:V_SITE_URL`, `{Common:ItemUrl}` → URL `listform.aspx?PageType=4&ListId=..&ID=` listy źródłowej;
+  adres wymaga potwierdzenia integracyjnego. Daty w tekście są formatowane przez `TO_CHAR`.
+  Nieprzetłumaczone tokeny `{...:...}` w kodzie, poza komentarzami, blokują akcję.
+- `SPUpdateItemWithKeyAdapter`: klucz jest czytany z `param_elements["LookupFieldValue"]` (`params`
+  przechowuje tylko `PrimitiveValue`). Klucz ID → bind/`TO_NUMBER`; tekstowy lub liczbowy klucz
+  innego pola → `SHP_API.get_list_items` z `$select=Id&$top=2&$filter=<pole>%20eq%20...`.
+  Tekst jest escapowany dla OData i kodowany `UTL_URL.escape`, a liczby używają `TO_CHAR(..., 'TM9', ...)`.
+  Brak definicji klucza blokuje migrację; pusty klucz w czasie wykonania lub brak elementu → `-20094`;
+  wiele wyników lub `next_url` → `-20095`. Nieznana lista, typ albo nieobsługiwana nazwa pola filtru
+  blokują migrację.
+- `CrossItemLookup` po ID korzysta z `get_list_item`; nierozpoznana lista docelowa oraz klucz
+  inny niż ID blokują obie ścieżki. Ten drugi wariant wymaga osobnego odwzorowania kodowania OData,
+  typu, pustego klucza i semantyki wielu wyników; nie używaj starego przykładu z `$top=1`.
+- `SPSetFieldWithKeyAdapter` czyta `Variable`/`ListLookup` z `param_elements`; brak wartości blokuje
+  akcję, a jawna pusta wartość jest dozwolona. Aktualizowanie i tworzenie elementów rozróżnia pola listy
+  źródłowej i docelowej; brak mapowania pól blokuje oba typy akcji, a brak ustalonej listy blokuje tworzenie.
+  `NWBuildStringAdapter` używa rzeczywistej zmiennej `Output` albo blokuje akcję.
+- `SP_*` jest zasilane podczas początkowego pobrania elementu i nie jest automatycznie odświeżane
+  po jego aktualizacji. `collect_blocking_reasons` blokuje obie ścieżki, gdy wykryje możliwy odczyt
+  pola bieżącego elementu po jego zapisie; uwzględnia gałęzie, kolejne iteracje, równoległość oraz
+  kontekst listy. Aktualizacja po kluczu w tej samej liście jest traktowana zachowawczo jako możliwa
+  modyfikacja bieżącego elementu. Nie wykrywa wszystkich pośrednich zmian powodowanych przez SharePoint
+  lub inne procesy. Docelowe rozwiązanie wymaga ponownego `GET_LIST_ITEM` i parsowania pól po zapisie
+  oraz testów integracyjnych; blokady nie należy pomijać bez ręcznej weryfikacji.
+- `nwf_parser.collect_workflow_variables` dostarcza wspólną listę zmiennych raportom i przewodnikowi
+  APEX: obejmuje parametry, `ValueStorage`, mapowania pól, warunki oraz tokeny w wiadomościach.
+  Źródłowy typ Nintex pozostaje w raporcie, a przewodnik mapuje go na typ APEX.
+- `NWStartWorkflow2Adapter` wymaga ustalonego celu i rozpoznanej wartości `WaitForComplete`
+  (`true`/`false` lub `1`/`0`). Gdy oczekiwanie jest włączone, ścieżka A wymaga jego konfiguracji
+  w `Invoke Workflow`, natomiast ścieżka B jest zablokowana (samo `start_workflow` nie czeka).
+  Workflow `Site` ma zablokowane obie ścieżki. Przykładowy `Invoke Workflow` może zawierać w tym
+  kontekście niezadeklarowane bindy `P_PAYLOAD_BODY` i `V_ITEM_ID`; wymaga ręcznego odwzorowania,
+  a blokady startu nie wolno usuwać przed potwierdzeniem kontekstu.
+- Testy: `tools/nwf_report/tests/test_conditional_actions.py` i pozostałe testy projektu;
+  `uv run pytest -q` → **233 passed**. Nie wykonano integracyjnych testów Oracle/APEX ani SharePoint.
+- Otwarte: `NWQueryListAdapter`, pętla ForEach w ścieżce A, kolekcje `DateTime`, bezpieczny
+  `CrossItemLookup` po kluczu innym niż ID oraz potwierdzenie semantyki dat, URL i typów danych.
+
+## 23. Pola Lookup w zapytaniach REST — 2026-11-09
+
+- `FieldResolver.resolve_rest_field` korzysta z metadanych konkretnej listy. Nazwę REST bierze
+  z `EntityPropertyName`, a wartość Lookup z `LookupField` / `ShowField` i `EntityPropertyName`
+  odpowiedniej kolumny listy docelowej.
+- Dodatkowa kolumna Lookup ma w `SchemaXml` atrybut `FieldRef` zawierający GUID pola głównego.
+  `$select` i `$expand` używają jego nazwy REST, a `Parse` odczytuje właściwe pole z tej relacji.
+  Zmienne `SP_*` nadal powstają z oryginalnego `InternalName` kolumny Nintex. Wspólne relacje
+  i pola `Id` są deduplikowane. Ta sama reguła dotyczy `CrossItemLookup`.
+- Nieguidowe wartości `FieldRef` pól systemowych (np. `ID` lub `DocId`) nie oznaczają relacji
+  dodatkowej: zachowane jest dotychczasowe mapowanie i raport zawiera ostrzeżenie.
+- Brak lub niejednoznaczność pola głównego, niespójne listy, brak pola docelowego dodatkowego
+  Lookup albo błędny `SchemaXml` blokują migrację i pomijają niepoprawne pole w zapytaniu.
+  Brak niektórych metadanych REST skutkuje ostrzeżeniem i zachowuje wcześniejszy fallback.
+- Testy regresyjne: `tools/nwf_report/tests/test_rest_lookup_fields.py`. Odczyty wymagają
+  nadal testu integracyjnego na docelowym SharePoint. Zapisy pól, w tym przypadki, w których
+  `EntityPropertyName` różni się od `InternalName`, oraz pola wielowartościowe wymagają
+  osobnej weryfikacji.

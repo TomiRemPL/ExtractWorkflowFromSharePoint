@@ -276,6 +276,59 @@ def test_site_workflow_has_manual_start_and_no_list_dispatcher() -> None:
     assert "Workflow witryny (<code>Site</code>) wymaga ręcznej migracji uruchomienia" in html
 
 
+def test_site_child_workflow_start_is_guarded_before_execution() -> None:
+    wf = WorkflowModel(
+        title="Site Example",
+        description="",
+        list_references=[],
+        actions=[ActionNode("NWStartWorkflow2Adapter", params={"AssociationId": "Child"})],
+        source_path=Path("site.nwf"),
+        workflow_type="Site",
+    )
+    spec = build_workflow_data(wf, FieldResolver([]))["apex_workflow_spec"]
+    start, guard = spec["standard_activities"]
+
+    assert start["transitions"][0]["target_node_id"] == guard["node_id"] == "migration_guard"
+    assert not guard["transitions"]
+    assert spec["path_a_status"] == spec["path_b_status"] == "Zablokowana"
+    assert "RAISE_APPLICATION_ERROR" in spec["path_b"]["plsql_code"]
+    assert "apex_workflow.start_workflow(" not in spec["path_b"]["plsql_code"]
+
+
+def test_waiting_child_workflow_blocks_asynchronous_path_b() -> None:
+    for wait_value in ("true", " TRUE ", "1"):
+        wf, resolver = _workflow([
+            ActionNode("NWStartWorkflow2Adapter", params={"AssociationId": "Child", "WaitForComplete": wait_value})
+        ])
+        spec = build_workflow_data(wf, resolver)["apex_workflow_spec"]
+
+        assert spec["path_a_status"] == "Wymaga weryfikacji"
+        assert spec["path_b_status"] == "Zablokowana"
+        assert any("oczekiwania" in reason for reason in spec["path_b_blocking_reasons"])
+        assert "RAISE_APPLICATION_ERROR" in spec["path_b"]["plsql_code"]
+        assert "apex_workflow.start_workflow(" not in spec["path_b"]["plsql_code"]
+        assert spec["activities"][0]["activity_type"] == "Invoke Workflow"
+        assert "RAISE_APPLICATION_ERROR" in spec["activities"][0]["plsql_code"]
+
+
+def test_child_workflow_requires_target_and_known_wait_mode() -> None:
+    for params in ({"WaitForComplete": "false"}, {"AssociationId": "Child", "WaitForComplete": "unknown"}):
+        wf, resolver = _workflow([ActionNode("NWStartWorkflow2Adapter", params=params)])
+        spec = build_workflow_data(wf, resolver)["apex_workflow_spec"]
+        assert spec["path_a_status"] == spec["path_b_status"] == "Zablokowana"
+        assert spec["standard_activities"][1]["node_id"] == "migration_guard"
+        assert "apex_workflow.start_workflow(" not in spec["path_b"]["plsql_code"]
+
+
+def test_child_workflow_boolean_zero_keeps_asynchronous_path_b() -> None:
+    wf, resolver = _workflow([
+        ActionNode("NWStartWorkflow2Adapter", params={"AssociationId": "Child", "WaitForComplete": "0"})
+    ])
+    spec = build_workflow_data(wf, resolver)["apex_workflow_spec"]
+    assert spec["path_a_status"] == spec["path_b_status"] == "Wymaga weryfikacji"
+    assert "apex_workflow.start_workflow(" in spec["path_b"]["plsql_code"]
+
+
 def test_missing_or_unknown_workflow_type_is_not_assumed_to_be_a_list() -> None:
     for workflow_type in ("", "Unrecognized"):
         wf, resolver = _workflow([ActionNode("NWWriteToHistoryListAdapter", params={"Message": "hello"})])

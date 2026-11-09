@@ -154,6 +154,10 @@ def test_describe_create_site_specific_item(empty_resolver: FieldResolver) -> No
         enabled=True,
         b_label="Zadania_DORA",
         params={"Output": "NoweZadanieID"},
+        raw_el=ET.fromstring(
+            '<NWActionConfig><FieldReferences><FieldReference Value="Title" Type="Text">'
+            '<PrimitiveValue Value="Test" /></FieldReference></FieldReferences></NWActionConfig>'
+        ),
     )
     desc = describe_action(node, empty_resolver)
     assert "Zadania_DORA" in desc.summary

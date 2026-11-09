@@ -10,6 +10,9 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any
+from uuid import UUID
+from xml.etree import ElementTree as ET
 
 
 @dataclass
@@ -18,6 +21,19 @@ class ColumnInfo:
     internal_name: str
     type_as_string: str = ""
     formula: str = ""
+    field_id: str = ""
+    entity_property_name: str = ""
+    lookup_field: str = ""
+    lookup_list: str = ""
+    schema_xml: str = ""
+
+
+@dataclass(frozen=True)
+class RestFieldMapping:
+    property_name: str
+    lookup_value: str = "Title"
+    error: str = ""
+    warnings: tuple[str, ...] = ()
 
 
 @dataclass
@@ -43,6 +59,20 @@ def _load_json(path: Path):
         return json.load(fh)
 
 
+def _column_info(col: dict[str, Any]) -> ColumnInfo:
+    return ColumnInfo(
+        title=col.get("Title", ""),
+        internal_name=col.get("InternalName", ""),
+        type_as_string=col.get("TypeAsString", ""),
+        formula=col.get("Formula", "") or "",
+        field_id=col.get("Id", "") or "",
+        entity_property_name=col.get("EntityPropertyName", "") or "",
+        lookup_field=col.get("LookupField", "") or "",
+        lookup_list=col.get("LookupList", "") or "",
+        schema_xml=col.get("SchemaXml", "") or "",
+    )
+
+
 def load_site_metadata(dane_dir: str | Path) -> SiteMetadata:
     dane_dir = Path(dane_dir)
     meta = SiteMetadata()
@@ -50,12 +80,7 @@ def load_site_metadata(dane_dir: str | Path) -> SiteMetadata:
     site_columns_path = dane_dir / "00_kolumny_witryny.json"
     if site_columns_path.exists():
         for col in _load_json(site_columns_path):
-            info = ColumnInfo(
-                title=col.get("Title", ""),
-                internal_name=col.get("InternalName", ""),
-                type_as_string=col.get("TypeAsString", ""),
-                formula=col.get("Formula", "") or "",
-            )
+            info = _column_info(col)
             meta.site_columns[info.internal_name.lower()] = info
 
     for lista_path in sorted(dane_dir.glob("10_lista_*.json")):
@@ -68,12 +93,7 @@ def load_site_metadata(dane_dir: str | Path) -> SiteMetadata:
         title = lista.get("Title", "")
         list_info = ListInfo(title=title, list_id=list_id)
         for col in data.get("kolumny", []):
-            info = ColumnInfo(
-                title=col.get("Title", ""),
-                internal_name=col.get("InternalName", ""),
-                type_as_string=col.get("TypeAsString", ""),
-                formula=col.get("Formula", "") or "",
-            )
+            info = _column_info(col)
             list_info.columns[info.internal_name.lower()] = info
         if list_id:
             meta.lists_by_id[_norm_guid(list_id)] = list_info
@@ -129,6 +149,116 @@ class FieldResolver:
                 self._by_list_and_name[lr.list_name.lower()] = per_list
                 self._types_by_list[lr.list_name.lower()] = per_list_types
         self._site_metadata = site_metadata or SiteMetadata()
+
+    def _site_list(self, list_hint: str) -> ListInfo | None:
+        if not list_hint:
+            return None
+        return (
+            self._site_metadata.lists_by_id.get(_norm_guid(list_hint))
+            or self._site_metadata.lists_by_title.get(list_hint.lower())
+        )
+
+    def resolve_rest_field(
+        self, internal_name: str, list_hint: str = "", *, lookup: bool = False
+    ) -> RestFieldMapping:
+        """Resolve the REST property and displayed lookup field using list-specific metadata."""
+        effective_list = list_hint or self.source_list_id or self.source_list_name
+        list_info = self._site_list(effective_list)
+        column = list_info.columns.get(internal_name.lower()) if list_info else None
+        if list_info is None or column is None:
+            return RestFieldMapping(
+                internal_name,
+                warnings=(f"Brak metadanych REST pola {internal_name}; przyjęto InternalName.",),
+            )
+
+        property_name = column.entity_property_name or column.internal_name
+        warnings: list[str] = []
+        if not column.entity_property_name:
+            warnings.append(f"Brak EntityPropertyName pola {internal_name}; przyjęto InternalName.")
+        if not lookup:
+            return RestFieldMapping(property_name, warnings=tuple(warnings))
+
+        attributes: dict[str, str] = {}
+        if column.schema_xml:
+            try:
+                attributes = ET.fromstring(column.schema_xml).attrib
+            except ET.ParseError as exc:
+                return RestFieldMapping(
+                    property_name,
+                    error=f"Niepoprawny SchemaXml pola {internal_name}: {exc}; wymagana ręczna migracja.",
+                    warnings=tuple(warnings),
+                )
+
+        field_ref = attributes.get("FieldRef", "")
+        parent: ColumnInfo | None = None
+        if field_ref:
+            try:
+                parent_id = str(UUID(field_ref.strip().strip("{}")))
+            except ValueError:
+                warnings.append(
+                    f"Pole {internal_name} ma systemowy FieldRef {field_ref}; "
+                    "dotychczasowe mapowanie Lookup wymaga ręcznej weryfikacji."
+                )
+                return RestFieldMapping(property_name, warnings=tuple(warnings))
+            parents = [
+                candidate for candidate in list_info.columns.values()
+                if candidate.field_id and _norm_guid(candidate.field_id) == parent_id
+            ]
+            if len(parents) != 1 or parents[0].internal_name.lower() == internal_name.lower():
+                return RestFieldMapping(
+                    property_name,
+                    error=f"Nie ustalono głównego pola Lookup dla {internal_name} (FieldRef: {field_ref}).",
+                    warnings=tuple(warnings),
+                )
+            parent = parents[0]
+            if parent.type_as_string and not parent.type_as_string.lower().startswith("lookup"):
+                return RestFieldMapping(
+                    property_name,
+                    error=f"Główne pole {parent.internal_name} dla {internal_name} nie jest polem Lookup.",
+                    warnings=tuple(warnings),
+                )
+            if column.lookup_list and parent.lookup_list and (
+                _norm_guid(column.lookup_list) != _norm_guid(parent.lookup_list)
+            ):
+                return RestFieldMapping(
+                    property_name,
+                    error=f"Pola {internal_name} i {parent.internal_name} wskazują różne listy Lookup.",
+                    warnings=tuple(warnings),
+                )
+            property_name = parent.entity_property_name or parent.internal_name
+            if not parent.entity_property_name:
+                warnings.append(
+                    f"Brak EntityPropertyName głównego pola {parent.internal_name}; przyjęto InternalName."
+                )
+
+        lookup_value = column.lookup_field or attributes.get("ShowField", "")
+        if not lookup_value:
+            if parent:
+                return RestFieldMapping(
+                    property_name,
+                    error=f"Nie ustalono pola docelowego Lookup dla {internal_name}.",
+                    warnings=tuple(warnings),
+                )
+            lookup_value = "Title"
+            warnings.append(f"Nie ustalono pola docelowego Lookup dla {internal_name}; przyjęto Title.")
+
+        target_hint = column.lookup_list or (parent.lookup_list if parent else "")
+        target_list = self._site_list(target_hint)
+        target_column = target_list.columns.get(lookup_value.lower()) if target_list else None
+        if target_column:
+            if target_column.entity_property_name:
+                lookup_value = target_column.entity_property_name
+            else:
+                warnings.append(
+                    f"Brak EntityPropertyName pola docelowego {lookup_value} dla {internal_name}; "
+                    "przyjęto InternalName."
+                )
+        elif lookup_value.lower() != "title":
+            warnings.append(
+                f"Nie potwierdzono nazwy REST pola docelowego {lookup_value} dla {internal_name}."
+            )
+
+        return RestFieldMapping(property_name, lookup_value, warnings=tuple(warnings))
 
     def get_list_name(self, list_hint: str = "") -> str:
         """Zwraca czytelną nazwę listy na podstawie GUID-a lub podpowiedzi listy."""

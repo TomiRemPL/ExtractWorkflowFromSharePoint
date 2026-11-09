@@ -27,7 +27,7 @@ from .apex_naming import (
     variable_static_id,
     workflow_static_id,
 )
-from .metadata_loader import FieldResolver
+from .metadata_loader import FieldResolver, RestFieldMapping
 from .nwf_parser import ActionNode, FieldRef
 from .sensitive_data import REDACTED, contains_credential_assignment, is_sensitive_name
 
@@ -70,13 +70,70 @@ _OPERATOR_PL = {
     "Geq": "jest większe lub równe",
     "Leq": "jest mniejsze lub równe",
     "BeginsWith": "zaczyna się od",
+    "StartsWith": "zaczyna się od",
+    "EndsWith": "kończy się na",
     "IsNull": "jest puste",
     "IsNotNull": "nie jest puste",
 }
 
+_XSI_TYPE = "{http://www.w3.org/2001/XMLSchema-instance}type"
+
+# Operatory porownania Nintex -> operator SQL (dla wartosci niepustych).
+_COMPARISON_SQL = {
+    "Equal": "=", "Eq": "=",
+    "NotEqual": "!=", "Neq": "!=",
+    "GreaterThan": ">", "Gt": ">",
+    "LessThan": "<", "Lt": "<",
+    "GreaterThanOrEqual": ">=", "Geq": ">=",
+    "LessThanOrEqual": "<=", "Leq": "<=",
+}
+_EMPTY_OPERATORS = {"IsEmpty", "IsNull"}
+_NOT_EMPTY_OPERATORS = {"IsNotEmpty", "NotIsEmpty", "IsNotNull"}
+_PATTERN_OPERATORS = {"Contains", "NotContains", "StartsWith", "BeginsWith", "EndsWith"}
+
+# Wartosci specjalne Nintex (<SpecialReference>, <WorkflowContextData Name=...>, {Common:...}).
+_SPECIAL_VALUE_PLSQL = {
+    "CurrentDate": "TRUNC(SYSDATE)",
+    "CurrentTime": "SYSDATE",
+    "StartDate": "SYSTIMESTAMP /* przybliżenie: czas wykonania kroku, nie startu workflow */",
+}
+_SPECIAL_VALUE_TEXT = {
+    "CurrentDate": "bieżąca data",
+    "CurrentTime": "bieżący czas",
+    "StartDate": "data startu workflow",
+}
+_GUID_PATTERN = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}", re.I)
+
 
 def _short_type(action_type: str) -> str:
     return action_type.rsplit(".", 1)[-1] if action_type else "?"
+
+
+def _unresolved_list_id(list_id: str, list_name: str) -> bool:
+    normalized_id = list_id.strip().strip("{}").lower()
+    return bool(_GUID_PATTERN.fullmatch(normalized_id)) and normalized_id == list_name.strip().strip("{}").lower()
+
+
+def _is_source_list(list_hint: str, resolver: FieldResolver) -> bool:
+    def normalize(value: str) -> str:
+        return value.strip().strip("{}").casefold()
+
+    if not list_hint.strip():
+        return True
+    source = {normalize(value) for value in (resolver.source_list_id, resolver.source_list_name) if value}
+    return bool(source & {normalize(list_hint), normalize(resolver.get_list_name(list_hint))})
+
+
+def _is_current_item_update(node: ActionNode, resolver: FieldResolver) -> bool:
+    list_id = node.params.get("ListId", "")
+    this_item_flag = node.params.get("ThisItem", "").strip().lower()
+    return this_item_flag == "true" or (
+        this_item_flag != "false"
+        and (not list_id or (
+            bool(resolver.source_list_id)
+            and list_id.strip("{}").lower() == resolver.source_list_id.strip("{}").lower()
+        ))
+    )
 
 
 def _technical_parameter_lines(params: dict[str, str]) -> list[str]:
@@ -101,7 +158,7 @@ def _render_value_expr(el: ET.Element | None, resolver: FieldResolver) -> str:
         field_el = el.find("Field")
         field_name = field_el.get("Name", "") if field_el is not None else ""
         target_list_id_el = el.find("ListId")
-        target_list_id = target_list_id_el.text if target_list_id_el is not None else ""
+        target_list_id = (target_list_id_el.text or "") if target_list_id_el is not None else ""
         nested_lookup = el.find("Lookup")
         if lookup_type == "ThisItemLookup" or nested_lookup is None:
             field_readable = resolver.resolve(field_name, resolver.source_list_id)
@@ -118,6 +175,12 @@ def _render_value_expr(el: ET.Element | None, resolver: FieldResolver) -> str:
             f"wartość pola {field_readable} z elementu wyszukanego po "
             f"{nested_readable} (dopasowanie po {compare_name})"
         )
+    if tag == "SpecialReference":
+        name = (el.text or "").strip()
+        return _SPECIAL_VALUE_TEXT.get(name, f"wartość specjalna {name}")
+    if tag == "WorkflowContextData":
+        name = el.get("Name", "")
+        return _SPECIAL_VALUE_TEXT.get(name, f"kontekst workflow {name}")
     # nieznany typ wezla - zwroc tekst lub nazwe tagu
     return el.text or f"[{tag}]"
 
@@ -154,12 +217,19 @@ def _this_item_field_expr(field_name: str, field_type: str, coercion: str, resol
     return f":{field_variable(field_name)}"
 
 
-def _ref_select(field_name: str, field_type: str, id_only: bool = False) -> tuple[str, str]:
+def _ref_select(
+    field_name: str, field_type: str, id_only: bool = False, mapping: RestFieldMapping | None = None
+) -> tuple[str, str]:
     """Zwraca (p_query, sciezka JSON) do odczytu pola z elementu innej listy."""
+    rest_name = mapping.property_name if mapping else field_name
     if is_lookup(field_type) or is_user(field_type):
-        prop = "Id" if id_only else "Title"
-        return f"$select={field_name}/{prop}&$expand={field_name}", f"{field_name}.{prop}"
-    return f"$select={field_name}", field_name
+        prop = "Title"
+        if id_only:
+            prop = "Id"
+        elif mapping and is_lookup(field_type):
+            prop = mapping.lookup_value
+        return f"$select={rest_name}/{prop}&$expand={rest_name}", f"{rest_name}.{prop}"
+    return f"$select={rest_name}", rest_name
 
 
 def _cross_lookup_parts(el: ET.Element, resolver: FieldResolver) -> dict[str, str]:
@@ -170,21 +240,30 @@ def _cross_lookup_parts(el: ET.Element, resolver: FieldResolver) -> dict[str, st
     target_list_id = (target_list_el.text or "") if target_list_el is not None else ""
     target_list = resolver.get_list_name(target_list_id)
     target_type = resolver.get_field_type(field_name, target_list_id) or (field_el.get("Type", "") if field_el is not None else "")
+    mapping = resolver.resolve_rest_field(field_name, target_list_id, lookup=is_lookup(target_type))
+    if mapping.error:
+        return {
+            "call": "NULL /* TODO: nieustalone mapowanie pola REST */",
+            "json_path": "$.data",
+            "target_list": target_list,
+            "field": field_name,
+        }
     coercion = el.findtext("Coercion") or "LookupIdOnlyAsInteger"
     # Coercion "LookupId..." na polu Lookup/User oznacza, ze Nintex zwraca ID powiazanego elementu, a nie jego tytul.
-    query, path = _ref_select(field_name, target_type, id_only="lookupid" in coercion.lower())
+    query, path = _ref_select(field_name, target_type, id_only="lookupid" in coercion.lower(), mapping=mapping)
     nested = el.find("Lookup")
     nested_field_el = nested.find("Field") if nested is not None else None
+    nested_var_el = nested.find("Variable") if nested is not None else None
     nested_name = nested_field_el.get("Name", "") if nested_field_el is not None else ""
     nested_type = nested_field_el.get("Type", "") if nested_field_el is not None else ""
     if nested is not None and nested.get("LookupType", "ThisItemLookup") == "ThisItemLookup":
         key_expr = _this_item_field_expr(nested_name, nested_type, coercion, resolver)
-    elif nested is not None and nested.find("Variable") is not None:
-        key_expr = _plsql_var(nested.find("Variable").get("Name", ""))
+    elif nested_var_el is not None:
+        key_expr = _plsql_var(nested_var_el.get("Name", ""))
     else:
         key_expr = "NULL /* TODO: klucz wyszukania */"
     compare_el = el.find("CompareField")
-    compare = compare_el.get("Name", "ID") if compare_el is not None else "ID"
+    compare = compare_el.get("Name", "ID").strip() if compare_el is not None else "ID"
     if compare.upper() == "ID":
         call = (
             f"{SHP_API}.get_list_item(\n"
@@ -196,27 +275,54 @@ def _cross_lookup_parts(el: ET.Element, resolver: FieldResolver) -> dict[str, st
         )
         json_path = f"$.data.{path}"
     else:
-        call = (
-            f"{SHP_API}.get_list_items(\n"
-            f"    p_site_url   => :{V_SITE_URL},\n"
-            f"    p_list_title => {sql_literal(target_list)},\n"
-            f"    p_query      => {sql_literal(query + '&$top=1&$filter=' + compare + ' eq ')} || '''' || REPLACE({key_expr}, '''', '''''') || ''''\n"
-            f")"
-        )
+        call = "NULL /* TODO: CrossItemLookup po polu innym niż ID wymaga ręcznej migracji */"
         json_path = f"$.data[0].{path}"
     return {"call": call, "json_path": json_path, "target_list": target_list, "field": field_name}
+
+
+def _common_token_expr(name: str, standalone: bool, resolver: FieldResolver | None) -> str | None:
+    """Wyrazenie PL/SQL dla tokenu {Common:...}; None gdy token nie ma potwierdzonego odpowiednika."""
+    if name == "WebUrl":
+        return f":{V_SITE_URL}"
+    if name == "ItemUrl":
+        list_id = (resolver.source_list_id if resolver is not None else "").strip()
+        if not list_id:
+            return None
+        list_guid = "{" + list_id.strip("{}") + "}"
+        return (
+            f"(:{V_SITE_URL} || '/_layouts/15/listform.aspx?PageType=4&ListId={list_guid}&ID=' "
+            f"|| TO_CHAR(:{V_ITEM_ID}))"
+        )
+    if name in _SPECIAL_VALUE_PLSQL:
+        expr = _SPECIAL_VALUE_PLSQL[name]
+        return expr if standalone else f"TO_CHAR({expr}, 'YYYY-MM-DD HH24:MI:SS')"
+    return None
+
+
+_NINTEX_TOKEN = re.compile(r"\{(ItemProperty|WorkflowVariable|Common):([^}]+)\}")
+# Dowolny token Nintex pozostawiony doslownie w kodzie oznacza brak tlumaczenia.
+_UNTRANSLATED_TOKEN = re.compile(r"\{(?:ItemProperty|WorkflowVariable|Common|WorkflowConstant|Workflow[A-Za-z]*):[^}]+\}")
+_PLSQL_LITERAL_OR_COMMENT = re.compile(r"'(?:''|[^'])*'|--[^\r\n]*|/\*.*?\*/", re.S)
+
+
+def _strip_plsql_comments(code: str) -> str:
+    return _PLSQL_LITERAL_OR_COMMENT.sub(
+        lambda match: match.group(0) if match.group(0).startswith("'") else "",
+        code,
+    )
 
 
 def _plsql_expr_from_nintex_string(val: str, item_json_var: str = "", resolver: FieldResolver | None = None) -> str:
     """Tłumaczy wyrażenia Nintex (np. RKU-{ItemProperty:ID} lub {ItemProperty:Nazwa}) na wyrażenie PL/SQL z bindami APEX."""
     if not val:
         return "NULL"
-    pattern = re.compile(r"\{(ItemProperty|WorkflowVariable):([^}]+)\}")
+    pattern = _NINTEX_TOKEN
     tokens = list(pattern.finditer(val))
     if not tokens:
         escaped = val.replace("'", "''")
         return f"'{escaped}'"
 
+    standalone = len(tokens) == 1 and not pattern.sub("", val)
     parts: list[str] = []
     last_idx = 0
     for match in tokens:
@@ -230,10 +336,13 @@ def _plsql_expr_from_nintex_string(val: str, item_json_var: str = "", resolver: 
         token_name = match.group(2).strip()
         if token_type == "ItemProperty":
             expr = _item_property_expr(token_name)
-            standalone = len(tokens) == 1 and not pattern.sub("", val)
             parts.append(expr if standalone or expr != f":{V_ITEM_ID}" else f"TO_CHAR({expr})")
         elif token_type == "WorkflowVariable":
             parts.append(_plsql_var(token_name))
+        else:
+            expr = _common_token_expr(token_name, standalone, resolver)
+            # brak odpowiednika: token zostaje doslownie i blokuje migracje (patrz describe_action)
+            parts.append(expr if expr is not None else "'" + match.group(0).replace("'", "''") + "'")
         last_idx = end
 
     if last_idx < len(val):
@@ -247,6 +356,12 @@ def _plsql_expr_from_nintex_string(val: str, item_json_var: str = "", resolver: 
     return " || ".join(parts)
 
 
+def _special_value_expr(el: ET.Element) -> str | None:
+    """SpecialReference / WorkflowContextData -> wyrazenie PL/SQL (None gdy nieobslugiwane)."""
+    name = (el.text or "").strip() if el.tag == "SpecialReference" else el.get("Name", "")
+    return _SPECIAL_VALUE_PLSQL.get(name)
+
+
 def _plsql_val_expr(el: ET.Element | None, resolver: FieldResolver, item_json_var: str = "") -> str:
     if el is None:
         return "NULL"
@@ -255,6 +370,8 @@ def _plsql_val_expr(el: ET.Element | None, resolver: FieldResolver, item_json_va
         return _plsql_expr_from_nintex_string(el.get("Value", ""), item_json_var, resolver)
     if tag == "Variable":
         return _plsql_var(el.get("Name", ""))
+    if tag in ("SpecialReference", "WorkflowContextData"):
+        return _special_value_expr(el) or "NULL"
     if tag == "ListLookup":
         lookup_type = el.get("LookupType", "")
         field_el = el.find("Field")
@@ -269,51 +386,151 @@ def _plsql_val_expr(el: ET.Element | None, resolver: FieldResolver, item_json_va
     return "NULL"
 
 
+def _value_blocking_reasons(el: ET.Element | None, context: str, resolver: FieldResolver) -> list[str]:
+    if el is None:
+        return [f"Brak wartości {context}; wymagane ręczne mapowanie."]
+    if el.tag == "PrimitiveValue":
+        return []
+    if el.tag == "Variable":
+        return [] if el.get("Name", "").strip() else [f"Brak nazwy zmiennej dla {context}."]
+    if el.tag in ("SpecialReference", "WorkflowContextData"):
+        if _special_value_expr(el) is not None:
+            return []
+        name = (el.text or "").strip() if el.tag == "SpecialReference" else el.get("Name", "")
+        return [f"Nieobsługiwana wartość specjalna dla {context}: {name or el.tag}."]
+    if el.tag == "ListLookup":
+        field = el.find("Field")
+        if field is None or not field.get("Name", "").strip():
+            return [f"Brak pola ListLookup dla {context}."]
+        lookup_type = el.get("LookupType", "")
+        if lookup_type == "ThisItemLookup":
+            return []
+        if lookup_type != "CrossItemLookup":
+            return [f"Nieobsługiwany typ ListLookup dla {context}: {lookup_type or '?'}."]
+        nested = el.find("Lookup")
+        target_list_id = (el.findtext("ListId") or "").strip()
+        if nested is None or not target_list_id:
+            return [f"Niekompletny CrossItemLookup dla {context}."]
+        reasons = []
+        if _unresolved_list_id(target_list_id, resolver.get_list_name(target_list_id)):
+            reasons.append(f"Nie ustalono nazwy listy CrossItemLookup dla identyfikatora {target_list_id}.")
+        field_name = field.get("Name", "")
+        field_type = resolver.get_field_type(field_name, target_list_id) or field.get("Type", "")
+        mapping = resolver.resolve_rest_field(field_name, target_list_id, lookup=is_lookup(field_type))
+        if mapping.error:
+            reasons.append(mapping.error)
+        compare_el = el.find("CompareField")
+        compare = compare_el.get("Name", "").strip() if compare_el is not None else "ID"
+        if not compare:
+            reasons.append(f"Nie ustalono pola porównania CrossItemLookup dla {context}.")
+        elif compare.upper() != "ID":
+            reasons.append(
+                f"CrossItemLookup po polu innym niż ID ({compare}) wymaga ręcznej migracji "
+                "i potwierdzenia semantyki klucza OData."
+            )
+        if nested.get("LookupType", "ThisItemLookup") == "ThisItemLookup":
+            key_field = nested.find("Field")
+            if key_field is not None and key_field.get("Name", "").strip():
+                return reasons
+        else:
+            key_var = nested.find("Variable")
+            if key_var is not None and key_var.get("Name", "").strip():
+                return reasons
+        reasons.append(f"Nie ustalono klucza CrossItemLookup dla {context}.")
+        return reasons
+    return [f"Nieobsługiwany typ wartości dla {context}: {el.tag}."]
+
+
 def _plsql_condition(cond_el: ET.Element | None, resolver: FieldResolver, item_json_var: str = "") -> str:
     if cond_el is None:
-        return "TRUE"
+        return "FALSE /* TODO: brak warunku Nintex */"
     xsi_type = cond_el.get("{http://www.w3.org/2001/XMLSchema-instance}type", "")
     if xsi_type == "ConditionPair":
-        op = {"And": "AND", "Or": "OR"}.get(cond_el.get("Operator", ""), "AND")
+        op = {"And": "AND", "Or": "OR"}.get(
+            cond_el.get("Operator", ""), "AND /* TODO: nieobsługiwany operator logiczny */"
+        )
         left = _plsql_condition(cond_el.find("Left"), resolver, item_json_var)
         right = _plsql_condition(cond_el.find("Right"), resolver, item_json_var)
         return f"({left}) {op} ({right})"
     if xsi_type == "NWConditionConfig":
-        params_el = cond_el.find("Params")
-        params = {p.get("Name"): p for p in params_el.findall("Param")} if params_el is not None else {}
-        op_name = ""
-        if "operator" in params:
-            op_val_el = params["operator"].find("PrimitiveValue")
-            op_name = op_val_el.get("Value", "") if op_val_el is not None else ""
-
-        left_el = next(iter(params["left"]), None) if "left" in params else None
-        right_el = next(iter(params["right"]), None) if "right" in params else None
-
+        op_name, left_el, right_el = _condition_parts(cond_el)
         left_expr = _plsql_val_expr(left_el, resolver, item_json_var)
         right_expr = _plsql_val_expr(right_el, resolver, item_json_var)
+        right_is_empty = right_el is None or (right_el.tag == "PrimitiveValue" and not right_el.get("Value", ""))
+        right_is_literal = right_el is not None and right_el.tag == "PrimitiveValue" and not right_is_empty
 
-        if op_name == "Equal":
-            return f"{left_expr} = {right_expr}"
-        elif op_name == "NotEqual":
-            return f"{left_expr} != {right_expr}"
-        elif op_name == "GreaterThan":
-            return f"{left_expr} > {right_expr}"
-        elif op_name == "LessThan":
-            return f"{left_expr} < {right_expr}"
-        elif op_name == "GreaterThanOrEqual":
-            return f"{left_expr} >= {right_expr}"
-        elif op_name == "LessThanOrEqual":
-            return f"{left_expr} <= {right_expr}"
-        elif op_name == "Contains":
-            return f"{left_expr} LIKE '%' || {right_expr} || '%'"
-        elif op_name == "NotContains":
-            return f"{left_expr} NOT LIKE '%' || {right_expr} || '%'"
-        elif op_name in ("IsEmpty", "IsNull"):
+        if op_name in _EMPTY_OPERATORS or (op_name in ("Equal", "Eq") and right_is_empty):
             return f"{left_expr} IS NULL"
-        elif op_name in ("IsNotEmpty", "NotIsEmpty", "IsNotNull"):
+        if op_name in _NOT_EMPTY_OPERATORS or (op_name in ("NotEqual", "Neq") and right_is_empty):
             return f"{left_expr} IS NOT NULL"
-        return f"{left_expr} = {right_expr}"
-    return "TRUE"
+        if op_name in ("NotEqual", "Neq") and right_is_literal:
+            # Nintex traktuje pusta wartosc jako rozna od niepustego literalu; w SQL NULL != 'x' nie jest prawda.
+            return f"({left_expr} IS NULL OR {left_expr} != {right_expr})"
+        if op_name in _COMPARISON_SQL:
+            return f"{left_expr} {_COMPARISON_SQL[op_name]} {right_expr}"
+        if op_name == "Contains":
+            return f"INSTR({left_expr}, {right_expr}) > 0"
+        if op_name == "NotContains":
+            return f"({left_expr} IS NULL OR INSTR({left_expr}, {right_expr}) = 0)"
+        if op_name in ("StartsWith", "BeginsWith"):
+            return f"INSTR({left_expr}, {right_expr}) = 1"
+        if op_name == "EndsWith":
+            return f"SUBSTR({left_expr}, -LENGTH({right_expr})) = {right_expr}"
+        return f"{left_expr} = {right_expr} /* TODO: nieobsługiwany operator {op_name or '?'} */"
+    return "FALSE /* TODO: nieobsługiwany typ warunku */"
+
+
+def _condition_parts(cond_el: ET.Element) -> tuple[str, ET.Element | None, ET.Element | None]:
+    """Rozklada NWConditionConfig na (operator, wartosc lewa, wartosc prawa) - pomija <Coercion>."""
+    params_el = cond_el.find("Params")
+    params = {p.get("Name"): p for p in params_el.findall("Param")} if params_el is not None else {}
+    op_name = ""
+    if "operator" in params:
+        op_val_el = params["operator"].find("PrimitiveValue")
+        op_name = op_val_el.get("Value", "") if op_val_el is not None else ""
+
+    def value(name: str) -> ET.Element | None:
+        param = params.get(name)
+        return next((child for child in param if child.tag != "Coercion"), None) if param is not None else None
+
+    return op_name, value("left"), value("right")
+
+
+_SUPPORTED_OPERATORS = (
+    set(_COMPARISON_SQL) | _EMPTY_OPERATORS | _NOT_EMPTY_OPERATORS | _PATTERN_OPERATORS
+)
+
+
+def _condition_blocking_reasons(cond_el: ET.Element | None, resolver: FieldResolver) -> list[str]:
+    """Powody blokady migracji warunku: nieznany typ warunku, operator lub wartosc specjalna."""
+    if cond_el is None:
+        return ["Brak definicji warunku Nintex; wymagana ręczna analiza."]
+    xsi_type = cond_el.get(_XSI_TYPE, "")
+    if xsi_type == "ConditionPair":
+        reasons = []
+        operator = cond_el.get("Operator", "")
+        if operator not in ("And", "Or"):
+            reasons.append(f"Nieobsługiwany operator logiczny Nintex: {operator or '?'}.")
+        reasons.extend(_condition_blocking_reasons(cond_el.find("Left"), resolver))
+        reasons.extend(_condition_blocking_reasons(cond_el.find("Right"), resolver))
+        return reasons
+    if xsi_type != "NWConditionConfig":
+        return [f"Nieobsługiwany typ warunku Nintex: {xsi_type or cond_el.get('Name', '?')}."]
+    reasons: list[str] = []
+    op_name, left_el, right_el = _condition_parts(cond_el)
+    if op_name not in _SUPPORTED_OPERATORS:
+        reasons.append(f"Nieobsługiwany operator warunku Nintex: {op_name or '?'}.")
+    reasons.extend(_value_blocking_reasons(left_el, "lewej strony warunku", resolver))
+    if op_name not in _EMPTY_OPERATORS | _NOT_EMPTY_OPERATORS:
+        reasons.extend(_value_blocking_reasons(right_el, "prawej strony warunku", resolver))
+        if (
+            op_name not in ("Equal", "Eq", "NotEqual", "Neq")
+            and right_el is not None
+            and right_el.tag == "PrimitiveValue"
+            and not right_el.get("Value", "")
+        ):
+            reasons.append(f"Pusta wartość nie jest obsługiwana dla operatora {op_name or '?'}.")
+    return reasons
 
 
 def _render_condition(cond_el: ET.Element | None, resolver: FieldResolver) -> str:
@@ -326,17 +543,12 @@ def _render_condition(cond_el: ET.Element | None, resolver: FieldResolver) -> st
         right = _render_condition(cond_el.find("Right"), resolver)
         return f"({left}) {operator} ({right})"
     if xsi_type == "NWConditionConfig":
-        params_el = cond_el.find("Params")
-        params = {p.get("Name"): p for p in params_el.findall("Param")} if params_el is not None else {}
-        operator = ""
-        left_txt = right_txt = ""
-        if "operator" in params:
-            op_val_el = params["operator"].find("PrimitiveValue")
-            operator = _OPERATOR_PL.get(op_val_el.get("Value", "") if op_val_el is not None else "", "")
-        if "left" in params:
-            left_txt = _render_value_expr(next(iter(params["left"]), None), resolver)
-        if "right" in params:
-            right_txt = _render_value_expr(next(iter(params["right"]), None), resolver)
+        op_name, left_el, right_el = _condition_parts(cond_el)
+        operator = _OPERATOR_PL.get(op_name, op_name)
+        left_txt = _render_value_expr(left_el, resolver)
+        right_txt = "" if op_name in _EMPTY_OPERATORS | _NOT_EMPTY_OPERATORS else _render_value_expr(right_el, resolver)
+        if not right_txt and op_name in ("Equal", "Eq", "NotEqual", "Neq") and right_el is not None:
+            right_txt = "„” (puste)"
         return f"{left_txt} {operator} {right_txt}".strip()
     return cond_el.get("Name", "") or "warunek"
 
@@ -371,15 +583,51 @@ def _describe_variables_adapter(node: ActionNode, resolver: FieldResolver) -> Ac
     )
 
 
+def _item_property_fields(text: str) -> list[FieldRef]:
+    return [
+        FieldRef(name="", internal_name=match.group(2).strip())
+        for match in _NINTEX_TOKEN.finditer(text)
+        if match.group(1) == "ItemProperty"
+    ]
+
+
 def _extract_condition_fields(cond_el: ET.Element | None) -> list[FieldRef]:
-    """Zbiera wszystkie odwolania do pol (elementy <Field Name=... Type=...>) w warunku."""
+    """Zbiera pola z wyrazen Nintex, zachowujac liste docelowa CrossItemLookup."""
     if cond_el is None:
         return []
     refs: list[FieldRef] = []
-    for field_el in cond_el.iter("Field"):
-        name = field_el.get("Name", "")
-        if name:
-            refs.append(FieldRef(name="", internal_name=name, field_type=field_el.get("Type", "")))
+    seen: set[tuple[str, str]] = set()
+
+    def add(name: str, field_type: str = "", list_id: str = "") -> None:
+        key = (list_id.strip("{}").casefold(), name.casefold())
+        if name and key not in seen:
+            seen.add(key)
+            refs.append(FieldRef(name="", internal_name=name, field_type=field_type, list_id=list_id))
+
+    def walk(el: ET.Element) -> None:
+        for value in (el.text or "", *el.attrib.values()):
+            for match in _NINTEX_TOKEN.finditer(value):
+                if match.group(1) == "ItemProperty":
+                    add(match.group(2).strip())
+        if el.tag in ("ListLookup", "Lookup"):
+            field_el = el.find("Field")
+            list_id = (
+                (el.findtext("ListId") or "").strip()
+                if el.tag == "ListLookup" and el.get("LookupType") == "CrossItemLookup"
+                else ""
+            )
+            if field_el is not None:
+                add(field_el.get("Name", ""), field_el.get("Type", ""), list_id)
+            for child in el:
+                if child is not field_el:
+                    walk(child)
+            return
+        if el.tag == "Field":
+            add(el.get("Name", ""), el.get("Type", ""))
+        for child in el:
+            walk(child)
+
+    walk(cond_el)
     return refs
 
 
@@ -387,7 +635,7 @@ def _describe_if_else(node: ActionNode, resolver: FieldResolver) -> ActionDescri
     cond_txt = _render_condition(node.condition_el, resolver)
     label = node.t_label or "Warunek"
     cond_plsql = _plsql_condition(node.condition_el, resolver)
-    plsql_code = f"IF {cond_plsql} THEN\n    -- Gałąź Tak\nELSE\n    -- Gałąź Nie\nEND IF;"
+    plsql_code = "\n".join(_conditional_plsql(node, resolver, 0))
     hint_apex = f"IF {cond_plsql} THEN ... ELSE ... END IF;"
     return ActionDescription(
         summary=f"Warunek: JEŻELI {cond_txt}",
@@ -399,6 +647,7 @@ def _describe_if_else(node: ActionNode, resolver: FieldResolver) -> ActionDescri
         hint_universal=f"Bramka decyzyjna (Exclusive Gateway / IF): sprawdzenie warunku logicznego: {cond_txt}.",
         hint_apex=hint_apex,
         plsql_code=plsql_code,
+        blocking_reasons=_condition_blocking_reasons(node.condition_el, resolver),
     )
 
 
@@ -413,6 +662,7 @@ def _describe_write_to_history(node: ActionNode, resolver: FieldResolver) -> Act
     plsql_code = f"apex_debug.info('Workflow: ' || {msg_expr});"
     return ActionDescription(
         summary=f"Zapisz wpis w historii przepływu: „{short}”" + (" (…)" if len(msg.splitlines()) > 1 else ""),
+        reads=_item_property_fields(msg),
         technical_lines=[f"Message = {msg}"],
         action_type="NWWriteToHistoryListAdapter",
         label=node.t_label or "Zapis historii",
@@ -457,40 +707,99 @@ def _field_reference_value(node: ActionNode, internal_name: str) -> ET.Element |
 
 def _describe_update_item(node: ActionNode, resolver: FieldResolver) -> ActionDescription:
     list_id = node.params.get("ListId", "")
-    this_item = node.params.get("ThisItem") == "true" or not list_id or (
-        bool(resolver.source_list_id) and list_id.strip("{}").lower() == resolver.source_list_id.strip("{}").lower()
-    )
+    this_item = _is_current_item_update(node, resolver)
     target_list_name = resolver.get_list_name() if this_item else resolver.get_list_name(list_id)
     target = "w bieżącym elemencie" if this_item else f"w elemencie listy {target_list_name}"
     writes = node.field_refs
+    reads: list[FieldRef] = []
     fields_txt = ", ".join(resolver.resolve(f.internal_name, list_id) for f in writes) or "(brak pól)"
 
+    blocking_reasons: list[str] = []
+    key_lookup_code = ""
     if this_item:
         list_expr, item_expr = f":{V_LIST_TITLE}", f":{V_ITEM_ID}"
     else:
         list_expr = sql_literal(target_list_name)
+        if not list_id:
+            blocking_reasons.append("Nie ustalono listy docelowej elementu do aktualizacji.")
+        elif _unresolved_list_id(list_id, target_list_name):
+            blocking_reasons.append(f"Nie ustalono nazwy listy docelowej dla identyfikatora {list_id}.")
         key_field = node.params.get("LookupField", "")
-        key_value = node.params.get("LookupFieldValue", "")
-        if key_field.upper() == "ID" and key_value:
-            item_expr = f"TO_NUMBER({_plsql_expr_from_nintex_string(key_value, resolver=resolver)})"
+        key_el = node.param_elements.get("LookupFieldValue")
+        key_resolved = key_el is not None and not (key_el.tag == "PrimitiveValue" and not key_el.get("Value", ""))
+        if key_el is not None:
+            blocking_reasons.extend(_value_blocking_reasons(key_el, "klucza elementu do aktualizacji", resolver))
+            reads.extend(_extract_condition_fields(key_el))
+        key_expr = _plsql_val_expr(key_el, resolver) if key_resolved else "NULL"
+        if not key_field or not key_resolved or key_expr == "NULL":
+            item_expr = "NULL"
+            blocking_reasons.append(
+                f"Nie ustalono klucza elementu do aktualizacji na liście {target_list_name} "
+                f"(pole {key_field or '?'}); wymagane ręczne mapowanie."
+            )
+        elif key_field.upper() == "ID":
+            item_expr = f"TO_NUMBER({key_expr})" if key_el is not None and key_el.tag == "PrimitiveValue" else key_expr
         else:
-            item_expr = f"NULL /* TODO: ID elementu wg {key_field or 'klucza'} = {key_value or '?'} */"
+            key_type = resolver.get_field_type(key_field, list_id) or node.params.get("LookupFieldType", "")
+            numeric_types = {"number", "counter", "integer", "currency"}
+            normalized_type = key_type.strip().lower()
+            if normalized_type not in numeric_types | {"text", "choice"}:
+                blocking_reasons.append(f"Nieobsługiwany typ pola klucza {key_field}: {key_type or '?'}.")
+            if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", key_field) is None:
+                blocking_reasons.append(f"Nieobsługiwana nazwa pola klucza OData: {key_field}.")
+            quoted = normalized_type not in numeric_types
+            filter_value = (
+                f"'''' || UTL_URL.escape(REPLACE({key_expr}, '''', ''''''), TRUE, 'AL32UTF8') || ''''"
+                if quoted else f"TO_CHAR({key_expr}, 'TM9', 'NLS_NUMERIC_CHARACTERS=''.,''')"
+            )
+            key_lookup_code = (
+                f"-- Wyszukanie ID elementu listy {target_list_name} po polu {key_field}:\n"
+                f"IF {key_expr} IS NULL THEN\n"
+                f"    RAISE_APPLICATION_ERROR(-20094, {sql_literal('Pusty klucz elementu do aktualizacji wg ' + key_field)});\n"
+                f"END IF;\n"
+                f"l_ref_json := {SHP_API}.get_list_items(\n"
+                f"    p_site_url   => :{V_SITE_URL},\n"
+                f"    p_list_title => {list_expr},\n"
+                f"    p_query      => {sql_literal('$select=Id&$top=2&$filter=' + key_field + '%20eq%20')} || {filter_value}\n"
+                f");\n"
+                f"IF json_value(l_ref_json, '$.data[0].Id') IS NULL THEN\n"
+                f"    RAISE_APPLICATION_ERROR(-20094, {sql_literal('Nie znaleziono elementu do aktualizacji wg ' + key_field)});\n"
+                f"END IF;\n"
+                f"IF json_value(l_ref_json, '$.data[1].Id') IS NOT NULL "
+                f"OR json_value(l_ref_json, '$.next_url') IS NOT NULL THEN\n"
+                f"    RAISE_APPLICATION_ERROR(-20095, {sql_literal('Niejednoznaczny klucz elementu do aktualizacji wg ' + key_field)});\n"
+                f"END IF;\n"
+            )
+            item_expr = "json_value(l_ref_json, '$.data[0].Id' RETURNING NUMBER)"
 
     if writes:
         pairs = []
         for f in writes:
+            if not f.internal_name:
+                blocking_reasons.append("Nie ustalono nazwy pola docelowego aktualizacji.")
             value_el = _field_reference_value(node, f.internal_name)
+            if value_el is not None or node.raw_el is not None:
+                blocking_reasons.extend(_value_blocking_reasons(value_el, f"pola {f.internal_name}", resolver))
+            if value_el is not None:
+                reads.extend(_extract_condition_fields(value_el))
+            elif node.raw_el is None:
+                reads.append(FieldRef(name=f.name, internal_name=f.internal_name, field_type=f.field_type))
             value_expr = _plsql_val_expr(value_el, resolver) if value_el is not None else f":{field_variable(f.internal_name)}"
             field_type = resolver.get_field_type(f.internal_name, list_id) or f.field_type
             pairs.append(_field_json_pair(f.internal_name, value_expr, field_type))
-        plsql_code = _update_call(list_expr, item_expr, pairs)
+        plsql_code = key_lookup_code + _update_call(list_expr, item_expr, pairs)
         hint_apex = f"l_resp := {SHP_API}.update_list_item(:{V_SITE_URL}, {list_expr}, {item_expr}, json_object(...));"
     else:
+        blocking_reasons.append("Brak mapowania pól elementu do aktualizacji; wymagana ręczna analiza.")
         plsql_code = "-- Brak zdefiniowanych pól do zapisu"
+        hint_apex = plsql_code
+    if blocking_reasons:
+        plsql_code = _blocked_plsql()
         hint_apex = plsql_code
 
     return ActionDescription(
         summary=f"Zaktualizuj element {target}: ustaw pola {fields_txt}.",
+        reads=reads,
         writes=writes,
         technical_lines=[f"ListId = {list_id}", f"ThisItem = {this_item}"],
         action_type="SPUpdateItemWithKeyAdapter",
@@ -498,13 +807,19 @@ def _describe_update_item(node: ActionNode, resolver: FieldResolver) -> ActionDe
         hint_universal=f"Aktualizacja danych elementu ({fields_txt}). W systemie docelowym UPDATE lub REST PATCH/MERGE.",
         hint_apex=hint_apex,
         plsql_code=plsql_code,
+        blocking_reasons=blocking_reasons,
     )
 
 
 def _describe_set_field_with_key(node: ActionNode, resolver: FieldResolver) -> ActionDescription:
     field_internal = node.params.get("LookupField", "")
     value = node.params.get("LookupFieldValue", "")
-    val_expr = _plsql_expr_from_nintex_string(value, resolver=resolver)
+    value_el = node.param_elements.get("LookupFieldValue")
+    if value_el is not None and value_el.tag != "PrimitiveValue":
+        value = _render_value_expr(value_el, resolver)
+        val_expr = _plsql_val_expr(value_el, resolver)
+    else:
+        val_expr = _plsql_expr_from_nintex_string(value, resolver=resolver)
     field_readable = resolver.resolve(field_internal, resolver.source_list_id)
     field_type = resolver.get_field_type(field_internal) or node.params.get("LookupFieldType", "")
     writes = [FieldRef(name=field_readable, internal_name=field_internal, field_type=node.params.get("LookupFieldType", ""))]
@@ -512,9 +827,31 @@ def _describe_set_field_with_key(node: ActionNode, resolver: FieldResolver) -> A
     pair = _field_json_pair(field_internal, val_expr, field_type)
     plsql_code = _update_call(f":{V_LIST_TITLE}", f":{V_ITEM_ID}", [pair])
     hint_apex = f"l_resp := {SHP_API}.update_list_item(:{V_SITE_URL}, :{V_LIST_TITLE}, :{V_ITEM_ID}, json_object({pair}));"
+    blocking_reasons = (
+        _value_blocking_reasons(value_el, f"pola {field_internal}", resolver) if value_el is not None else []
+    )
+    if value_el is None:
+        value_present = "LookupFieldValue" in node.params
+        if node.raw_el is not None:
+            parameter = next(
+                (param for param in node.raw_el.findall("Parameters/Parameter") if param.get("Name") == "LookupFieldValue"),
+                None,
+            )
+            value_present = (
+                parameter is not None and parameter.text is not None
+                and (len(parameter) == 0 or bool(parameter.text.strip()))
+            )
+        if not value_present:
+            blocking_reasons.append(f"Brak wartości pola {field_internal or '?'}; wymagane ręczne mapowanie.")
+    if not field_internal:
+        blocking_reasons.append("Nie ustalono nazwy pola docelowego aktualizacji.")
+    if blocking_reasons:
+        plsql_code = _blocked_plsql()
+        hint_apex = plsql_code
 
     return ActionDescription(
         summary=f"Ustaw pole {field_readable} na wartość: „{value}”.",
+        reads=_extract_condition_fields(value_el) if value_el is not None else _item_property_fields(value),
         writes=writes,
         technical_lines=[f"{k} = {v}" for k, v in node.params.items()],
         action_type="SPSetFieldWithKeyAdapter",
@@ -522,6 +859,7 @@ def _describe_set_field_with_key(node: ActionNode, resolver: FieldResolver) -> A
         hint_universal=f"Ustawienie pola {field_readable} = '{value}'.",
         hint_apex=hint_apex,
         plsql_code=plsql_code,
+        blocking_reasons=blocking_reasons,
     )
 
 
@@ -533,6 +871,7 @@ def _describe_set_variable(node: ActionNode, resolver: FieldResolver) -> ActionD
     value_txt = _render_value_expr(value_el, resolver)
     label = node.t_label
     prefix = f"{label}: " if label else ""
+    blocking_reasons = _value_blocking_reasons(value_el, "zmiennej workflow", resolver)
 
     if value_el is not None and value_el.tag == "ListLookup":
         lookup_type = value_el.get("LookupType", "")
@@ -556,8 +895,15 @@ def _describe_set_variable(node: ActionNode, resolver: FieldResolver) -> ActionD
         other_var = _plsql_var(value_el.get("Name", ""))
         plsql_code = f"{var_plsql} := {other_var};"
         hint_apex = plsql_code
+    elif value_el is not None and value_el.tag in ("SpecialReference", "WorkflowContextData"):
+        special = _special_value_expr(value_el)
+        plsql_code = f"{var_plsql} := {special or 'NULL'};"
+        hint_apex = plsql_code
     else:
         plsql_code = f"{var_plsql} := NULL;"
+        hint_apex = plsql_code
+    if blocking_reasons:
+        plsql_code = _blocked_plsql()
         hint_apex = plsql_code
 
     return ActionDescription(
@@ -569,6 +915,7 @@ def _describe_set_variable(node: ActionNode, resolver: FieldResolver) -> ActionD
         hint_universal=f"Obliczenie/odczyt i zapis do zmiennej lokalnej '{var_name}'.",
         hint_apex=hint_apex,
         plsql_code=plsql_code,
+        blocking_reasons=blocking_reasons,
     )
 
 
@@ -576,7 +923,7 @@ def _describe_run_if(node: ActionNode, resolver: FieldResolver) -> ActionDescrip
     cond_txt = _render_condition(node.condition_el, resolver)
     summary = f"Wykonaj poniższe kroki TYLKO JEŻELI {cond_txt}" if cond_txt else "Wykonaj warunkowo poniższe kroki"
     cond_plsql = _plsql_condition(node.condition_el, resolver)
-    plsql_code = f"IF {cond_plsql} THEN\n    -- Akcje warunkowe\nEND IF;"
+    plsql_code = "\n".join(_conditional_plsql(node, resolver, 0))
     hint_apex = f"IF {cond_plsql} THEN ... END IF;"
     return ActionDescription(
         summary=summary,
@@ -584,9 +931,10 @@ def _describe_run_if(node: ActionNode, resolver: FieldResolver) -> ActionDescrip
         action_type="NWRunIf2Adapter",
         label=node.t_label or "Wykonaj jeśli",
         condition_text=cond_txt,
-        hint_universal=f"Warunek wykonania bloku podrzędnego: IF ({cond_txt}).",
+        hint_universal=f"Warunek wykonania bloku podrzędnego: IF ({cond_txt}). Gdy warunek nie jest spełniony, kroki podrzędne są pomijane.",
         hint_apex=hint_apex,
         plsql_code=plsql_code,
+        blocking_reasons=_condition_blocking_reasons(node.condition_el, resolver),
     )
 
 
@@ -615,12 +963,13 @@ def _parse_caml_query_info(query_str: str, resolver: FieldResolver) -> tuple[str
     except ET.ParseError:
         return "", "niepoprawne zapytanie CAML", []
 
-    list_el = root.find(".//List")
+    list_el = root if root.tag == "List" else root.find(".//List")
     list_name = ""
     if list_el is not None:
         list_name = list_el.get("Title") or ""
-        if not list_name and list_el.get("ID"):
-            list_name = resolver.get_list_name(list_el.get("ID"))
+        list_id = list_el.get("ID", "")
+        if not list_name and list_id:
+            list_name = resolver.get_list_name(list_id)
 
     fields: list[str] = []
     for f in root.findall(".//FieldRef"):
@@ -666,23 +1015,39 @@ def _caml_list_hint(query_str: str) -> str:
 
 def _describe_build_string(node: ActionNode, resolver: FieldResolver) -> ActionDescription:
     input_str = node.params.get("Input", "")
-    out_var = node.params.get("Output", "")
-    out_ident = _plsql_var(out_var) if out_var else ":V_BUILT_STRING"
+    input_el = node.param_elements.get("Input")
+    out_var, _ = _parameter_variable(node, "Output")
+    blocking_reasons: list[str] = []
+    if input_el is not None:
+        if input_el.tag != "PrimitiveValue":
+            input_str = _render_value_expr(input_el, resolver)
+        blocking_reasons.extend(_value_blocking_reasons(input_el, "wejścia akcji Build String", resolver))
+        expr = _plsql_val_expr(input_el, resolver)
+        reads = _extract_condition_fields(input_el)
+    else:
+        if "Input" not in node.params:
+            blocking_reasons.append("Brak wartości wejściowej akcji Build String.")
+        expr = _plsql_expr_from_nintex_string(input_str, resolver=resolver)
+        reads = _item_property_fields(input_str)
+    if not out_var:
+        blocking_reasons.append("Nie ustalono zmiennej wyjściowej akcji Build String.")
 
-    expr = _plsql_expr_from_nintex_string(input_str, resolver=resolver)
-    plsql_code = f"{out_ident} := {expr};"
+    out_ident = _plsql_var(out_var) if out_var else ""
+    plsql_code = _blocked_plsql() if blocking_reasons else f"{out_ident} := {expr};"
     summary = f"Zbuduj ciąg tekstowy i przypisz do zmiennej {out_var or '(brak)'}."
     if input_str:
         summary += f" Wartość: {input_str[:120]}"
 
     return ActionDescription(
         summary=summary,
+        reads=reads,
         action_type="NWBuildStringAdapter",
         label=node.b_label or node.t_label or "Zbuduj ciąg",
         hint_universal=f"Przypisanie sformatowanego tekstu do zmiennej {out_var}.",
-        hint_apex=f"{out_ident} := ...;",
+        hint_apex=_blocked_plsql() if blocking_reasons else f"{out_ident} := ...;",
         plsql_code=plsql_code,
         technical_lines=[f"Input = {input_str}", f"Output = {out_var}"],
+        blocking_reasons=blocking_reasons,
     )
 
 
@@ -835,31 +1200,71 @@ def _describe_create_site_item(node: ActionNode, resolver: FieldResolver) -> Act
     list_name, where_desc, fields = _parse_caml_query_info(raw_query, resolver)
     if not list_name and node.b_label:
         list_name = node.b_label
+    blocking_reasons: list[str] = []
     if not list_name:
+        blocking_reasons.append("Nie ustalono listy docelowej nowego elementu.")
         list_name = "Lista docelowa"
 
-    out_var = node.params.get("Output", "")
-    out_ident = _plsql_var(out_var) if out_var else ":V_NEW_ITEM_ID"
+    out_var, _ = _parameter_variable(node, "Output")
+    out_ident = _plsql_var(out_var) if out_var else ""
+    target_list_id = _caml_list_hint(raw_query)
+    if _unresolved_list_id(target_list_id, list_name):
+        blocking_reasons.append(f"Nie ustalono nazwy listy docelowej dla identyfikatora {target_list_id}.")
 
     summary = f"Utwórz nowy element na liście '{list_name}'."
     if out_var:
         summary += f" Nowe ID -> zmienna {out_var}."
 
+    pairs = []
+    writes: list[FieldRef] = []
+    reads: list[FieldRef] = []
+    if node.raw_el is not None:
+        for ref in node.raw_el.findall("FieldReferences/FieldReference"):
+            internal_name = ref.get("Value", "")
+            value_el = next((child for child in ref if child.tag != "Coercion"), None)
+            if not internal_name:
+                blocking_reasons.append("Nie ustalono nazwy pola docelowego nowego elementu.")
+                continue
+            field_type = resolver.get_field_type(internal_name, target_list_id or list_name) or ref.get("Type", "")
+            writes.append(FieldRef(
+                name=ref.get("Name", internal_name),
+                internal_name=internal_name,
+                field_type=field_type,
+                list_id=target_list_id or list_name,
+            ))
+            reads.extend(_extract_condition_fields(value_el))
+            blocking_reasons.extend(_value_blocking_reasons(value_el, f"pola {internal_name}", resolver))
+            pairs.append(_field_json_pair(internal_name, _plsql_val_expr(value_el, resolver), field_type))
+    if pairs:
+        fields_json = "json_object(\n" + ",\n".join(f"        {pair}" for pair in pairs) + "\n    )"
+    else:
+        blocking_reasons.append("Brak mapowania pól nowego elementu; sprawdź wymagane pola listy docelowej.")
+        fields_json = "json_object()"
+
     plsql_code = f"""l_resp := {SHP_API}.add_list_item(
     p_site_url    => :{V_SITE_URL},
     p_list_title  => {sql_literal(list_name)},
-    p_fields_json => json_object('Title' VALUE 'Nowy element') -- TODO: uzupełnij mapowanie pól
-);
-{out_ident} := json_value(l_resp, '$.item_id' RETURNING NUMBER);"""
+    p_fields_json => {fields_json}
+);"""
+    hint_apex = f"l_resp := {SHP_API}.add_list_item(...);"
+    if out_ident:
+        plsql_code += f"\n{out_ident} := json_value(l_resp, '$.item_id' RETURNING NUMBER);"
+        hint_apex += f" {out_ident} := json_value(l_resp, '$.item_id');"
+    if blocking_reasons:
+        plsql_code = _blocked_plsql()
+        hint_apex = plsql_code
 
     return ActionDescription(
         summary=summary,
+        reads=reads,
+        writes=writes,
         action_type="NWCreateSiteSpecificItemAdapter",
         label=node.t_label or f"Utwórz element w {list_name}",
         hint_universal=f"Tworzenie nowego rekordu na liście {list_name}.",
-        hint_apex=f"l_resp := {SHP_API}.add_list_item(...); {out_ident} := json_value(l_resp, '$.item_id');",
+        hint_apex=hint_apex,
         plsql_code=plsql_code,
-        technical_lines=[f"Lista = {list_name}", f"Output = {out_var}"],
+        technical_lines=[f"Lista = {list_name}", f"ListId = {target_list_id}", f"Output = {out_var}"],
+        blocking_reasons=blocking_reasons,
     )
 
 
@@ -969,8 +1374,11 @@ def _describe_send_message(node: ActionNode, resolver: FieldResolver) -> ActionD
     subject = "Powiadomienie workflow"
     body_text = ""
     recipients: list[str] = []
+    reads: list[FieldRef] = []
 
     if node.raw_el is not None:
+        for element_name in ("Message", "Approvers"):
+            reads.extend(_extract_condition_fields(node.raw_el.find(f".//{element_name}")))
         subj_el = node.raw_el.find(".//Message/Subject")
         if subj_el is not None and subj_el.text:
             subject = subj_el.text
@@ -1000,6 +1408,7 @@ apex_mail.send(
 
     return ActionDescription(
         summary=summary,
+        reads=reads,
         action_type="NWSendMessageAdapter",
         label=node.b_label or node.t_label or f"E-mail: {subject}",
         hint_universal=f"Wysłanie wiadomości e-mail do: {recip_str} (temat: {subject}).",
@@ -1010,9 +1419,20 @@ apex_mail.send(
 
 
 def _describe_start_workflow(node: ActionNode, resolver: FieldResolver) -> ActionDescription:
-    wf_name = node.params.get("AssociationId") or node.b_label or "Podproces"
-    wait_for = node.params.get("WaitForComplete", "false").lower() == "true"
-    wait_str = "synchronicznie - czeka na zakończenie" if wait_for else "asynchronicznie"
+    target = node.params.get("AssociationId", "").strip() or node.b_label.strip()
+    wf_name = target or "Podproces"
+    wait_mode = node.params.get("WaitForComplete", "false").strip().casefold()
+    wait_for = wait_mode in {"true", "1"}
+    valid_wait_mode = wait_mode in {"true", "false", "1", "0"}
+    blocking_reasons = []
+    if not target:
+        blocking_reasons.append("Nie ustalono docelowego workflow podrzędnego.")
+    if not valid_wait_mode:
+        blocking_reasons.append(f"Nieobsługiwany tryb WaitForComplete: {wait_mode or '?'}.")
+    wait_str = (
+        "nieustalony tryb oczekiwania" if not valid_wait_mode
+        else "synchronicznie - czeka na zakończenie" if wait_for else "asynchronicznie"
+    )
 
     summary = f"Uruchom przepływ pracy '{wf_name}' ({wait_str})."
     child_static_id = workflow_static_id(wf_name)
@@ -1033,15 +1453,31 @@ def _describe_start_workflow(node: ActionNode, resolver: FieldResolver) -> Actio
         f"    );\n"
         f"END;"
     )
+    path_b_blocking_reasons = []
+    if wait_for or blocking_reasons:
+        plsql_code = _blocked_plsql()
+    if wait_for:
+        path_b_blocking_reasons.append(
+            "Ścieżka B nie implementuje oczekiwania na zakończenie workflow podrzędnego; "
+            "wymagana ręczna migracja lub aktywność Invoke Workflow."
+        )
+    if blocking_reasons:
+        hint_apex = _blocked_plsql()
+    elif wait_for:
+        hint_apex = f"Invoke Workflow '{child_static_id}' z oczekiwaniem na zakończenie."
+    else:
+        hint_apex = f"Invoke Workflow '{child_static_id}' (lub apex_workflow.start_workflow)."
 
     return ActionDescription(
         summary=summary,
         action_type="NWStartWorkflow2Adapter",
         label=node.b_label or node.t_label or f"Uruchom: {wf_name}",
         hint_universal=f"Uruchomienie procesu podrzędnego {wf_name}.",
-        hint_apex=f"Invoke Workflow '{child_static_id}' (lub apex_workflow.start_workflow).",
+        hint_apex=hint_apex,
         plsql_code=plsql_code,
-        technical_lines=[f"Workflow = {wf_name}", f"Czekaj = {wait_for}"],
+        technical_lines=[f"Workflow = {wf_name}", f"Czekaj = {wait_for if valid_wait_mode else 'nieznane'}"],
+        blocking_reasons=blocking_reasons,
+        path_b_blocking_reasons=path_b_blocking_reasons,
     )
 
 
@@ -1470,6 +1906,24 @@ def describe_action(node: ActionNode, resolver: FieldResolver) -> ActionDescript
         description = _describe_fallback(node, resolver)
     else:
         description = handler(node, resolver)
+    rest_warnings: list[str] = []
+    for ref in description.reads:
+        if ref.list_id and ref.internal_name:
+            field_type = resolver.get_field_type(ref.internal_name, ref.list_id) or ref.field_type
+            mapping = resolver.resolve_rest_field(ref.internal_name, ref.list_id, lookup=is_lookup(field_type))
+            rest_warnings.extend(mapping.warnings)
+    description.technical_lines.extend(f"Uwaga: {warning}" for warning in dict.fromkeys(rest_warnings))
+    if short_type in ("WFIfElseAdapter", "NWRunIf2Adapter"):
+        code_to_check = _plsql_condition(node.condition_el, resolver)
+    else:
+        code_to_check = description.plsql_code
+    if code_to_check:
+        code_without_comments = _strip_plsql_comments(code_to_check)
+        untranslated = sorted(set(_UNTRANSLATED_TOKEN.findall(code_without_comments)))
+        if untranslated:
+            description.blocking_reasons.append(
+                f"Nieprzetłumaczone tokeny Nintex: {', '.join(untranslated)}; wymagane ręczne mapowanie."
+            )
     if node.redacted_fields:
         fields = ", ".join(node.redacted_fields)
         description.blocking_reasons.append(
@@ -1506,6 +1960,48 @@ _LOCAL_DECLARATIONS = {
 }
 
 
+def _conditional_plsql(node: ActionNode, resolver: FieldResolver, indent_level: int) -> list[str]:
+    """IF ... [ELSE ...] END IF z pelnym kodem akcji podrzednych (NWRunIf2Adapter / WFIfElseAdapter)."""
+    indent = "    " * indent_level
+    lines = [f"{indent}IF {_plsql_condition(node.condition_el, resolver)} THEN"]
+
+    def branch_body(nodes: list[ActionNode]) -> list[str]:
+        body = generate_plsql_statements(nodes, resolver, indent_level + 1)
+        if not _strip_plsql_comments("\n".join(body)).strip():
+            body.append(f"{indent}    NULL;")
+        return body
+
+    if _short_type(node.type) == "NWRunIf2Adapter":
+        lines.extend(branch_body(node.children))
+        lines.append(f"{indent}END IF;")
+        return lines
+    tak_branch = next((c for c in node.children if c.branch_label.lower() in ("tak", "true", "yes")), None)
+    nie_branch = next((c for c in node.children if c.branch_label.lower() in ("nie", "false", "no")), None)
+    if len(node.children) == 2:
+        if tak_branch is None and nie_branch is None:
+            nie_branch, tak_branch = node.children
+        elif tak_branch is None:
+            tak_branch = next(c for c in node.children if c is not nie_branch)
+        elif nie_branch is None:
+            nie_branch = next(c for c in node.children if c is not tak_branch)
+    elif len(node.children) == 1 and tak_branch is None and nie_branch is None:
+        tak_branch = node.children[0]
+
+    def branch_nodes(branch: ActionNode | None) -> list[ActionNode]:
+        if branch is None:
+            return []
+        if _short_type(branch.type) in ("WFSequenceAdapter", "WFParallelAdapter", "WFIfElseBranchAdapter"):
+            return branch.children
+        return [branch]
+
+    lines.extend(branch_body(branch_nodes(tak_branch)))
+    if nie_branch is not None:
+        lines.append(f"{indent}ELSE")
+        lines.extend(branch_body(branch_nodes(nie_branch)))
+    lines.append(f"{indent}END IF;")
+    return lines
+
+
 def generate_plsql_statements(nodes: list[ActionNode], resolver: FieldResolver, indent_level: int = 1) -> list[str]:
     """Sklada fragmenty PL/SQL akcji w jedna sekwencje instrukcji (sciezka B: jeden Execute Code)."""
     lines: list[str] = []
@@ -1524,29 +2020,8 @@ def generate_plsql_statements(nodes: list[ActionNode], resolver: FieldResolver, 
         if short_type in ("WFSequenceAdapter", "WFParallelAdapter"):
             lines.extend(generate_plsql_statements(node.children, resolver, indent_level))
             continue
-        if short_type == "WFIfElseAdapter":
-            cond = _plsql_condition(node.condition_el, resolver)
-            lines.append(f"{indent}IF {cond} THEN")
-            tak_branch = next((c for c in node.children if c.branch_label.lower() in ("tak", "true", "yes")), None)
-            nie_branch = next((c for c in node.children if c.branch_label.lower() in ("nie", "false", "no")), None)
-            if tak_branch is None and len(node.children) > 1:
-                nie_branch, tak_branch = node.children[0], node.children[1]
-            elif tak_branch is None and len(node.children) == 1:
-                tak_branch = node.children[0]
-            tak_lines = generate_plsql_statements(tak_branch.children, resolver, indent_level + 1) if tak_branch else []
-            lines.extend(tak_lines or [f"{indent}    NULL;"])
-            nie_lines = generate_plsql_statements(nie_branch.children, resolver, indent_level + 1) if nie_branch else []
-            if nie_lines:
-                lines.append(f"{indent}ELSE")
-                lines.extend(nie_lines)
-            lines.append(f"{indent}END IF;")
-            continue
-        if short_type == "NWRunIf2Adapter":
-            cond = _plsql_condition(node.condition_el, resolver)
-            lines.append(f"{indent}IF {cond} THEN")
-            child_lines = generate_plsql_statements(node.children, resolver, indent_level + 1)
-            lines.extend(child_lines or [f"{indent}    NULL;"])
-            lines.append(f"{indent}END IF;")
+        if short_type in ("WFIfElseAdapter", "NWRunIf2Adapter"):
+            lines.extend(_conditional_plsql(node, resolver, indent_level))
             continue
         desc = describe_action(node, resolver)
         if short_type == "NWBusinessProcessAdapter":
@@ -1601,22 +2076,101 @@ def wrap_plsql_block(statements: list[str] | str, header_comment: str = "") -> s
     return f"{head}BEGIN\n{body}\nEND;"
 
 
+def _read_after_write_reasons(nodes: list[ActionNode], resolver: FieldResolver) -> list[str]:
+    reasons: list[str] = []
+    descriptions: dict[int, ActionDescription] = {}
+
+    def description(node: ActionNode) -> ActionDescription:
+        if id(node) not in descriptions:
+            descriptions[id(node)] = describe_action(node, resolver)
+        return descriptions[id(node)]
+
+    def writes(node: ActionNode) -> set[str]:
+        short_type = _short_type(node.type)
+        if short_type == "SPSetFieldWithKeyAdapter":
+            source_write = True
+        elif short_type == "SPUpdateItemWithKeyAdapter":
+            list_id = node.params.get("ListId", "")
+            source_write = _is_current_item_update(node, resolver) or (
+                bool(list_id) and _is_source_list(list_id, resolver)
+            )
+        else:
+            source_write = False
+        if not source_write:
+            return set()
+        return {
+            ref.internal_name.strip().casefold()
+            for ref in description(node).writes if ref.internal_name.strip()
+        }
+
+    def possible_writes(items: list[ActionNode]) -> set[str]:
+        result: set[str] = set()
+        for node in items:
+            if node.enabled:
+                result.update(writes(node))
+                result.update(possible_writes(node.children))
+        return result
+
+    def walk(items: list[ActionNode], dirty: set[str]) -> set[str]:
+        dirty = set(dirty)
+        for node in items:
+            if not node.enabled:
+                continue
+            for ref in description(node).reads:
+                name = ref.internal_name.strip()
+                if name and name.casefold() in dirty and _is_source_list(ref.list_id, resolver):
+                    reasons.append(
+                        f"Odczyt pola {name} po jego aktualizacji wymaga odświeżenia danych "
+                        "bieżącego elementu przed dalszym wykonaniem."
+                    )
+            dirty.update(writes(node))
+            short_type = _short_type(node.type)
+            if short_type == "WFIfElseAdapter":
+                start = set(dirty)
+                for branch in node.children:
+                    dirty.update(walk([branch], start))
+            elif short_type == "NWForEachLoopAdapter":
+                # Kolejny obrót może odczytać pole zmienione w poprzednim.
+                body_writes = possible_writes(node.children)
+                dirty.update(walk(node.children, dirty | body_writes))
+            elif short_type == "WFParallelAdapter":
+                branch_writes = [possible_writes([branch]) for branch in node.children]
+                start = set(dirty)
+                for index, branch in enumerate(node.children):
+                    other_writes: set[str] = set()
+                    for other_index, fields in enumerate(branch_writes):
+                        if index != other_index:
+                            other_writes.update(fields)
+                    dirty.update(walk([branch], start | other_writes))
+            else:
+                dirty = walk(node.children, dirty)
+        return dirty
+
+    walk(nodes, set())
+    return list(dict.fromkeys(reasons))
+
+
 def collect_blocking_reasons(
     nodes: list[ActionNode], resolver: FieldResolver, path: Literal["A", "B", "common"]
 ) -> list[str]:
     if path not in {"A", "B", "common"}:
         raise ValueError(f"Nieznana ścieżka migracji: {path!r}")
     reasons: list[str] = []
-    for node in nodes:
-        if not node.enabled:
-            continue
-        desc = describe_action(node, resolver)
-        reasons.extend(desc.blocking_reasons)
-        if path == "A":
-            reasons.extend(desc.path_a_blocking_reasons)
-        elif path == "B":
-            reasons.extend(desc.path_b_blocking_reasons)
-        reasons.extend(collect_blocking_reasons(node.children, resolver, path))
+
+    def walk(items: list[ActionNode]) -> None:
+        for node in items:
+            if not node.enabled:
+                continue
+            desc = describe_action(node, resolver)
+            reasons.extend(desc.blocking_reasons)
+            if path == "A":
+                reasons.extend(desc.path_a_blocking_reasons)
+            elif path == "B":
+                reasons.extend(desc.path_b_blocking_reasons)
+            walk(node.children)
+
+    walk(nodes)
+    reasons.extend(_read_after_write_reasons(nodes, resolver))
     return list(dict.fromkeys(reasons))
 
 

@@ -14,6 +14,7 @@ ConditionUse, Parameters/Parameter[@Name] i wlasne FieldReferences.
 """
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from xml.etree import ElementTree as ET
@@ -77,6 +78,82 @@ class WorkflowModel:
     @property
     def source_list(self) -> "ListReference | None":
         return next((lr for lr in self.list_references if lr.is_source_list), None)
+
+
+@dataclass(frozen=True)
+class WorkflowVariableInfo:
+    nintex_type: str
+    role: str
+    description: str
+
+
+def collect_workflow_variables(actions: list[ActionNode]) -> dict[str, WorkflowVariableInfo]:
+    variables: dict[str, WorkflowVariableInfo] = {}
+    token_names: list[str] = []
+
+    def register(
+        name: str, nintex_type: str, role: str, *, description: str = "", overwrite: bool = False
+    ) -> None:
+        if name and (overwrite or name not in variables):
+            variables[name] = WorkflowVariableInfo(nintex_type or "Text", role, description or role)
+
+    def scan_text(value: str) -> None:
+        token_names.extend(match.group(1).strip() for match in re.finditer(r"\{WorkflowVariable:([^}]+)\}", value))
+
+    def scan_element(root: ET.Element, role: str) -> None:
+        for element in root.iter():
+            if element.tag == "Variable" and element.get("Name"):
+                var_type = element.get("Type", "")
+                register(
+                    element.get("Name", ""), var_type, role,
+                    overwrite=var_type.lower() in {"arraylist", "collection"},
+                )
+            for value in (element.text or "", *element.attrib.values()):
+                scan_text(value)
+
+    def walk(nodes: list[ActionNode]) -> None:
+        for node in nodes:
+            if node.type.endswith("SPSetVariableAdapter"):
+                variable = node.param_elements.get("VariableName")
+                if variable is not None and variable.get("Name"):
+                    label = variable.get("Description") or node.t_label
+                    register(
+                        variable.get("Name", ""), variable.get("Type", "Text"),
+                        label or "Zmienna workflow Nintex", description=label or "Zmienna robocza", overwrite=True,
+                    )
+            if node.raw_el is not None:
+                for parameter in node.raw_el.findall("Parameters/Parameter"):
+                    for element in node.parameter_values(parameter.get("Name", "")):
+                        scan_element(element, "Zmienna parametru akcji Nintex")
+                for storage in node.raw_el.findall(".//ValueStorage"):
+                    if storage.get("VariableName"):
+                        var_type = storage.get("VariableType", "")
+                        register(
+                            storage.get("VariableName", ""), var_type, "Kolekcja wynikowa akcji Nintex",
+                            overwrite=var_type.lower() in {"arraylist", "collection"},
+                        )
+                for ref in node.raw_el.iter("FieldReference"):
+                    scan_element(ref, "Zmienna workflow Nintex zapisywana do pola SharePoint")
+                if node.type.endswith("NWSendMessageAdapter"):
+                    for element_name in ("Message", "Approvers"):
+                        element = node.raw_el.find(f".//{element_name}")
+                        if element is not None:
+                            scan_element(element, "Zmienna używana w wiadomości Nintex")
+            for element in node.param_elements.values():
+                scan_element(element, "Zmienna parametru akcji Nintex")
+            if node.condition_el is not None:
+                scan_element(node.condition_el, "Zmienna używana w warunku Nintex")
+            for value in node.params.values():
+                scan_text(value)
+            walk(node.children)
+
+    walk(actions)
+    for name in token_names:
+        register(
+            name, "Text", "Zmienna używana w wyrażeniu workflow",
+            description="Używana w wyrażeniach warunkowych/komunikatach",
+        )
+    return variables
 
 
 def _text(el: ET.Element | None) -> str:

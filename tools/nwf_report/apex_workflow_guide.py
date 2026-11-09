@@ -41,8 +41,8 @@ from .apex_naming import (
     variable_static_id,
     workflow_static_id,
 )
-from .metadata_loader import FieldResolver
-from .nwf_parser import ActionNode, WorkflowModel
+from .metadata_loader import FieldResolver, RestFieldMapping
+from .nwf_parser import ActionNode, WorkflowModel, collect_workflow_variables
 
 if TYPE_CHECKING:
     from .report_builder import Step
@@ -173,6 +173,8 @@ class ApexSourceField:
     select: list[str]
     expand: bool
     variables: list[tuple[str, str, str]]  # (static_id, data_type, apex_json path)
+    rest_name: str = ""
+    mapping_error: str = ""
 
 
 @dataclass
@@ -252,9 +254,15 @@ def collect_source_fields(actions: list[ActionNode], resolver: FieldResolver) ->
             if not node.enabled:
                 continue
             if node.raw_el is not None:
-                parameters = node.raw_el.find("Parameters")
-                if parameters is not None:
-                    scan_element(parameters)
+                for element_name in ("Parameters", "FieldReferences"):
+                    element = node.raw_el.find(element_name)
+                    if element is not None:
+                        scan_element(element)
+                if node.type.endswith("NWSendMessageAdapter"):
+                    for element_name in ("Message", "Approvers"):
+                        element = node.raw_el.find(f".//{element_name}")
+                        if element is not None:
+                            scan_element(element)
             for element in (node.condition_el, *node.param_elements.values()):
                 if element is not None:
                     scan_element(element)
@@ -273,27 +281,34 @@ def collect_source_fields(actions: list[ActionNode], resolver: FieldResolver) ->
     return fields
 
 
-def _source_field_spec(internal_name: str, field_type: str) -> ApexSourceField:
+def _source_field_spec(
+    internal_name: str, field_type: str, mapping: RestFieldMapping | None = None
+) -> ApexSourceField:
     base = field_variable(internal_name)
     lowered = field_type.lower()
+    rest_name = mapping.property_name if mapping else internal_name
+    lookup_value = mapping.lookup_value if mapping else "Title"
+    mapping_error = mapping.error if mapping else ""
     if is_user(field_type):
         return ApexSourceField(
             internal_name, field_type,
-            [f"{internal_name}/Title", f"{internal_name}/EMail", f"{internal_name}/Name"], True,
+            [f"{rest_name}/Title", f"{rest_name}/EMail", f"{rest_name}/Name"], True,
             [
-                (base, "VARCHAR2", f"data.{internal_name}.Title"),
-                (field_variable(internal_name, "EMAIL"), "VARCHAR2", f"data.{internal_name}.EMail"),
-                (field_variable(internal_name, "NAME"), "VARCHAR2", f"data.{internal_name}.Name"),
+                (base, "VARCHAR2", f"data.{rest_name}.Title"),
+                (field_variable(internal_name, "EMAIL"), "VARCHAR2", f"data.{rest_name}.EMail"),
+                (field_variable(internal_name, "NAME"), "VARCHAR2", f"data.{rest_name}.Name"),
             ],
+            rest_name, mapping_error,
         )
     if is_lookup(field_type):
         return ApexSourceField(
             internal_name, field_type,
-            [f"{internal_name}/Id", f"{internal_name}/Title"], True,
+            [f"{rest_name}/Id", f"{rest_name}/{lookup_value}"], True,
             [
-                (base, "VARCHAR2", f"data.{internal_name}.Title"),
-                (field_variable(internal_name, "ID"), "NUMBER", f"data.{internal_name}.Id"),
+                (base, "VARCHAR2", f"data.{rest_name}.{lookup_value}"),
+                (field_variable(internal_name, "ID"), "NUMBER", f"data.{rest_name}.Id"),
             ],
+            rest_name, mapping_error,
         )
     if lowered in ("number", "integer", "counter", "currency"):
         data_type = "NUMBER"
@@ -303,16 +318,22 @@ def _source_field_spec(internal_name: str, field_type: str) -> ApexSourceField:
         data_type = "CLOB"
     else:
         data_type = "VARCHAR2"
-    return ApexSourceField(internal_name, field_type, [internal_name], False, [(base, data_type, f"data.{internal_name}")])
+    return ApexSourceField(
+        internal_name, field_type, [rest_name], False,
+        [(base, data_type, f"data.{rest_name}")], rest_name, mapping_error,
+    )
 
 
 def build_shp_query(source_fields: list[ApexSourceField]) -> str:
     select: list[str] = []
     expand: list[str] = []
     for spec in source_fields:
+        if spec.mapping_error:
+            continue
         select.extend(item for item in spec.select if item not in select)
-        if spec.expand and spec.internal_name not in expand:
-            expand.append(spec.internal_name)
+        rest_name = spec.rest_name or spec.internal_name
+        if spec.expand and rest_name not in expand:
+            expand.append(rest_name)
     query = f"$select={','.join(select) if select else 'Id'}"
     if expand:
         query += f"&$expand={','.join(expand)}"
@@ -341,10 +362,13 @@ def build_parse_code(source_fields: list[ApexSourceField]) -> str:
         "    apex_json.parse(l_json_text);",
     ]
     for spec in source_fields:
+        if spec.mapping_error:
+            lines.append(f"    -- TODO: {spec.mapping_error}")
+            continue
         if is_multi(spec.field_type):
             lines.append(
                 f"    -- TODO: {spec.internal_name} ({spec.field_type}) jest wielowartościowe - "
-                f"wartości są w data.{spec.internal_name}.results[%d]"
+                f"wartości są w data.{spec.rest_name or spec.internal_name}.results[%d]"
             )
         for static_id, data_type, path in spec.variables:
             lines.append(_parse_assignment(static_id, data_type, path))
@@ -439,54 +463,10 @@ def build_additional_data(static_id: str, actions: list[ActionNode]) -> ApexAddi
 # --------------------------------------------------------------------------------------------
 
 def _extract_variables(actions: list[ActionNode]) -> dict[str, ApexWorkflowVariable]:
-    variables: dict[str, ApexWorkflowVariable] = {}
-
-    def register(name: str, data_type: str, role: str, overwrite: bool = False) -> None:
-        if name and (overwrite or name not in variables):
-            variables[name] = ApexWorkflowVariable(variable_static_id(name), data_type, role)
-
-    def walk(nodes: list[ActionNode]) -> None:
-        for node in nodes:
-            if node.type.endswith("SPSetVariableAdapter"):
-                variable = node.param_elements.get("VariableName")
-                if variable is not None and variable.get("Name"):
-                    register(
-                        variable.get("Name", ""),
-                        _data_type(variable.get("Type", "Text")),
-                        variable.get("Description") or node.t_label or "Zmienna workflow Nintex",
-                        overwrite=True,
-                    )
-            if node.raw_el is not None:
-                for parameter in node.raw_el.findall("Parameters/Parameter"):
-                    for element in node.parameter_values(parameter.get("Name", "")):
-                        if element.tag == "Variable" and element.get("Name"):
-                            var_type = element.get("Type", "")
-                            register(
-                                element.get("Name", ""),
-                                _data_type(var_type),
-                                "Zmienna parametru akcji Nintex",
-                                overwrite=var_type.lower() in {"arraylist", "collection"},
-                            )
-                for storage in node.raw_el.findall(".//ValueStorage"):
-                    if storage.get("VariableName"):
-                        var_type = storage.get("VariableType", "")
-                        register(
-                            storage.get("VariableName", ""),
-                            _data_type(var_type),
-                            "Kolekcja wynikowa akcji Nintex",
-                            overwrite=var_type.lower() in {"arraylist", "collection"},
-                        )
-                for ref in node.raw_el.iter("FieldReference"):
-                    for child in ref:
-                        if child.tag == "Variable" and child.get("Name"):
-                            register(child.get("Name", ""), _data_type(child.get("Type", "Text")), "Zmienna workflow Nintex zapisywana do pola SharePoint")
-            for value in node.params.values():
-                for match in re.finditer(r"\{WorkflowVariable:([^}]+)\}", value):
-                    register(match.group(1).strip(), "VARCHAR2", "Zmienna używana w wyrażeniu workflow")
-            walk(node.children)
-
-    walk(actions)
-    return variables
+    return {
+        name: ApexWorkflowVariable(variable_static_id(name), _data_type(variable.nintex_type), variable.role)
+        for name, variable in collect_workflow_variables(actions).items()
+    }
 
 
 def _standard_variables() -> list[ApexWorkflowVariable]:
@@ -553,6 +533,8 @@ def _standard_activities(
                 f"Lista źródłowa: {source_list}. p_query jest jedynym parametrem wpisywanym ręcznie.",
                 "$select wskazuje pobierane pola; $expand pobiera pola złożone (User/Lookup) "
                 "bez dodatkowego zapytania do listy słownikowej.",
+                "Kolumny dodatkowe Lookup korzystają z relacji głównej i pola docelowego; "
+                "sprawdź zapytanie na docelowej witrynie SharePoint.",
             ],
             plsql_code=(
                 "-- Odpowiednik konfiguracji Invoke API:\n"
@@ -709,10 +691,15 @@ def generate_apex_workflow_spec(
         context_blockers.append("Brak potwierdzonego typu workflow; uruchomienie wymaga ręcznej migracji.")
     elif source is None:
         context_blockers.append("Workflow listy nie ma potwierdzonej listy źródłowej.")
-    source_fields = (
-        [] if not is_list else
-        [_source_field_spec(name, ftype) for name, ftype in collect_source_fields(wf.actions, resolver).items()]
-    )
+    source_fields: list[ApexSourceField] = []
+    field_warnings: list[str] = []
+    if is_list:
+        for name, ftype in collect_source_fields(wf.actions, resolver).items():
+            mapping = resolver.resolve_rest_field(name, lookup=is_lookup(ftype))
+            if mapping.error:
+                context_blockers.append(mapping.error)
+            field_warnings.extend(mapping.warnings)
+            source_fields.append(_source_field_spec(name, ftype, mapping))
     shp_query = build_shp_query(source_fields) if is_list else ""
     additional_data = build_additional_data(static_id, wf.actions)
 
@@ -764,6 +751,11 @@ def generate_apex_workflow_spec(
     ]
 
     standard = _standard_activities(additional_data, source_list, shp_query, build_parse_code(source_fields))
+    if is_list:
+        standard[2].config_notes.extend(f"Uwaga: {warning}" for warning in dict.fromkeys(field_warnings))
+        standard[2].config_notes.extend(
+            f"Blokada: {spec.mapping_error}" for spec in source_fields if spec.mapping_error
+        )
     if not is_list:
         parameters = []
         standard = standard[:1]
