@@ -5,6 +5,7 @@
 """
 from __future__ import annotations
 
+import json
 import logging
 import os
 import queue
@@ -27,6 +28,10 @@ from tools.sp_extractor.client import SharePointClient
 from tools.sp_extractor.extractor import SharePointExtractor
 from tools.sp_extractor.naming import resolve_output_dir
 
+DEFAULT_CONFIG_PATH = REPO_ROOT / ".dora_gui_config.json"
+DEFAULT_SHAREPOINT_URL = "https://teams.sp.creditagricole/team/ITMM"
+MAX_URL_HISTORY = 20
+
 
 class QueueHandler(logging.Handler):
     """Przekierowuje rekordy logowania do kolejki GUI."""
@@ -41,11 +46,13 @@ class QueueHandler(logging.Handler):
 
 
 class DoraMigrationApp(tk.Tk):
-    def __init__(self):
+    def __init__(self, config_path: Path | None = None):
         super().__init__()
         self.title("Migracja Nintex Workflow -> Oracle APEX")
-        
-        # Centrowanie okna i wysuniecie na pierwszy plan
+        self.config_path = Path(config_path) if config_path is not None else DEFAULT_CONFIG_PATH
+        self._url_history: list[str] = [DEFAULT_SHAREPOINT_URL]
+
+        # Domyslne centrowanie okna i wysuniecie na pierwszy plan
         sw = self.winfo_screenwidth()
         sh = self.winfo_screenheight()
         x = max(0, (sw - 950) // 2)
@@ -61,9 +68,11 @@ class DoraMigrationApp(tk.Tk):
         self.log_queue: queue.Queue = queue.Queue()
         self._setup_logging()
 
-        # Budowa UI
+        # Budowa UI i wczytanie zapisanej konfiguracji
         self._build_ui()
         self._auto_detect_dirs()
+        self._load_and_apply_config()
+        self.protocol("WM_DELETE_WINDOW", self._on_close)
         self.after(100, self._process_log_queue)
 
     def _show_about(self) -> None:
@@ -153,9 +162,11 @@ class DoraMigrationApp(tk.Tk):
         grid.pack(fill=tk.X, expand=True)
 
         ttk.Label(grid, text="Adres URL witryny SharePoint:").grid(row=0, column=0, sticky=tk.W, pady=4)
-        self.url_var = tk.StringVar(value="https://teams.sp.creditagricole/team/ITMM")
-        url_entry = ttk.Entry(grid, textvariable=self.url_var, width=65)
-        url_entry.grid(row=0, column=1, sticky=tk.EW, padx=5, pady=4)
+        self.url_var = tk.StringVar(value=DEFAULT_SHAREPOINT_URL)
+        self.url_combo = ttk.Combobox(
+            grid, textvariable=self.url_var, values=self._url_history, width=62
+        )
+        self.url_combo.grid(row=0, column=1, sticky=tk.EW, padx=5, pady=4)
 
         ttk.Label(grid, text="Katalog docelowy:").grid(row=1, column=0, sticky=tk.W, pady=4)
         dest_box = ttk.Frame(grid)
@@ -253,6 +264,115 @@ class DoraMigrationApp(tk.Tk):
             else:
                 self.report_out_var.set("out")
 
+    def _remember_url(self, url: str) -> None:
+        """Dodaje adres SharePoint na poczatek historii (bez duplikatow)."""
+        cleaned = url.strip()
+        if not cleaned:
+            return
+        self._url_history = [u for u in self._url_history if u != cleaned]
+        self._url_history.insert(0, cleaned)
+        self._url_history = self._url_history[:MAX_URL_HISTORY]
+        self.url_combo.configure(values=self._url_history)
+
+    def _load_and_apply_config(self) -> None:
+        """Wczytuje konfiguracje GUI z pliku JSON, jesli istnieje."""
+        if not self.config_path.exists():
+            return
+        try:
+            data = json.loads(self.config_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            logging.warning("Nie udało się wczytać konfiguracji GUI (%s): %s", self.config_path, exc)
+            return
+        if not isinstance(data, dict):
+            return
+
+        geometry = data.get("window_geometry")
+        if isinstance(geometry, str) and geometry:
+            try:
+                self.geometry(geometry)
+            except tk.TclError:
+                pass
+        if data.get("window_state") == "zoomed":
+            try:
+                self.state("zoomed")
+            except tk.TclError:
+                pass
+
+        active_tab = data.get("active_tab")
+        if isinstance(active_tab, int) and 0 <= active_tab < self.notebook.index("end"):
+            self.notebook.select(active_tab)
+
+        raw_history = data.get("sharepoint_urls")
+        if isinstance(raw_history, list):
+            history = [u.strip() for u in raw_history if isinstance(u, str) and u.strip()]
+            if history:
+                self._url_history = list(dict.fromkeys(history))[:MAX_URL_HISTORY]
+                self.url_combo.configure(values=self._url_history)
+
+        sharepoint_url = data.get("sharepoint_url")
+        if isinstance(sharepoint_url, str) and sharepoint_url.strip():
+            self.url_var.set(sharepoint_url.strip())
+            self._remember_url(sharepoint_url.strip())
+
+        if isinstance(data.get("auto_dir"), bool):
+            self.auto_dir_var.set(data["auto_dir"])
+            self._toggle_custom_extract_dir()
+        if isinstance(data.get("custom_dir"), str):
+            self.custom_dir_var.set(data["custom_dir"])
+        if isinstance(data.get("include_data"), bool):
+            self.inc_data_var.set(data["include_data"])
+        if isinstance(data.get("insecure_ssl"), bool):
+            self.insecure_ssl_var.set(data["insecure_ssl"])
+
+        if isinstance(data.get("report_in"), str) and data["report_in"].strip():
+            self.report_in_var.set(data["report_in"].strip())
+        if isinstance(data.get("report_out"), str) and data["report_out"].strip():
+            self.report_out_var.set(data["report_out"].strip())
+
+    def _collect_config(self) -> dict:
+        """Zbiera biezacy stan GUI do slownika serializowanego jako JSON."""
+        current_url = self.url_var.get().strip()
+        if current_url:
+            self._remember_url(current_url)
+        try:
+            active_tab = int(self.notebook.index(self.notebook.select()))
+        except tk.TclError:
+            active_tab = 0
+        try:
+            win_state = self.state()
+        except tk.TclError:
+            win_state = "normal"
+
+        return {
+            "window_geometry": self.geometry(),
+            "window_state": win_state,
+            "active_tab": active_tab,
+            "sharepoint_url": current_url,
+            "sharepoint_urls": list(self._url_history),
+            "auto_dir": bool(self.auto_dir_var.get()),
+            "custom_dir": self.custom_dir_var.get(),
+            "include_data": bool(self.inc_data_var.get()),
+            "insecure_ssl": bool(self.insecure_ssl_var.get()),
+            "report_in": self.report_in_var.get().strip(),
+            "report_out": self.report_out_var.get().strip(),
+        }
+
+    def _save_config(self) -> None:
+        """Zapisuje biezaca konfiguracje GUI do pliku JSON."""
+        try:
+            self.config_path.parent.mkdir(parents=True, exist_ok=True)
+            payload = self._collect_config()
+            self.config_path.write_text(
+                json.dumps(payload, ensure_ascii=False, indent=2),
+                encoding="utf-8",
+            )
+        except OSError as exc:
+            logging.warning("Nie udało się zapisać konfiguracji GUI (%s): %s", self.config_path, exc)
+
+    def _on_close(self) -> None:
+        self._save_config()
+        self.destroy()
+
     def _browse_report_input(self):
         d = filedialog.askdirectory(initialdir=REPO_ROOT, title="Wybierz katalog ze zrzutem SharePoint")
         if d:
@@ -283,6 +403,8 @@ class DoraMigrationApp(tk.Tk):
             messagebox.showerror("Błąd", "Wprowadź adres URL witryny SharePoint.")
             return
 
+        self._remember_url(url)
+        self._save_config()
         self.btn_extract.configure(state=tk.DISABLED)
         self.progress.start(10)
         self.status_lbl.configure(text="Pobieranie z SharePoint w toku...")
@@ -335,6 +457,7 @@ class DoraMigrationApp(tk.Tk):
             messagebox.showerror("Błąd", "Podaj katalog wejściowy i wyjściowy.")
             return
 
+        self._save_config()
         self.btn_report.configure(state=tk.DISABLED)
         self.progress.start(10)
         self.status_lbl.configure(text="Generowanie raportów...")

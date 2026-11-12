@@ -13,6 +13,9 @@ venv/
 # Pytest
 .pytest_cache/
 
+# Local GUI configuration (stores user URLs and local paths)
+.dora_gui_config.json
+
 # Local SharePoint extractions and generated reports must never be committed
 DaneZeSkryptu/
 DaneZeSkryptu_*/
