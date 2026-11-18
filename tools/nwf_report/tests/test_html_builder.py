@@ -61,6 +61,35 @@ def test_portal_json_keeps_script_end_tag_as_data():
     assert "<script>unexpected()" not in html
 
 
+def test_portal_has_copyable_combined_variant_with_safe_dynamic_text():
+    html = _generate_html([{
+        "title": "Synthetic </script><script>unexpected()</script>",
+        "apex_workflow_spec": {
+            "path_b_combined": {"plsql_code": "BEGIN NULL; END;"},
+            "path_b_combined_status": "Szablon — wymaga ręcznego uzupełnienia",
+            "path_b_combined_blocking_reasons": ["<img src=x onerror=unexpected()>"],
+            "path_b_combined_required_binds": ["V_SHP_ANSWER"],
+        },
+    }])
+
+    for element_id in (
+        "wf-combined-title", "wf-combined-instructions", "wf-combined-status",
+        "wf-combined-reasons", "wf-combined-binds", "wf-combined-code",
+        "wf-combined-template-warning", "copy-combined-plsql-btn", "wf-combined-copy-status", "apex-path-b-combined",
+    ):
+        assert f'id="{element_id}"' in html
+    assert 'data-path="B2"' in html
+    assert "spec.path_b_combined_blocking_reasons" in html
+    assert "spec.path_b_combined_required_binds" in html
+    assert "wf-combined-template-warning').hidden" in html
+    assert "RAISE_APPLICATION_ERROR(-20090" in html
+    assert "reasonItem.textContent = reason" in html
+    assert "combinedCode.textContent" in html
+    assert "Nie udało się skopiować" in html
+    assert "<img src=x onerror=unexpected()>" not in html
+    assert "<script>unexpected()</script>" not in html
+
+
 def test_portal_escapes_dynamic_field_names_in_html():
     html = _generate_html([])
 

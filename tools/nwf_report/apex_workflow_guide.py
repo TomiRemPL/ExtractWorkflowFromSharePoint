@@ -37,10 +37,12 @@ from .apex_naming import (
     is_lookup,
     is_multi,
     is_user,
+    nintex_data_type,
     sql_literal,
     variable_static_id,
     workflow_static_id,
 )
+from .combined_execute_code import build_combined_execute_code
 from .metadata_loader import FieldResolver, RestFieldMapping
 from .nwf_parser import ActionNode, WorkflowModel, collect_workflow_variables
 
@@ -52,6 +54,7 @@ _identifier = identifier
 _field_variable = field_variable
 _variable_static_id = variable_static_id
 _sql_literal = sql_literal
+_data_type = nintex_data_type
 
 NINTEX_PARAMS_BASE_COLUMNS: dict[str, str] = {
     "ID": (
@@ -188,6 +191,7 @@ class ApexWorkflowSpec:
     standard_activities: list[ApexWorkflowActivity]
     activities: list[ApexWorkflowActivity]
     path_b: ApexWorkflowActivity
+    path_b_combined: ApexWorkflowActivity
     additional_data: ApexAdditionalData
     shp_query: str
     source_list: str
@@ -195,26 +199,14 @@ class ApexWorkflowSpec:
     migration_status: str = "Wymaga weryfikacji"
     path_a_status: str = "Wymaga weryfikacji"
     path_b_status: str = "Wymaga weryfikacji"
+    path_b_combined_status: str = "Wymaga weryfikacji"
     path_a_blocking_reasons: list[str] = field(default_factory=list)
     path_b_blocking_reasons: list[str] = field(default_factory=list)
+    path_b_combined_blocking_reasons: list[str] = field(default_factory=list)
+    path_b_combined_required_binds: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict:
         return asdict(self)
-
-
-def _data_type(nintex_type: str) -> str:
-    normalized = nintex_type.lower().replace(" ", "")
-    if normalized in {"arraylist", "collection"}:
-        return "CLOB"
-    if any(token in normalized for token in ("datetime", "timestamp", "time")):
-        return "TIMESTAMP"
-    if "date" in normalized:
-        return "DATE"
-    if any(token in normalized for token in ("integer", "number", "decimal", "counter", "currency", "spitemkey")):
-        return "NUMBER"
-    if any(token in normalized for token in ("memo", "multiline", "clob", "note")):
-        return "CLOB"
-    return "VARCHAR2"
 
 
 # --------------------------------------------------------------------------------------------
@@ -224,14 +216,20 @@ def _data_type(nintex_type: str) -> str:
 _ITEM_PROPERTY_RE = re.compile(r"\{ItemProperty:([^}]+)\}")
 
 
-def collect_source_fields(actions: list[ActionNode], resolver: FieldResolver) -> dict[str, str]:
+def collect_source_fields(
+    actions: list[ActionNode], resolver: FieldResolver, *, require_declared_type: bool = False
+) -> dict[str, str]:
     """Zbiera pola biezacego elementu (ThisItemLookup, {ItemProperty:X}) odczytywane przez workflow."""
     fields: dict[str, str] = {}
 
     def add(name: str | None, field_type: str | None) -> None:
         if not name or name.lower() in ("id", "itemid"):
             return
-        fields.setdefault(name, resolver.get_field_type(name) or field_type or "Text")
+        resolved_type = resolver.get_field_type(name) or field_type or ("" if require_declared_type else "Text")
+        if name not in fields:
+            fields[name] = resolved_type
+        elif require_declared_type and not fields[name] and resolved_type:
+            fields[name] = resolved_type
 
     def scan_text(text: str | None) -> None:
         for match in _ITEM_PROPERTY_RE.finditer(text or ""):
@@ -681,31 +679,45 @@ def generate_apex_workflow_spec(
     workflow_type = wf.workflow_type.strip().casefold()
     is_site = workflow_type == "site"
     is_list = workflow_type == "list"
-    source_list = source.list_name if source else "(brak listy źródłowej)"
+    is_reusable = workflow_type in ("reusable", "globallyreusable")
+    is_list_like = is_list or is_reusable
+    associated_lists = getattr(resolver, "associated_lists", [])
+    if source is not None:
+        source_list = source.list_name
+    elif is_reusable and associated_lists:
+        source_list = ", ".join(info.title for info in associated_lists)
+    elif is_reusable and wf.source_content_type and wf.source_content_type.name:
+        source_list = f"(Typ zawartości: {wf.source_content_type.name})"
+    else:
+        source_list = "(brak listy źródłowej)"
+
     context_blockers: list[str] = []
     if is_site:
         context_blockers.append("Workflow Site wymaga ręcznej migracji uruchomienia; harmonogram nie został potwierdzony.")
-    elif workflow_type and not is_list:
+    elif is_reusable:
+        if source is None and not associated_lists and wf.source_content_type is None:
+            context_blockers.append("Workflow Reusable nie ma potwierdzonego typu zawartości ani listy źródłowej.")
+    elif workflow_type and not is_list_like:
         context_blockers.append("Nieznany typ workflow wymaga ręcznej weryfikacji uruchomienia.")
     elif not workflow_type:
         context_blockers.append("Brak potwierdzonego typu workflow; uruchomienie wymaga ręcznej migracji.")
-    elif source is None:
+    elif is_list and source is None:
         context_blockers.append("Workflow listy nie ma potwierdzonej listy źródłowej.")
     source_fields: list[ApexSourceField] = []
     field_warnings: list[str] = []
-    if is_list:
+    if is_list_like:
         for name, ftype in collect_source_fields(wf.actions, resolver).items():
             mapping = resolver.resolve_rest_field(name, lookup=is_lookup(ftype))
             if mapping.error:
                 context_blockers.append(mapping.error)
             field_warnings.extend(mapping.warnings)
             source_fields.append(_source_field_spec(name, ftype, mapping))
-    shp_query = build_shp_query(source_fields) if is_list else ""
+    shp_query = build_shp_query(source_fields) if is_list_like else ""
     additional_data = build_additional_data(static_id, wf.actions)
 
     variables: list[ApexWorkflowVariable] = (
         [ApexWorkflowVariable(V_SITE_URL, "VARCHAR2", "Adres witryny; źródło wartości wymaga ręcznej migracji.")]
-        if not is_list else _standard_variables()
+        if not is_list_like else _standard_variables()
     )
     used_ids = {variable.static_id: f"zmienna standardowa {variable.static_id}" for variable in variables}
 
@@ -720,7 +732,7 @@ def generate_apex_workflow_spec(
         used_ids[static_id] = origin
         return True
 
-    if is_list:
+    if is_list_like:
         claim_id(P_PAYLOAD_BODY, f"parametr {P_PAYLOAD_BODY}")
     for param in additional_data.params:
         claim_id(param.alias, f"parametr Additional Data {param.alias}")
@@ -728,7 +740,8 @@ def generate_apex_workflow_spec(
         for var_id, data_type, path in spec.variables:
             if claim_id(var_id, f"pole {spec.internal_name} ({path})"):
                 variables.append(ApexWorkflowVariable(var_id, data_type, f"Pole SharePoint ({path})", spec.internal_name))
-    for name, variable in _extract_variables(wf.actions).items():
+    workflow_variables = _extract_variables(wf.actions)
+    for name, variable in workflow_variables.items():
         if claim_id(variable.static_id, f"zmienna Nintex {name}"):
             variables.append(variable)
 
@@ -737,7 +750,7 @@ def generate_apex_workflow_spec(
     path_b_blockers = list(dict.fromkeys(context_blockers + collect_blocking_reasons(wf.actions, resolver, "B")))
     path_a_status = "Zablokowana" if path_a_blockers else "Wymaga weryfikacji"
     path_b_status = "Zablokowana" if path_b_blockers else "Wymaga weryfikacji"
-    if not is_list:
+    if not is_list_like:
         migration_status = "Wymaga ręcznej migracji; start zablokowany"
     elif path_a_blockers and path_b_blockers:
         migration_status = "Zablokowany"
@@ -751,12 +764,16 @@ def generate_apex_workflow_spec(
     ]
 
     standard = _standard_activities(additional_data, source_list, shp_query, build_parse_code(source_fields))
-    if is_list:
+    if is_list_like:
         standard[2].config_notes.extend(f"Uwaga: {warning}" for warning in dict.fromkeys(field_warnings))
         standard[2].config_notes.extend(
             f"Blokada: {spec.mapping_error}" for spec in source_fields if spec.mapping_error
         )
-    if not is_list:
+        standard[2].config_notes.append(
+            "W wariancie B2 przełącz przejście z tego kroku bezpośrednio na Execute Code B2, "
+            "a po nim na Workflow End; pomiń Parse i B1."
+        )
+    if not is_list_like:
         parameters = []
         standard = standard[:1]
         standard[0].config_notes.append(
@@ -771,7 +788,7 @@ def generate_apex_workflow_spec(
             ui_location="Activity Properties > Code > PL/SQL Code",
             config_notes=[f"Blokada: {reason}" for reason in common_blockers],
             plsql_code=wrap_plsql_block(_blocked_plsql()),
-            transitions=[ApexWorkflowTransition("Next", "std_payload", "Retrieve Payload")] if is_list else [],
+            transitions=[ApexWorkflowTransition("Next", "std_payload", "Retrieve Payload")] if is_list_like else [],
         )
         standard[0].transitions = [ApexWorkflowTransition("Next", guard.node_id, guard.title)]
         standard.insert(1, guard)
@@ -867,6 +884,60 @@ def generate_apex_workflow_spec(
         plsql_code=build_path_b_code(wf.actions, resolver, title, context_blockers),
         transitions=[ApexWorkflowTransition("Next", "stop", end_activity.title)],
     )
+    typed_fields = collect_source_fields(wf.actions, resolver, require_declared_type=True) if is_list else {}
+    combined_field_blockers = []
+    for spec in source_fields:
+        declared_type = typed_fields.get(spec.internal_name, "")
+        if not declared_type:
+            combined_field_blockers.append(f"Nie ustalono typu pola źródłowego {spec.internal_name}.")
+        elif declared_type.casefold() != spec.field_type.casefold():
+            combined_field_blockers.append(
+                f"Typ pola {spec.internal_name} jest niespójny z zapytaniem GET_LIST_ITEM; "
+                "wymagane ręczne mapowanie."
+            )
+    combined_code = build_combined_execute_code(
+        wf.actions,
+        resolver,
+        source_fields,
+        workflow_variables,
+        {param.alias for param in additional_data.params},
+        context_blockers + combined_field_blockers,
+        {id(step.node): step.node_id for step in steps},
+        static_id,
+        is_list,
+    )
+    path_b_combined = ApexWorkflowActivity(
+        node_id="path_b_combined",
+        title=(
+            "Parse i logika workflow w jednym Execute Code"
+            if is_list else "Szablon logiki workflow w jednym Execute Code"
+        ),
+        activity_type="Execute Code",
+        ui_location="Activity Properties > Code > PL/SQL Code",
+        config_notes=[
+            (
+                "Wariant alternatywny: po kroku 3 GET_LIST_ITEM połącz tę aktywność z Workflow End. "
+                "Nie dodawaj osobnego kroku Parse ani dotychczasowej aktywności ścieżki B."
+                if is_list else
+                "Uruchomienie i kontekst workflow wymagają ręcznej migracji; ten kod jest wyłącznie szablonem."
+            ),
+            "Bindy występujące w kodzie (nieznane wymagają ręcznego mapowania): "
+            + (", ".join(f":{bind}" for bind in combined_code.required_binds) or "brak") + ".",
+            "Rozpoznane pola SharePoint i zmienne Nintex są deklarowane lokalnie; niekompletne mapowania "
+            "wymagają ręcznego uzupełnienia w szablonie.",
+            "Kod wymaga kompilacji i testów na docelowym Oracle/APEX oraz SharePoint przed wdrożeniem.",
+            "Dostępność i trwałość logów APEX_DEBUG zależą od konfiguracji; nie zastępują one audytu.",
+            "Operacji REST SharePoint wykonanych przed błędem nie cofa rollback Oracle.",
+            *(
+                ["Szablon rozpoczyna się od RAISE_APPLICATION_ERROR(-20090); usuń tę blokadę dopiero po "
+                 "uzupełnieniu wszystkich mapowań, usunięciu pozostałych blokad i zweryfikowaniu kodu."]
+                if combined_code.blocking_reasons else []
+            ),
+            *(f"Do ręcznego uzupełnienia: {reason}" for reason in combined_code.blocking_reasons),
+        ],
+        plsql_code=combined_code.plsql_code,
+        transitions=[ApexWorkflowTransition("Next", "stop", end_activity.title)],
+    )
 
     trigger_action = next(
         (node for node in wf.actions if node.type.endswith("NWWorkflowVariablesAdapter")),
@@ -892,6 +963,7 @@ def generate_apex_workflow_spec(
         standard_activities=standard,
         activities=activities,
         path_b=path_b,
+        path_b_combined=path_b_combined,
         additional_data=additional_data,
         shp_query=shp_query,
         source_list=source_list,
@@ -899,8 +971,14 @@ def generate_apex_workflow_spec(
         migration_status=migration_status,
         path_a_status=path_a_status,
         path_b_status=path_b_status,
+        path_b_combined_status=(
+            "Szablon — wymaga ręcznego uzupełnienia"
+            if combined_code.blocking_reasons else "Wygenerowany — wymaga weryfikacji"
+        ),
         path_a_blocking_reasons=path_a_blockers,
         path_b_blocking_reasons=path_b_blockers,
+        path_b_combined_blocking_reasons=combined_code.blocking_reasons,
+        path_b_combined_required_binds=combined_code.required_binds,
     )
 
 
@@ -941,7 +1019,7 @@ def _format_activity(lines: list[str], heading: str, activity: ApexWorkflowActiv
 def format_markdown_apex_section(spec: ApexWorkflowSpec) -> str:
     workflow_type = spec.workflow_type.strip().casefold()
     site_workflow = workflow_type == "site"
-    list_workflow = workflow_type == "list"
+    list_workflow = workflow_type in ("list", "reusable", "globallyreusable")
     trigger_note = (
         "Workflow witryny wymaga ręcznej migracji uruchomienia; harmonogram nie został potwierdzony."
         if site_workflow else
@@ -999,6 +1077,9 @@ def format_markdown_apex_section(spec: ApexWorkflowSpec) -> str:
         "`GET_VARIABLE_VALUE` wymaga `p_instance_id`, a `UPDATE_VARIABLES` dotyczy instancji zawieszonych "
         "lub błędnych i wymaga roli administratora.",
         "",
+        "Powyższe zmienne pól i Nintex dotyczą klasycznych ścieżek A/B. W wariancie B2 są one lokalne; "
+        "skonfiguruj tylko bindy wskazane przy tej aktywności.",
+        "",
         "### Kroki standardowe (1–4)",
         "",
         (
@@ -1039,6 +1120,20 @@ def format_markdown_apex_section(spec: ApexWorkflowSpec) -> str:
         "",
     ])
     _format_activity(lines, "B1", spec.path_b)
+    lines.extend([
+        (
+            "### Ścieżka B — Parse i logika po GET_LIST_ITEM w jednym Execute Code"
+            if list_workflow else "### Ścieżka B — szablon logiki w jednym Execute Code"
+        ),
+        "",
+        f"**Status:** {spec.path_b_combined_status}.",
+        (
+            "To alternatywa dla kroku 4 oraz aktywności B1, a nie dodatkowy krok po nich. "
+            if list_workflow else "Uruchomienie i kontekst wymagają ręcznej migracji. "
+        ) + "Przed wdrożeniem skompiluj i przetestuj kod w docelowym środowisku.",
+        "",
+    ])
+    _format_activity(lines, "B2", spec.path_b_combined)
     return "\n".join(lines)
 
 

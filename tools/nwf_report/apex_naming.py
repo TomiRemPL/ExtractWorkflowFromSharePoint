@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import re
 import unicodedata
+from decimal import Decimal, InvalidOperation
 
 SHP_API = "LCDT.SHP_API"
 
@@ -39,6 +40,39 @@ def field_variable(internal_name: str, suffix: str = "") -> str:
 
 def variable_static_id(name: str) -> str:
     return identifier(name)
+
+
+def nintex_data_type(nintex_type: str) -> str:
+    normalized = nintex_type.lower().replace(" ", "")
+    if normalized in {"arraylist", "collection"}:
+        return "CLOB"
+    if any(token in normalized for token in ("datetime", "timestamp", "time")):
+        return "TIMESTAMP"
+    if "date" in normalized:
+        return "DATE"
+    if any(token in normalized for token in ("integer", "number", "decimal", "counter", "currency", "spitemkey")):
+        return "NUMBER"
+    if any(token in normalized for token in ("memo", "multiline", "clob", "note")):
+        return "CLOB"
+    return "VARCHAR2"
+
+
+def oracle_number_literal(value: str) -> str | None:
+    if not re.fullmatch(r"[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?", value):
+        return None
+    try:
+        number = Decimal(value)
+    except InvalidOperation:
+        return None
+    if number.is_zero():
+        return "0"
+    digits = number.as_tuple().digits
+    significant = len(digits)
+    while significant and digits[significant - 1] == 0:
+        significant -= 1
+    if not (-130 <= number.adjusted() <= 125 and significant <= 38):
+        return None
+    return value
 
 
 def workflow_static_id(title: str) -> str:

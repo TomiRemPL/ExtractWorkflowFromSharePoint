@@ -67,6 +67,13 @@ class ListReference:
 
 
 @dataclass
+class ContentTypeInfo:
+    id: str
+    name: str
+    fields: list[FieldRef] = field(default_factory=list)
+
+
+@dataclass
 class WorkflowModel:
     title: str
     description: str
@@ -74,6 +81,7 @@ class WorkflowModel:
     actions: list[ActionNode]
     source_path: Path
     workflow_type: str = ""
+    source_content_type: ContentTypeInfo | None = None
 
     @property
     def source_list(self) -> "ListReference | None":
@@ -255,32 +263,46 @@ def _branch_labels(action_type: str, action_el: ET.Element, count: int) -> list[
     return [""] * count
 
 
+def _parse_field_references(fields_el: ET.Element | None) -> list[FieldRef]:
+    if fields_el is None:
+        return []
+    return [
+        FieldRef(
+            name=_text(field_el.find("DisplayName")),
+            internal_name=_text(field_el.find("InternalName")),
+            field_type=_text(field_el.find("FieldType")),
+        )
+        for field_el in fields_el.findall("FieldReference")
+    ]
+
+
 def _parse_list_references(outer_root: ET.Element) -> list[ListReference]:
     refs: list[ListReference] = []
     list_refs_el = outer_root.find("ListReferences")
     if list_refs_el is None:
         return refs
     for ref_el in list_refs_el.findall("ListReference"):
-        fields: list[FieldRef] = []
-        fields_el = ref_el.find("Fields")
-        if fields_el is not None:
-            for field_el in fields_el.findall("FieldReference"):
-                fields.append(
-                    FieldRef(
-                        name=_text(field_el.find("DisplayName")),
-                        internal_name=_text(field_el.find("InternalName")),
-                        field_type=_text(field_el.find("FieldType")),
-                    )
-                )
         refs.append(
             ListReference(
                 list_name=_text(ref_el.find("ListName")),
                 list_id=_text(ref_el.find("ListId")),
                 is_source_list=_text(ref_el.find("IsSourceList")).lower() == "true",
-                fields=fields,
+                fields=_parse_field_references(ref_el.find("Fields")),
             )
         )
     return refs
+
+
+def _parse_source_content_type(outer_root: ET.Element) -> ContentTypeInfo | None:
+    sct_el = outer_root.find("SourceContentType")
+    if sct_el is None:
+        return None
+    ct_id = _text(sct_el.find("Id")).strip()
+    ct_name = _text(sct_el.find("Name")).strip()
+    fields = _parse_field_references(sct_el.find("Fields"))
+    if not ct_id and not ct_name and not fields:
+        return None
+    return ContentTypeInfo(id=ct_id, name=ct_name, fields=fields)
 
 
 def parse_nwf(path: str | Path) -> WorkflowModel:
@@ -304,6 +326,7 @@ def parse_nwf(path: str | Path) -> WorkflowModel:
             actions.append(_parse_action(action_el))
 
     list_references = _parse_list_references(outer_root)
+    source_content_type = _parse_source_content_type(outer_root)
 
     return WorkflowModel(
         title=title,
@@ -312,6 +335,7 @@ def parse_nwf(path: str | Path) -> WorkflowModel:
         actions=actions,
         source_path=path,
         workflow_type=_text(outer_root.find("WorkflowType")).strip(),
+        source_content_type=source_content_type,
     )
 
 

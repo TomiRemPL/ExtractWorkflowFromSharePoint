@@ -832,6 +832,11 @@ def test_reading_current_field_after_write_blocks_both_paths(usage: str) -> None
     assert spec["standard_activities"][1]["node_id"] == "migration_guard"
     assert "RAISE_APPLICATION_ERROR(-20090" in spec["path_b"]["plsql_code"]
     assert "update_list_item" not in spec["path_b"]["plsql_code"]
+    combined = spec["path_b_combined"]["plsql_code"]
+    assert spec["path_b_combined_status"].startswith("Szablon")
+    assert any("Status" in reason and "odśwież" in reason for reason in spec["path_b_combined_blocking_reasons"])
+    assert combined.split("\nBEGIN\n", 1)[1].lstrip().startswith("RAISE_APPLICATION_ERROR(-20090")
+    assert "update_list_item" in combined
 
 
 def test_read_before_write_does_not_block_current_field() -> None:

@@ -14,6 +14,37 @@ from .naming import sanitize_filename
 
 logger = logging.getLogger(__name__)
 
+EMPTY_GUID = "00000000-0000-0000-0000-000000000000"
+
+NINTEX_CATEGORY_MAP = {
+    "list": "list",
+    "site": "site",
+    "reusable": "reusable",
+    "globallyreusable": "globallyreusable",
+}
+
+WORKFLOW_TYPE_LABELS_PL = {
+    "list": "Przepływ pracy listy",
+    "site": "Przepływ pracy witryny",
+    "reusable": "Szablon przepływu pracy wielokrotnego użytku",
+    "globallyreusable": "Globalny szablon przepływu pracy wielokrotnego użytku",
+}
+
+
+def _normalize_guid(value: str | None) -> str:
+    return str(value or "").strip().strip("{}").lower()
+
+
+def _is_published_nintex_item(item: dict[str, Any]) -> bool:
+    is_prod = item.get("IsProduction")
+    if isinstance(is_prod, bool):
+        return is_prod
+    if isinstance(is_prod, (int, float)):
+        return bool(is_prod)
+    if isinstance(is_prod, str):
+        return is_prod.strip().lower() in ("true", "1", "yes")
+    return False
+
 
 def _save_json(path: Path, data: Any) -> None:
     path.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
@@ -45,16 +76,20 @@ class SharePointExtractor:
         site_title = site_info.get("Title", "SharePoint Site") if isinstance(site_info, dict) else "SharePoint Site"
 
         # 2. Lists & Definitions
-        lists_summary, workflows_found = self._extract_lists_and_definitions()
+        lists_summary, workflows_found, lists_by_id, nintex_library_id = self._extract_lists_and_definitions()
 
         # 3. Site-level workflows
         site_workflows = self._extract_site_workflows()
-        workflows_found.extend(site_workflows)
+        workflows_found = self._merge_workflows(workflows_found, site_workflows)
 
-        # 4. Export Nintex .nwf files
+        # 4. NintexWorkflows hidden library (Reusable, GloballyReusable, Site, List published)
+        library_workflows = self._extract_nintex_workflow_library(nintex_library_id, lists_by_id)
+        workflows_found = self._merge_workflows(workflows_found, library_workflows)
+
+        # 5. Export Nintex .nwf files
         exported_nwf = self._export_workflows(workflows_found)
 
-        # 5. Write Workflow-Inventory.csv
+        # 6. Write Workflow-Inventory.csv
         self._write_workflow_inventory(workflows_found, site_title)
 
         # 6. Write manifest
@@ -93,19 +128,28 @@ class SharePointExtractor:
 
         return site_info
 
-    def _extract_lists_and_definitions(self) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    def _extract_lists_and_definitions(
+        self,
+    ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], dict[str, str], str | None]:
         logger.info("Fetching list catalog (10_00_wszystkie_listy.json)...")
         all_lists = self.client.get_all("_api/web/lists?$select=*")
         _save_json(self.output_dir / "10_00_wszystkie_listy.json", all_lists)
 
         lists_summary: list[dict[str, Any]] = []
         workflows_found: list[dict[str, Any]] = []
+        lists_by_id: dict[str, str] = {}
+        nintex_library_id: str | None = None
 
         for item in all_lists:
             list_id = item.get("Id", "")
             title = item.get("Title", "")
             if not list_id or not title:
                 continue
+
+            norm_id = _normalize_guid(list_id)
+            lists_by_id[norm_id] = title
+            if item.get("BaseTemplate") == 5001 or title.strip().casefold() == "nintexworkflows":
+                nintex_library_id = list_id
 
             safe_title = sanitize_filename(title)
             lists_summary.append({"id": list_id, "title": title, "safe_title": safe_title})
@@ -176,7 +220,95 @@ class SharePointExtractor:
             except Exception as e:
                 logger.warning("Error extracting list '%s': %s", title, e)
 
-        return lists_summary, workflows_found
+        return lists_summary, workflows_found, lists_by_id, nintex_library_id
+
+    @staticmethod
+    def _merge_workflows(
+        primary: list[dict[str, Any]], secondary: list[dict[str, Any]]
+    ) -> list[dict[str, Any]]:
+        """Merge workflow lists while deduplicating by (workflow_type, workflow_name, list_id)."""
+        merged: list[dict[str, Any]] = list(primary)
+        index: dict[tuple[str, str, str], dict[str, Any]] = {}
+        for wf in merged:
+            key = (
+                str(wf.get("workflow_type") or "").strip().casefold(),
+                str(wf.get("workflow_name") or "").strip().casefold(),
+                _normalize_guid(wf.get("list_id", "")),
+            )
+            index[key] = wf
+
+        for wf in secondary:
+            key = (
+                str(wf.get("workflow_type") or "").strip().casefold(),
+                str(wf.get("workflow_name") or "").strip().casefold(),
+                _normalize_guid(wf.get("list_id", "")),
+            )
+            existing = index.get(key)
+            if existing is None:
+                merged.append(wf)
+                index[key] = wf
+            else:
+                if not existing.get("workflow_id") and wf.get("workflow_id"):
+                    existing["workflow_id"] = wf["workflow_id"]
+                if not existing.get("associated_content_type") and wf.get("associated_content_type"):
+                    existing["associated_content_type"] = wf["associated_content_type"]
+        return merged
+
+    def _extract_nintex_workflow_library(
+        self, nintex_library_id: str | None, lists_by_id: dict[str, str]
+    ) -> list[dict[str, Any]]:
+        """Fetch published Nintex workflows (List, Site, Reusable, GloballyReusable) from NintexWorkflows."""
+        logger.info("Checking NintexWorkflows hidden library for published workflows...")
+        select_cols = (
+            "Title,FileLeafRef,NintexWorkflowID,WorkflowCategory,"
+            "AssociatedListID,AssociatedContentType,IsProduction,Modified"
+        )
+        endpoint = (
+            f"_api/web/lists(guid'{nintex_library_id}')/items?$top=5000&$select={select_cols}"
+            if nintex_library_id
+            else f"_api/web/lists/getbytitle('NintexWorkflows')/items?$top=5000&$select={select_cols}"
+        )
+        try:
+            items = self.client.get_all(endpoint)
+        except Exception as e:
+            logger.debug("Could not fetch NintexWorkflows library: %s", e)
+            return []
+
+        found: list[dict[str, Any]] = []
+        for item in items:
+            if not _is_published_nintex_item(item):
+                continue
+            raw_cat = str(item.get("WorkflowCategory") or "").strip()
+            wf_type = NINTEX_CATEGORY_MAP.get(raw_cat.casefold())
+            if not wf_type:
+                continue
+
+            wf_name = str(item.get("Title") or "").strip()
+            if not wf_name:
+                leaf = str(item.get("FileLeafRef") or "").strip()
+                wf_name = Path(leaf).stem if leaf else ""
+            if not wf_name:
+                continue
+
+            assoc_list_id = _normalize_guid(item.get("AssociatedListID"))
+            if assoc_list_id and assoc_list_id != EMPTY_GUID and wf_type == "list":
+                list_id = assoc_list_id
+                list_name = lists_by_id.get(assoc_list_id, "")
+            else:
+                list_id = ""
+                list_name = ""
+
+            found.append({
+                "workflow_name": wf_name,
+                "list_name": list_name,
+                "list_id": list_id,
+                "workflow_type": wf_type,
+                "workflow_id": _normalize_guid(item.get("NintexWorkflowID")),
+                "associated_content_type": str(item.get("AssociatedContentType") or "").strip(),
+                "enabled": True,
+            })
+
+        return found
 
     def _extract_site_workflows(self) -> list[dict[str, Any]]:
         logger.info("Checking for site-level workflow associations...")
@@ -282,7 +414,8 @@ class SharePointExtractor:
             writer = csv.writer(fh)
             writer.writerow(headers)
             for wf in workflows:
-                wf_type_pl = "Przepływ pracy listy" if wf.get("workflow_type") == "list" else "Przepływ pracy witryny"
+                wf_type_key = str(wf.get("workflow_type") or "").strip().casefold()
+                wf_type_pl = WORKFLOW_TYPE_LABELS_PL.get(wf_type_key, wf.get("workflow_type", ""))
                 writer.writerow([
                     self.client.base_url,
                     site_title,

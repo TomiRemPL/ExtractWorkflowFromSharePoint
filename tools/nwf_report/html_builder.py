@@ -793,6 +793,32 @@ def _generate_html(workflows_data: list[dict]) -> str:
         </div>
         <pre id="wf-plsql-procedure" class="code-box" style="max-height:420px; overflow:auto; font-family:Consolas,monospace; font-size:0.82rem; line-height:1.45;"></pre>
       </div>
+
+      <div class="docs-card" style="margin-top:20px;">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; flex-wrap:wrap; gap:10px;">
+          <div>
+            <h3 style="margin:0 0 4px;" id="wf-combined-title">Ścieżka B — Parse i logika w jednym Execute Code</h3>
+            <p id="wf-combined-instructions" style="color:var(--text-muted); font-size:0.88rem; margin:0;"></p>
+            <p style="margin-top:8px;"><strong>Status:</strong> <span id="wf-combined-status"></span></p>
+            <ul id="wf-combined-reasons" style="margin:6px 0 6px 20px;"></ul>
+            <p id="wf-combined-template-warning" class="callout callout-warn" hidden>
+              Szablon rozpoczyna się od <code>RAISE_APPLICATION_ERROR(-20090, ...)</code>.
+              Usuń tę blokadę dopiero po ręcznym uzupełnieniu mapowań, usunięciu pozostałych blokad
+              i zweryfikowaniu kodu.
+            </p>
+            <p><strong>Bindy w kodzie:</strong> <span id="wf-combined-binds"></span></p>
+            <p style="color:var(--text-muted); font-size:0.85rem; margin-top:6px;">
+              Rozpoznane pola SharePoint i zmienne Nintex są lokalne. Bindy standardowe i parametry nadal
+              są wymagane; nieznane bindy w szablonie wymagają ręcznego mapowania.
+              Kod trzeba skompilować i przetestować w docelowym środowisku. Logi APEX_DEBUG zależą od konfiguracji
+              i nie zastępują trwałego audytu. Rollback Oracle nie cofa wykonanych zapisów REST w SharePoint.
+            </p>
+          </div>
+          <button class="copy-btn" id="copy-combined-plsql-btn" type="button" style="padding:8px 16px; font-weight:600;">Kopiuj kod Execute Code</button>
+        </div>
+        <p id="wf-combined-copy-status" role="status" aria-live="polite"></p>
+        <pre id="wf-combined-code" class="code-box" style="max-height:420px; overflow:auto; font-family:Consolas,monospace; font-size:0.82rem; line-height:1.45;"></pre>
+      </div>
     </section>
 
     <!-- SEKCJA 3: SŁOWNIK PÓL -->
@@ -880,8 +906,8 @@ Content-Type: application/json
           <li><strong>Workflow Start</strong> — <em>Additional Data</em> (SQL Query na <code>NINTEX_PARAMS</code>) ustawia parametry <code>P_*</code> (np. <code>P_EMAIL_*</code>, <code>P_KWOTA</code>).</li>
           <li><strong>Execute Code „Retrieve Payload”</strong> — rozparsowanie <code>:P_PAYLOAD_BODY</code> na <code>V_ITEM_ID</code>, <code>V_SITE_URL</code>, <code>V_LIST_TITLE</code>, <code>V_EDITOR</code>; puste wartości → błąd <code>-20010</code> (instancja FAULTED).</li>
           <li><strong>Invoke API</strong> — PL/SQL Package <code>LCDT</code> → <code>SHP_API</code> → <code>GET_LIST_ITEM</code>; ręcznie wpisywany jest tylko <code>p_query</code> (<code>$select</code> + <code>$expand</code>), wynik trafia do <code>V_SHP_ANSWER</code>.</li>
-          <li><strong>Execute Code „Parse”</strong> — odczyt <code>V_SHP_ANSWER</code> (<code>data.*</code>) do zmiennych <code>SP_*</code>.</li>
-          <li><strong>Logika użytkownika</strong> — <em>Ścieżka A</em> (aktywność na każdą akcję Nintex) albo <em>Ścieżka B</em> (jedna aktywność Execute Code). Sprawdź blokady i zweryfikuj kod przed wdrożeniem.</li>
+          <li><strong>Execute Code „Parse”</strong> — odczyt <code>V_SHP_ANSWER</code> (<code>data.*</code>) do zmiennych <code>SP_*</code>; stosowany w ścieżce A i dotychczasowej ścieżce B.</li>
+          <li><strong>Logika użytkownika</strong> — <em>Ścieżka A</em> (aktywność na każdą akcję Nintex) albo <em>Ścieżka B</em> (jedna aktywność Execute Code). Alternatywnie po kroku 3 można użyć jednego Execute Code łączącego Parse i logikę, a następnie Workflow End. Sprawdź blokady i zweryfikuj kod przed wdrożeniem.</li>
         </ol>
         <div class="callout callout-warn">
           <strong>P_</strong> — parametry niezmienne w czasie trwania przepływu (payload i konfiguracja z <code>NINTEX_PARAMS</code>).
@@ -956,12 +982,14 @@ apex_session.delete_session;</div>
       <h3 style="margin:24px 0 12px;">Kroki uruchomienia (standardowe 1–4 dla workflow listy)</h3>
       <div id="apex-standard-activities"></div>
       <div style="display:flex; gap:10px; align-items:center; margin:24px 0 12px; flex-wrap:wrap;">
-        <h3 style="margin:0;">Logika workflow (po kroku 4 dla workflow listy):</h3>
+        <h3 style="margin:0;">Warianty logiki workflow listy:</h3>
         <button class="copy-btn apex-path-btn" type="button" data-path="A">Ścieżka A — krok po kroku</button>
-        <button class="copy-btn apex-path-btn" type="button" data-path="B">Ścieżka B — jedna aktywność Execute Code</button>
+        <button class="copy-btn apex-path-btn" type="button" data-path="B">Ścieżka B — Execute Code po kroku 4</button>
+        <button class="copy-btn apex-path-btn" type="button" data-path="B2">Ścieżka B — Parse i logika po kroku 3</button>
       </div>
       <div id="apex-activities"></div>
       <div id="apex-path-b" style="display:none;"></div>
+      <div id="apex-path-b-combined" style="display:none;"></div>
     </section>
 
     <!-- SEKCJA 6: CHECKLIST -->
@@ -1035,6 +1063,26 @@ apex_session.delete_session;</div>
       const toast = document.getElementById('toast');
       const mermaidWrapper = document.querySelector('.mermaid-wrapper');
       const zoomLabel = document.getElementById('flow-zoom-label');
+
+      async function copyCode(text, status) {{
+        try {{
+          if (!navigator.clipboard || typeof navigator.clipboard.writeText !== 'function') {{
+            throw new Error('Clipboard API jest niedostępne.');
+          }}
+          await navigator.clipboard.writeText(text);
+          status.textContent = 'Skopiowano kod.';
+          showToast('Skopiowano kod dla APEX Workflow!');
+        }} catch (error) {{
+          console.error('Nie udało się skopiować kodu:', error);
+          status.textContent = 'Nie udało się skopiować kodu. Zaznacz go i skopiuj ręcznie.';
+        }}
+      }}
+
+      document.getElementById('copy-combined-plsql-btn').addEventListener('click', () => {{
+        const code = document.getElementById('wf-combined-code').textContent;
+        const status = document.getElementById('wf-combined-copy-status');
+        copyCode(code, status);
+      }});
 
       const viewState = {{
         scale: 1,
@@ -1238,6 +1286,7 @@ apex_session.delete_session;</div>
         const wf = workflows[activeIndex];
         activeWorkflow = wf;
         activeWfTag.textContent = 'Lista: ' + wf.source_list_name;
+        renderCombinedPanel(wf);
 
         // Render Mermaid
         if (window._mermaid) {{
@@ -1253,6 +1302,7 @@ apex_session.delete_session;</div>
             resetDiagramView();
           }}
         }}
+        if (activeWorkflow !== wf) return;
 
         // Renderowanie tabeli pol
         renderFieldsTable(wf);
@@ -1267,6 +1317,35 @@ apex_session.delete_session;</div>
 
         // Reset inspektora
         resetInspector();
+      }}
+
+      function renderCombinedPanel(wf) {{
+        const spec = wf.apex_workflow_spec || {{}};
+        const wfType = String(wf.workflow_type || spec.workflow_type || '').toLowerCase();
+        const isList = wfType === 'list' || wfType === 'reusable' || wfType === 'globallyreusable';
+        document.getElementById('wf-combined-title').textContent =
+          'Ścieżka B — Parse i logika w jednym Execute Code: ' + (wf.title || '');
+        document.getElementById('wf-combined-instructions').textContent = isList
+          ? 'Wariant alternatywny: GET_LIST_ITEM → ten Execute Code → Workflow End. Zastępuje krok 4 Parse i dotychczasową aktywność ścieżki B.'
+          : 'Wyłącznie szablon: uruchomienie i kontekst workflow wymagają ręcznej migracji.';
+        document.getElementById('wf-combined-status').textContent =
+          spec.path_b_combined_status || 'Brak wygenerowanego kodu';
+        const reasons = document.getElementById('wf-combined-reasons');
+        const blockingReasons = spec.path_b_combined_blocking_reasons || [];
+        reasons.replaceChildren();
+        blockingReasons.forEach(reason => {{
+          const reasonItem = document.createElement('li');
+          reasonItem.textContent = reason;
+          reasons.appendChild(reasonItem);
+        }});
+        document.getElementById('wf-combined-template-warning').hidden = blockingReasons.length === 0;
+        document.getElementById('wf-combined-binds').textContent =
+          (spec.path_b_combined_required_binds || []).map(bind => ':' + bind).join(', ') || 'brak';
+        const combinedCode = document.getElementById('wf-combined-code');
+        const code = spec.path_b_combined?.plsql_code || '';
+        combinedCode.textContent = code || '-- Brak kodu wariantu po kroku 3.';
+        document.getElementById('copy-combined-plsql-btn').disabled = !code;
+        document.getElementById('wf-combined-copy-status').textContent = '';
       }}
 
       // Podpinanie klikniec i dymkow w wygenerowanym SVG
@@ -1400,7 +1479,7 @@ apex_session.delete_session;</div>
         const paramsTable = document.getElementById('apex-parameters-table');
         const variablesTable = document.getElementById('apex-variables-table');
         definition.textContent = spec
-          ? `${{spec.name}} · Static ID: ${{spec.static_id}} · Category: ${{spec.category}} · Wyzwalacze: ${{(spec.start_triggers || []).join(', ')}} · Gotowość: ${{spec.migration_status || 'Wymaga weryfikacji'}} · Ścieżka A: ${{spec.path_a_status || 'Wymaga weryfikacji'}} · Ścieżka B: ${{spec.path_b_status || 'Wymaga weryfikacji'}}`
+          ? `${{spec.name}} · Static ID: ${{spec.static_id}} · Category: ${{spec.category}} · Wyzwalacze: ${{(spec.start_triggers || []).join(', ')}} · Gotowość: ${{spec.migration_status || 'Wymaga weryfikacji'}} · Ścieżka A: ${{spec.path_a_status || 'Wymaga weryfikacji'}} · Ścieżka B: ${{spec.path_b_status || 'Wymaga weryfikacji'}} · B po kroku 3: ${{spec.path_b_combined_status || 'Brak kodu'}}`
           : 'Brak wygenerowanej specyfikacji APEX Workflow.';
         activities.replaceChildren();
 
@@ -1477,10 +1556,13 @@ apex_session.delete_session;</div>
             button.className = 'copy-btn';
             button.type = 'button';
             button.textContent = 'Kopiuj kod dla APEX Workflow';
+            const copyStatus = document.createElement('span');
+            copyStatus.setAttribute('role', 'status');
+            copyStatus.setAttribute('aria-live', 'polite');
             button.addEventListener('click', () => {{
-              navigator.clipboard.writeText(activity.plsql_code).then(() => showToast('Skopiowano kod dla APEX Workflow!'));
+              copyCode(activity.plsql_code, copyStatus);
             }});
-            card.append(button, code);
+            card.append(button, copyStatus, code);
           }}
           return card;
         }}
@@ -1523,10 +1605,18 @@ apex_session.delete_session;</div>
         const pathBBox = document.getElementById('apex-path-b');
         pathBBox.replaceChildren();
         if (spec.path_b) pathBBox.appendChild(buildActivityCard(spec.path_b, 'B1'));
+        const combinedBox = document.getElementById('apex-path-b-combined');
+        combinedBox.replaceChildren();
+        if (spec.path_b_combined) {{
+          const status = document.createElement('p');
+          status.textContent = `Status: ${{spec.path_b_combined_status || 'Brak statusu'}}`;
+          combinedBox.append(status, buildActivityCard(spec.path_b_combined, 'B2'));
+        }}
 
         function showPath(path) {{
           activities.style.display = path === 'A' ? '' : 'none';
           pathBBox.style.display = path === 'B' ? '' : 'none';
+          combinedBox.style.display = path === 'B2' ? '' : 'none';
           document.querySelectorAll('.apex-path-btn').forEach(btn => {{
             btn.style.fontWeight = btn.dataset.path === path ? '700' : '400';
             btn.setAttribute('aria-pressed', btn.dataset.path === path ? 'true' : 'false');

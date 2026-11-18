@@ -555,8 +555,8 @@ dedykowany handler.
 
 Punkt startowy dla kolejnego agenta/LLM:
 
-1. Przeczytaj `AGENTS.md`, potem ten plik (sekcje 4–5 format i architektura, 11–16 kolejne funkcje).
-2. Weryfikacja środowiska: `uv run pytest -q` → **233 passed** (akcje warunkowe i blokady migracji, sekcja 22).
+1. Przeczytaj `AGENTS.md`, potem ten plik (sekcje 4–5 format i architektura, 11–24 kolejne funkcje).
+2. Weryfikacja środowiska: `uv run --no-sync pytest -q` → **333 passed** (wariant B2, sekcja 24).
 3. Regeneracja wyników: `uv run python tools\nwf_report\generate_report.py --input DaneZeSkryptu --output out`
    — tworzy 4 raporty `.md`, `index.md`, `walkthrough.md`, `pkg_shp_dispatcher.sql`, `nintex_params.sql`
    i `workflow-migration-manual.html`.
@@ -837,3 +837,58 @@ Wszystkie wyjścia generatora (raporty Markdown, portal HTML, `pkg_shp_dispatche
   nadal testu integracyjnego na docelowym SharePoint. Zapisy pól, w tym przypadki, w których
   `EntityPropertyName` różni się od `InternalName`, oraz pola wielowartościowe wymagają
   osobnej weryfikacji.
+
+## 24. Wariant B2 — Parse i logika w jednym Execute Code
+
+- `tools/nwf_report/combined_execute_code.py` generuje dla każdego workflow alternatywną aktywność B2.
+  Dla workflow listy należy umieścić ją **po kroku 3 `GET_LIST_ITEM`**, połączyć z `Workflow End`
+  i nie dodawać kroku 4 Parse ani dotychczasowej aktywności B1. Kroki 1–3, Additional Data i bindy
+  wymienione przy aktywności nadal są wymagane. Pola SharePoint i rozpoznane zmienne Nintex są
+  lokalnymi zmiennymi PL/SQL. Workflow Site lub nieznanego typu otrzymuje wyłącznie szablon.
+- Portal ma osobne okno z kodem, przycisk kopiowania, status, listę bindów i powodów blokady;
+  wariant B2 jest także dostępny w przewodniku APEX i w raporcie Markdown. Status
+  `Wygenerowany — wymaga weryfikacji` nie oznacza potwierdzenia działania na Oracle. Status
+  `Szablon — wymaga ręcznego uzupełnienia` oznacza blokadę `RAISE_APPLICATION_ERROR(-20090, ...)`
+  przed wykonaniem akcji. Blokadę można usunąć dopiero po uzupełnieniu mapowań, usunięciu
+  pozostałych blokad i zweryfikowaniu całego kodu.
+- Parser `APEX_JSON` sprawdza `success`, obiekt `data`, obecność wymaganych pól oraz strukturę
+  pojedynczych `User` i `Lookup`; odróżnia brak pola od JSON `null`. B2 deklaruje i odczytuje
+  tylko zmienne pól używane w jego logice. Dla warunku `IsEmpty` / `NotIsEmpty` pojedynczego
+  Lookup bez jawnej konwersji sprawdza ID relacji, a nie jej nazwę; brak składowej ID lub JSON
+  `null` oznacza pusty Lookup, a obecne ID musi być dodatnią liczbą całkowitą. Jeżeli logika używa
+  wartości tekstowej, jej składowa nadal jest wymagana.
+  Rozpoznane typy wejściowe obejmują tekst, `Number`, `DateTime`, `Note`, pojedynczy `User`
+  i `Lookup`. Nieznane typy i pola wielowartościowe wymagają szablonu; rozbieżność typu pomiędzy
+  definicją workflow a dostępnymi metadanymi listy blokuje odczyt i zapis. Typy i inicjalizatory
+  zmiennych Nintex są weryfikowane względem deklaracji `WorkflowVariables`; wartości poufne nie są odtwarzane.
+- Zapisy B2 wykorzystują `LCDT.SHP_API`; `JSON_OBJECT ... RETURNING CLOB` jest wyliczany w SQL
+  przez `SELECT ... INTO l_fields_json FROM DUAL`, a nie bezpośrednio jako argument funkcji PL/SQL
+  (zgłoszony błąd `PLS-00684`). Tę samą konstrukcję stosuje szablon tworzenia elementu;
+  wykonywalny kod starszych ścieżek A i B zachowuje dotychczasową konstrukcję JSON. Typ
+  i potwierdzona nazwa REST `EntityPropertyName` pola docelowego są ustalane w kontekście właściwej listy,
+  a zgodność wyrażenia z oczekiwanym typem JSON jest sprawdzana. Brak metadanych nazwy REST
+  lub niejednoznaczna projekcja Lookup blokują wariant. Niepewne zapisy, m.in. pola `User`,
+  `DateTime`, `Note`, wielowartościowe i nieznanego typu, pozostają zablokowanymi szablonami.
+  Liczbowe literały przypisań i warunków są emitowane niezależnie od ustawień NLS;
+  niejednoznaczne konwersje blokują B2. ID utworzonego elementu jest sprawdzane przed dalszym
+  wykonaniem.
+- B2 obsługuje sprawdzony wzorzec `CrossItemLookup` po ID, gdy metadane potwierdzają relację
+  źródłowego Lookup do właściwej listy, zgodność typów i nazwy REST. Wynik może być ID pojedynczego
+  Lookup albo polem `Text` / `Choice`. Kod waliduje ID, status, obiekt `data`, obecność i typ pola;
+  JSON `null` jest zachowany. Inne lub niejednoznaczne odczyty pozostają zablokowane.
+- Równoległe gałęzie można spłaszczyć tylko po wykazaniu niezależności analizowanych pól i zmiennych,
+  także dla obsługiwanych odczytów między listami i warunkowych zapisów różnych pól. Inne lub
+  konfliktowe gałęzie wymagają ręcznej migracji; zachowane są blokady odczytu po zapisie.
+  Wywołania REST stają się sekwencyjne: kolejność zdarzeń i widoczne stany pośrednie mogą różnić
+  się od równoległego wykonania Nintex i wymagają sprawdzenia w środowisku docelowym.
+- Błędy są rejestrowane przez `APEX_DEBUG` wraz z identyfikatorem kroku, `SQLCODE` i backtrace,
+  a wyjątek jest ponownie zgłaszany. Dostępność logów zależy od konfiguracji i nie zastępuje
+  trwałego audytu. Kod nie wykonuje `COMMIT`; rollback Oracle nie cofa zakończonych zapisów REST
+  w SharePoint, więc ponowienie może wymagać osobnej kontroli skutków i idempotencji.
+- Dla czterech lokalnych workflow z `DaneZeSkryptu_013` wygenerowano cztery warianty B2 bez blokad;
+  zawierają odpowiednio 0, 0, 5 i 6 sprawdzanych odczytów między listami. Testy:
+  `uv run --no-sync pytest -q --tb=short` → **346 passed**. W lokalnym portalu sprawdzono przełączanie
+  wszystkich czterech workflow, zgodność kodu B2 z raportami i kopiowanie do symulowanego schowka;
+  zewnętrzny Mermaid był wyłączony podczas próby. Nie sprawdzono rzeczywistego `V_SHP_ANSWER`
+  ani konfiguracji `p_query` zgłoszonego wdrożenia. Nie przeprowadzono kompilacji ani testów
+  integracyjnych Oracle/APEX i SharePoint; są wymagane w bezpiecznym środowisku docelowym.

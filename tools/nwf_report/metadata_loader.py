@@ -41,6 +41,7 @@ class ListInfo:
     title: str
     list_id: str
     columns: dict[str, ColumnInfo] = field(default_factory=dict)  # klucz: InternalName (lowercase)
+    content_types: list[tuple[str, str]] = field(default_factory=list)  # (ct_id, ct_name)
 
 
 @dataclass
@@ -48,6 +49,29 @@ class SiteMetadata:
     lists_by_id: dict[str, ListInfo] = field(default_factory=dict)  # klucz: GUID (lowercase, bez klamer)
     lists_by_title: dict[str, ListInfo] = field(default_factory=dict)  # klucz: tytul (lowercase)
     site_columns: dict[str, ColumnInfo] = field(default_factory=dict)  # klucz: InternalName (lowercase), globalny fallback
+
+    def lists_for_content_type(self, ct_id: str = "", ct_name: str = "") -> list[ListInfo]:
+        """Return lists that use the given site content type (matched by ID prefix, then Name)."""
+        norm_id = ct_id.strip().lower()
+        norm_name = ct_name.strip().lower()
+        seen_ids: set[str] = set()
+        matched: list[ListInfo] = []
+
+        if norm_id:
+            for info in self.lists_by_id.values():
+                if any(cid and cid.lower().startswith(norm_id) for cid, _ in info.content_types):
+                    key = _norm_guid(info.list_id) or info.title.lower()
+                    if key not in seen_ids:
+                        seen_ids.add(key)
+                        matched.append(info)
+        if not matched and norm_name:
+            for info in self.lists_by_id.values():
+                if any(cname and cname.lower() == norm_name for _, cname in info.content_types):
+                    key = _norm_guid(info.list_id) or info.title.lower()
+                    if key not in seen_ids:
+                        seen_ids.add(key)
+                        matched.append(info)
+        return matched
 
 
 def _norm_guid(value: str) -> str:
@@ -95,6 +119,14 @@ def load_site_metadata(dane_dir: str | Path) -> SiteMetadata:
         for col in data.get("kolumny", []):
             info = _column_info(col)
             list_info.columns[info.internal_name.lower()] = info
+        for ct in data.get("typyZawartosci", []):
+            raw_id = ct.get("StringId")
+            if not raw_id:
+                ct_id_obj = ct.get("Id")
+                raw_id = ct_id_obj.get("StringValue", "") if isinstance(ct_id_obj, dict) else str(ct_id_obj or "")
+            ct_name = str(ct.get("Name") or "")
+            if raw_id or ct_name:
+                list_info.content_types.append((str(raw_id or ""), ct_name))
         if list_id:
             meta.lists_by_id[_norm_guid(list_id)] = list_info
         if title:
@@ -112,7 +144,13 @@ class FieldResolver:
     2. Metadane globalne witryny (00_kolumny_witryny.json / 10_lista_*.json) - fallback.
     """
 
-    def __init__(self, list_references, site_metadata: SiteMetadata | None = None, source_list_id: str = ""):
+    def __init__(
+        self,
+        list_references,
+        site_metadata: SiteMetadata | None = None,
+        source_list_id: str = "",
+        source_content_type=None,
+    ):
         self._by_list_and_name: dict[str, dict[str, str]] = {}  # list_id/list_name (lower) -> {internal_name: title}
         self._by_internal_name: dict[str, str] = {}  # fallback bez kontekstu listy (gdy nazwa jednoznaczna)
         ambiguous_names: set[str] = set()
@@ -120,6 +158,7 @@ class FieldResolver:
         self._list_id_to_name: dict[str, str] = {}
         self.source_list_id = source_list_id
         self.source_list_name = ""
+        self.associated_lists: list[ListInfo] = []
         for lr in list_references:
             if lr.list_id and lr.list_name:
                 self._list_id_to_name[_norm_guid(lr.list_id)] = lr.list_name
@@ -149,6 +188,48 @@ class FieldResolver:
                 self._by_list_and_name[lr.list_name.lower()] = per_list
                 self._types_by_list[lr.list_name.lower()] = per_list_types
         self._site_metadata = site_metadata or SiteMetadata()
+        if source_content_type is not None:
+            self.associated_lists = self._site_metadata.lists_for_content_type(
+                getattr(source_content_type, "id", ""),
+                getattr(source_content_type, "name", ""),
+            )
+            if not self.source_list_id and self.associated_lists:
+                self.source_list_id = self.associated_lists[0].list_id
+                self.source_list_name = self.associated_lists[0].title
+
+            ct_names: dict[str, str] = {}
+            ct_types: dict[str, str] = {}
+            for f in getattr(source_content_type, "fields", []):
+                if not f.internal_name:
+                    continue
+                key = f.internal_name.lower()
+                title = f.name or f.internal_name
+                ct_names[key] = title
+                if f.field_type:
+                    ct_types[key] = f.field_type
+                if key not in ambiguous_names:
+                    existing = self._by_internal_name.get(key)
+                    if existing is not None and existing != title:
+                        self._by_internal_name.pop(key)
+                        ambiguous_names.add(key)
+                    else:
+                        self._by_internal_name[key] = title
+            if self.source_list_id:
+                norm_src = _norm_guid(self.source_list_id)
+                self._by_list_and_name.setdefault(norm_src, {}).update(
+                    {k: v for k, v in ct_names.items() if k not in self._by_list_and_name.get(norm_src, {})}
+                )
+                self._types_by_list.setdefault(norm_src, {}).update(
+                    {k: v for k, v in ct_types.items() if k not in self._types_by_list.get(norm_src, {})}
+                )
+            if self.source_list_name:
+                low_name = self.source_list_name.lower()
+                self._by_list_and_name.setdefault(low_name, {}).update(
+                    {k: v for k, v in ct_names.items() if k not in self._by_list_and_name.get(low_name, {})}
+                )
+                self._types_by_list.setdefault(low_name, {}).update(
+                    {k: v for k, v in ct_types.items() if k not in self._types_by_list.get(low_name, {})}
+                )
 
     def _site_list(self, list_hint: str) -> ListInfo | None:
         if not list_hint:
@@ -325,6 +406,18 @@ class FieldResolver:
             return ""
         col = self._site_metadata.site_columns.get(key)
         return col.type_as_string if col else ""
+
+    def get_metadata_field_type(self, internal_name: str, list_hint: str = "") -> str:
+        """Zwraca typ pola wyłącznie z metadanych wskazanej listy."""
+        list_info = self._site_list(list_hint or self.source_list_id or self.source_list_name)
+        column = list_info.columns.get(internal_name.lower()) if list_info else None
+        return column.type_as_string if column else ""
+
+    def get_metadata_lookup_list(self, internal_name: str, list_hint: str = "") -> str:
+        """Zwraca identyfikator listy docelowej Lookup z metadanych wskazanej listy."""
+        list_info = self._site_list(list_hint or self.source_list_id or self.source_list_name)
+        column = list_info.columns.get(internal_name.lower()) if list_info else None
+        return column.lookup_list if column else ""
 
     def get_title(self, internal_name: str, list_hint: str = "") -> str:
         """Zwraca sama czytelna nazwe pola (DisplayName), bez doklejonego (InternalName)."""

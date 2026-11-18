@@ -138,6 +138,7 @@ def test_e2e_generate_report_sample_workflows(tmp_path: Path, monkeypatch: pytes
     assert index_path.exists()
     index_content = index_path.read_text(encoding="utf-8")
     assert "# Raporty workflow Nintex" in index_content
+    assert "B2" in index_content and "GET_LIST_ITEM" in index_content
 
     # Verify walkthrough.md was generated
     walkthrough_path = out_dir / "walkthrough.md"

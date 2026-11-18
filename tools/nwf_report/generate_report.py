@@ -107,7 +107,12 @@ def main(argv: list[str] | None = None) -> None:
             })
             continue
 
-        resolver = FieldResolver(wf.list_references, site_metadata, source_list_id=(wf.source_list.list_id if wf.source_list else ""))
+        resolver = FieldResolver(
+            wf.list_references,
+            site_metadata,
+            source_list_id=(wf.source_list.list_id if wf.source_list else ""),
+            source_content_type=wf.source_content_type,
+        )
         report_md = build_report(wf, resolver)
         wf_data = build_workflow_data(wf, resolver)
         workflows_data.append(wf_data)
@@ -137,6 +142,7 @@ def main(argv: list[str] | None = None) -> None:
         index_lines.append("- `nintex_params.sql` — konfiguracja parametrów P_ (tabela `NINTEX_PARAMS`) czytanych w Additional Data każdego workflow.")
         index_lines.append("- `pkg_shp_dispatcher.sql` — endpoint ORDS dla `workflow.xaml`, uruchamiający workflow APEX przez `apex_workflow.start_workflow`.")
         index_lines.append("- Raport workflow listy opisuje kroki standardowe 1–4 (Workflow Start, Retrieve Payload, `LCDT.SHP_API.GET_LIST_ITEM`, Parse) oraz ścieżki A i B. Workflow witryny wymaga ręcznej migracji uruchomienia.")
+        index_lines.append("- Wariant B2 łączy Parse i logikę w jednym Execute Code po GET_LIST_ITEM. Status oraz ewentualne blokady i bindy są podane w raporcie i portalu.")
 
     index_lines.append("")
     index_lines.append(f"- **Nierozpoznane typy akcji:** {len(UNKNOWN_TYPES_SEEN)}")

@@ -352,6 +352,11 @@ def test_create_content_type_reports_all_field_mappings_for_target_list() -> Non
     assert "RAISE_APPLICATION_ERROR" in desc.plsql_code
     assert desc.blocking_reasons
     assert "LCDT.SHP_API.add_list_item(" in desc.reference_template
+    assert "SELECT json_object(" in desc.reference_template
+    assert "RETURNING CLOB" in desc.reference_template
+    assert "INTO l_fields_json" in desc.reference_template
+    assert "FROM DUAL;" in desc.reference_template
+    assert "p_fields_json => l_fields_json" in desc.reference_template
     assert "'Shared' VALUE :VALUEA" in desc.reference_template
     assert "'Amount' VALUE NULL /* TODO: potwierdź wartość i konwersję */" in desc.reference_template
     assert "DOCELOWY_CONTENT_TYPE_ID" in desc.reference_template

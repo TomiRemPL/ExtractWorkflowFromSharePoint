@@ -77,3 +77,75 @@ def test_extractor_run_flow(tmp_path: Path):
     assert manifest["workflows_count"] == 1
     assert manifest["workflows"][0]["status"] == "exported"
 
+
+def test_extractor_discovers_published_reusable_and_skips_drafts(tmp_path: Path):
+    mock_client = MagicMock(spec=SharePointClient)
+    mock_client.base_url = "http://sp.corp.local/sites/ictrisk"
+    mock_client.get.return_value = {"Title": "ICT Risk"}
+
+    def mock_get_all(path):
+        if path == "_api/web/lists?$select=*":
+            return [
+                {"Id": "list-guid-1", "Title": "(R0001) Rejestr Ryzyk ICT", "BaseTemplate": 100},
+                {"Id": "nw-lib-guid", "Title": "NintexWorkflows", "BaseTemplate": 5001},
+            ]
+        if "lists(guid'list-guid-1')/workflowassociations" in path:
+            return [{"Id": "wf-list-1", "Name": "List WF", "Enabled": True}]
+        if "lists(guid'nw-lib-guid')/items" in path:
+            return [
+                # Duplicate of published list workflow -> should deduplicate
+                {
+                    "Title": "List WF",
+                    "NintexWorkflowID": "wf-list-1",
+                    "WorkflowCategory": "List",
+                    "AssociatedListID": "list-guid-1",
+                    "IsProduction": True,
+                },
+                # Published Reusable -> should be exported
+                {
+                    "Title": "R0001 Ocena ryzyka",
+                    "NintexWorkflowID": "wf-reusable-1",
+                    "WorkflowCategory": "Reusable",
+                    "AssociatedListID": "00000000-0000-0000-0000-000000000000",
+                    "AssociatedContentType": "0x0100ABC",
+                    "IsProduction": True,
+                },
+                # Draft Reusable -> should be skipped
+                {
+                    "Title": "R0001 Szkic",
+                    "NintexWorkflowID": "wf-reusable-draft",
+                    "WorkflowCategory": "Reusable",
+                    "IsProduction": False,
+                },
+                # UDA -> should be skipped
+                {
+                    "Title": "Moje UDA",
+                    "NintexWorkflowID": "uda-1",
+                    "WorkflowCategory": "UserDefinedAction",
+                    "IsProduction": True,
+                },
+            ]
+        return []
+
+    mock_client.get_all.side_effect = mock_get_all
+    mock_client.export_nintex_workflow.return_value = "<ExportedWorkflowWithListMetdata/>"
+
+    output_dir = tmp_path / "DaneZeSkryptu_001"
+    manifest = SharePointExtractor(client=mock_client, output_dir=output_dir).run()
+
+    assert manifest["workflows_count"] == 2
+    exported_types = {w["workflow_name"]: w["workflow_type"] for w in manifest["workflows"]}
+    assert exported_types == {"List WF": "list", "R0001 Ocena ryzyka": "reusable"}
+    assert (output_dir / "R0001_Ocena_ryzyka.nwf").exists()
+    assert not (output_dir / "R0001_Szkic.nwf").exists()
+
+    mock_client.export_nintex_workflow.assert_any_call(
+        workflow_name="R0001 Ocena ryzyka",
+        list_name="",
+        workflow_type="reusable",
+    )
+
+    csv_text = (output_dir / "Workflow-Inventory.csv").read_text(encoding="utf-8-sig")
+    assert "Szablon przepływu pracy wielokrotnego użytku" in csv_text
+    assert "R0001 Szkic" not in csv_text
+

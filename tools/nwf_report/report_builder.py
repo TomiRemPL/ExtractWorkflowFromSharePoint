@@ -165,7 +165,7 @@ def build_dispatcher_package(workflows_data: list[dict]) -> str:
     """Generuje pakiet pkg_shp_dispatcher: webhook SharePoint (workflow.xaml) -> apex_workflow.start_workflow."""
     case_branches = []
     for wf in workflows_data:
-        if wf.get("workflow_type", "").strip().casefold() != "list":
+        if wf.get("workflow_type", "").strip().casefold() not in ("list", "reusable", "globallyreusable"):
             continue
         title = wf.get("title", "")
         spec = wf.get("apex_workflow_spec") or {}
@@ -362,10 +362,27 @@ def build_workflow_data(wf: WorkflowModel, resolver: FieldResolver) -> dict:
     variables = _extract_variables(wf.actions)
 
     src = wf.source_list
-    is_site = wf.workflow_type.strip().casefold() == "site"
-    is_list = wf.workflow_type.strip().casefold() == "list"
-    src_name = src.list_name if src else ("(workflow witryny)" if is_site else "(nieznana)")
-    src_id = src.list_id if src else ""
+    wf_type_key = wf.workflow_type.strip().casefold()
+    is_site = wf_type_key == "site"
+    is_reusable = wf_type_key in ("reusable", "globallyreusable")
+    is_list = wf_type_key == "list"
+    is_list_like = is_list or is_reusable
+    associated_lists = getattr(resolver, "associated_lists", [])
+    if src:
+        src_name = src.list_name
+        src_id = src.list_id
+    elif is_reusable and associated_lists:
+        src_name = ", ".join(info.title for info in associated_lists)
+        src_id = associated_lists[0].list_id
+    elif is_reusable and wf.source_content_type and wf.source_content_type.name:
+        src_name = f"(Typ zawartości: {wf.source_content_type.name})"
+        src_id = ""
+    elif is_site:
+        src_name = "(workflow witryny)"
+        src_id = ""
+    else:
+        src_name = "(nieznana)"
+        src_id = ""
     other_lists = [lr.list_name for lr in wf.list_references if not lr.is_source_list]
 
     step_fields, fields_dict = _collect_report_fields(wf, steps, resolver)
@@ -378,7 +395,8 @@ def build_workflow_data(wf: WorkflowModel, resolver: FieldResolver) -> dict:
         "short_type": "Start",
         "summary": (
             "Uruchomienie workflow witryny wymaga ręcznej migracji."
-            if is_site else f"Uruchomienie workflow dla listy {src_name}."
+            if is_site else f"Uruchomienie workflow wielokrotnego użytku dla listy {src_name}."
+            if is_reusable else f"Uruchomienie workflow dla listy {src_name}."
             if is_list else "Typ workflow nie został potwierdzony; uruchomienie wymaga ręcznej migracji."
         ),
         "branch_label": "",
@@ -390,7 +408,7 @@ def build_workflow_data(wf: WorkflowModel, resolver: FieldResolver) -> dict:
         "hint_apex": (
             "Workflow Site nie ma bieżącego elementu listy; uruchomienie należy zaprojektować ręcznie."
             if is_site else f"Kroki standardowe APEX: Additional Data (NINTEX_PARAMS) → Retrieve Payload → {SHP_API}.GET_LIST_ITEM → Parse V_SHP_ANSWER."
-            if is_list else "Nie przypisuj kroków listy przed ręcznym potwierdzeniem typu workflow."
+            if is_list_like else "Nie przypisuj kroków listy przed ręcznym potwierdzeniem typu workflow."
         ),
         "plsql_code": next(
             (activity.plsql_code for activity in apex_workflow_spec.standard_activities if activity.node_id == "std_get_item"),
@@ -491,10 +509,22 @@ def build_report(wf: WorkflowModel, resolver: FieldResolver) -> str:
         lines.append("")
 
     src = wf.source_list
+    associated_lists = getattr(resolver, "associated_lists", [])
+    if src:
+        src_label = src.list_name
+    elif associated_lists:
+        src_label = ", ".join(info.title for info in associated_lists)
+    elif wf.source_content_type and wf.source_content_type.name:
+        src_label = f"(Typ zawartości: {wf.source_content_type.name})"
+    else:
+        src_label = "(nieznana)"
+
     lines.append("## Podstawowe informacje")
     lines.append("")
-    lines.append(f"- **Lista źródłowa:** {src.list_name if src else '(nieznana)'}")
+    lines.append(f"- **Lista źródłowa:** {src_label}")
     lines.append(f"- **Typ workflow:** {wf.workflow_type or '(nie ustalono)'}")
+    if wf.source_content_type and wf.source_content_type.name:
+        lines.append(f"- **Typ zawartości źródłowej:** {wf.source_content_type.name} (`{wf.source_content_type.id}`)")
     lines.append(f"- **Gotowość migracji:** {apex_workflow_spec.migration_status}")
     lines.append(f"- **Plik źródłowy:** `{wf.source_path.name}`")
     other_lists = [lr.list_name for lr in wf.list_references if not lr.is_source_list]
