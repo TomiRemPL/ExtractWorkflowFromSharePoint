@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import json
 import logging
+import os
+from pathlib import Path
 import tkinter as tk
 from unittest.mock import Mock
 
@@ -140,3 +142,96 @@ def test_gui_handles_corrupted_config_file(tmp_path):
         assert isinstance(data, dict)
     finally:
         _cleanup_app(app, original_level)
+
+
+def test_gui_has_offline_relations_tab_and_persists_export_path(app, tmp_path):
+    app.relations_tab.path_var.set(str(tmp_path))
+    app.notebook.select(app.automation_tab)
+    app.update()
+
+    assert app.notebook.index(app.notebook.select()) == 2
+    assert app._collect_config()["relations_in"] == str(tmp_path)
+    assert "offline" in app.relations_tab.status_var.get().lower()
+
+
+def test_gui_displays_relations_from_export(app, tmp_path):
+    source_id = "00000000-0000-0000-0000-000000000001"
+    target_id = "00000000-0000-0000-0000-000000000002"
+    (tmp_path / "extraction_manifest.json").write_text(json.dumps({
+        "lists": [{"id": source_id, "title": "Kontrole", "safe_title": "Kontrole"},
+                  {"id": target_id, "title": "Cele", "safe_title": "Cele"}],
+        "options": {"include_data": True},
+    }), encoding="utf-8")
+    for name, list_id, fields, rows in (
+        ("Kontrole", source_id, [{"InternalName": "Cel", "Title": "Cel", "TypeAsString": "Lookup",
+                                  "LookupList": target_id}], [{"Id": 1, "CelId": 2}]),
+        ("Cele", target_id, [], [{"Id": 2}]),
+    ):
+        (tmp_path / f"10_lista_{name}.json").write_text(json.dumps({
+            "lista": {"Id": list_id, "Title": name}, "kolumny": fields, "widoki": [],
+        }), encoding="utf-8")
+        (tmp_path / f"20_dane_{name}.json").write_text(json.dumps(rows), encoding="utf-8")
+
+    snapshot = app._load_relations_snapshot(tmp_path)
+    app.relations_tab._results.put((snapshot, ""))
+    app.relations_tab._finish_load()
+    assert len(app.relations_tab.list_tree.get_children()) == 2
+    assert len(app.relations_tab.edge_tree.get_children()) == 1
+    assert app.workflow_designer.catalog is snapshot.catalog
+
+
+def test_gui_closing_can_be_cancelled_by_designer(app, monkeypatch):
+    monkeypatch.setattr(app.workflow_designer, "confirm_close", lambda: False)
+    app._on_close()
+    assert app.winfo_exists()
+
+
+def test_gui_failed_reload_clears_designer_catalog(app, monkeypatch):
+    app.workflow_designer.set_catalog(object())
+    monkeypatch.setattr("tools.sp_automation.relation_tab.messagebox.showerror", lambda *_args, **_kw: None)
+    app.relations_tab._results.put((None, "Niepoprawny eksport"))
+    app.relations_tab._finish_load()
+    assert app.workflow_designer.catalog is None
+
+
+@pytest.mark.skipif(os.environ.get("CHECK_SP_005") != "1", reason="local snapshot verification is opt-in")
+def test_gui_displays_real_005_relations(app):
+    root = Path("DaneZeSkryptu_005")
+    if not (root / "extraction_manifest.json").is_file():
+        pytest.skip("local export 005 unavailable")
+    snapshot = app._load_relations_snapshot(root)
+    app.relations_tab._results.put((snapshot, ""))
+    app.relations_tab._finish_load()
+    assert len(app.relations_tab.list_tree.selection()) == 6
+    assert len(app.relations_tab.edge_tree.get_children()) == 7
+    app.relations_tab._select_edge(app.relations_tab.edge_tree.get_children()[0])
+    assert "wypełnione" in app.relations_tab.details.get("1.0", tk.END)
+
+    app.relations_tab._compare_paths()
+    dialog = app.relations_tab._comparison
+    assert dialog is not None
+
+    def wait_for_status(prefix):
+        if dialog.status.get().startswith(prefix):
+            return
+        done = tk.StringVar()
+        trace = dialog.status.trace_add(
+            "write", lambda *_args: done.set("ok") if dialog.status.get().startswith(prefix) else None,
+        )
+        timeout = app.after(30000, lambda: done.set("timeout"))
+        app.wait_variable(done)
+        app.after_cancel(timeout)
+        dialog.status.trace_remove("write", trace)
+        assert done.get() == "ok", dialog.status.get()
+
+    wait_for_status("Znaleziono")
+    index = next(i for i, path in enumerate(dialog.paths)
+                 if path.direct.field.internal_name == "Cel_x0020_SKW"
+                 and path.first.field.internal_name == "Mechanizm_x0020_kontrolny")
+    dialog.combo.current(index)
+    dialog.compare()
+    wait_for_status("Wynik")
+    result = dialog.text.get("1.0", tk.END)
+    assert "pośrednia wypełniona: 3" in result
+    assert "Różne wartości: 6" in result
+    dialog.close()

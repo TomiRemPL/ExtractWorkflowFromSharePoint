@@ -892,3 +892,37 @@ Wszystkie wyjścia generatora (raporty Markdown, portal HTML, `pkg_shp_dispatche
   zewnętrzny Mermaid był wyłączony podczas próby. Nie sprawdzono rzeczywistego `V_SHP_ANSWER`
   ani konfiguracji `p_query` zgłoszonego wdrożenia. Nie przeprowadzono kompilacji ani testów
   integracyjnych Oracle/APEX i SharePoint; są wymagane w bezpiecznym środowisku docelowym.
+
+## 25. Mapa relacji SharePoint offline — pierwszy etap automatyzacji
+
+- `tools/sp_automation/catalog.py` wczytuje manifest ekstrakcji, definicje i opcjonalne dane
+  list. Listy identyfikuje po GUID, a przypisanie plików sprawdza względem manifestu i definicji.
+  Stare manifesty nie dowodzą kompletności: status `unconfirmed` nie oznacza pełnej migawki.
+  Brak, błąd lub niejednoznaczność plików są raportowane osobno od pustej tablicy danych.
+- `relations.py` wyznacza główne relacje Lookup w kontekście konkretnej listy. Pola User oraz
+  projekcje dodatkowych pól Lookup nie są oddzielnymi relacjami. Statystyki rozróżniają puste
+  wartości, brak pola, wartości nierozpoznane i ID bez dopasowania w dostępnej migawce.
+- Trzecia zakładka `tools/gui.py` umożliwia wybór list, mapę, szczegóły pól i widoków,
+  przykłady powiązań oraz ograniczone przeszukiwanie skierowanych ścieżek. Wczytywanie plików
+  odbywa się w tle, a GUI aktualizuje się w głównym wątku Tk. Nie łączy się z SharePoint
+  ani nie wykonuje zapisów. Filtry zapisanych widoków są widoczne, lecz nie są stosowane.
+- Dla lokalnego eksportu `DaneZeSkryptu_005` test opcjonalny potwierdza sześć wskazanych list,
+  383 wiersze i siedem relacji między nimi. Dane list nie są dodawane do repozytorium.
+- `comparison.py` i okno „Porównaj ścieżki” porównują pojedynczy Lookup bezpośredni
+  z dwoma Lookup przez trzecią wybraną listę. Wynik pokazuje osobno puste wartości,
+  różnice, nieobecne pola i brakujące elementy w dostępnym eksporcie; nie jest planem
+  zmian ani oceną reguły biznesowej. Dla R0011 → S0014 oraz R0011 → S0015 → S0014
+  test eksportu 005 potwierdza trzy puste wartości bezpośrednie i sześć rozbieżności.
+  Kompletność i aktualność danych nie są potwierdzone, a filtry widoków nie są stosowane.
+- Prototyp `designer.py` zawiera Canvas drag-and-drop, porty, warunki, inspektor i zapis
+  wyłącznie poprawnych strukturalnie definicji JSON. Korzysta z katalogu wczytanego w zakładce
+  relacji. `models.py` i `engine.py` zawierają częściowy kontrakt grafu oraz silnik symulacji
+  na syntetycznej, jawnie kompletnej migawce; nie mają jeszcze adaptera eksportu ani integracji
+  podglądu w GUI. Brak iteracji po powiązanych elementach, filtrów widoków i weryfikacji
+  gotowości pól w samym projektancie.
+- GUI nie oferuje jeszcze symulacji ani aktualizacji SharePoint. Wykonanie wymaga dalszych prac,
+  potwierdzenia kompletności aktualnych danych i osobnych testów bezpiecznego zapisu na SP2019.
+- Regresja z `CHECK_SP_005=1`: 430 testów przeszło przy wyłączeniu znanego testu
+  `test_gui_persists_and_restores_state_on_close`. Test ten nie przechodził także przed
+  zmianami automatyzacji w tym środowisku: oczekuje geometrii `1024x768`, a Tk zwraca
+  `1536x889`. W teście 005 sprawdzono również wynik porównania w oknie GUI.

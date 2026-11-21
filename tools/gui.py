@@ -27,6 +27,8 @@ from tools.nwf_report.generate_report import main as generate_report_main
 from tools.sp_extractor.client import SharePointClient
 from tools.sp_extractor.extractor import SharePointExtractor
 from tools.sp_extractor.naming import resolve_output_dir
+from tools.sp_automation.designer import WorkflowDesigner
+from tools.sp_automation.relation_tab import RelationsSnapshot, RelationsTab
 
 DEFAULT_CONFIG_PATH = REPO_ROOT / ".dora_gui_config.json"
 DEFAULT_SHAREPOINT_URL = "https://teams.sp.creditagricole/team/ITMM"
@@ -131,9 +133,31 @@ class DoraMigrationApp(tk.Tk):
         self.notebook.add(tab_report, text=" 2. Generowanie raportów i portalu ")
         self._build_report_tab(tab_report)
 
+        initial_export = REPO_ROOT / "DaneZeSkryptu_005"
+        self.automation_tab = ttk.Frame(self.notebook)
+        self.automation_notebook = ttk.Notebook(self.automation_tab)
+        self.automation_notebook.pack(fill=tk.BOTH, expand=True)
+        self.relations_tab = RelationsTab(
+            self.automation_notebook,
+            self._load_relations_snapshot,
+            str(initial_export) if initial_export.is_dir() else "",
+            on_loaded=self._automation_catalog_loaded,
+        )
+        self.automation_notebook.add(self.relations_tab, text="Relacje offline")
+        designer_tab = ttk.Frame(self.automation_notebook)
+        ttk.Label(
+            designer_tab,
+            text="Prototyp offline: tworzy definicje, nie symuluje ani nie zmienia danych SharePoint.",
+        ).pack(anchor=tk.W, padx=4, pady=4)
+        self.workflow_designer = WorkflowDesigner(designer_tab)
+        self.workflow_designer.pack(fill=tk.BOTH, expand=True)
+        self.automation_notebook.add(designer_tab, text="Projektant (prototyp offline)")
+        self.notebook.add(self.automation_tab, text=" 3. Automatyzacje ")
+
         # Sekcja Logow (na dole)
         log_frame = ttk.LabelFrame(self, text="Dziennik zdarzeń i logi w czasie rzeczywistym", padding=10)
         log_frame.pack(fill=tk.BOTH, expand=True, padx=15, pady=(5, 10))
+        self.log_frame = log_frame
 
         self.log_text = tk.Text(
             log_frame,
@@ -156,6 +180,22 @@ class DoraMigrationApp(tk.Tk):
         self.status_lbl.pack(side=tk.LEFT)
         self.progress = ttk.Progressbar(status_bar, mode="indeterminate", length=150)
         self.progress.pack(side=tk.RIGHT, padx=5)
+        self.notebook.bind("<<NotebookTabChanged>>", self._adjust_layout)
+
+    def _adjust_layout(self, _event: tk.Event | None = None) -> None:
+        automation_selected = self.notebook.select() == str(self.automation_tab)
+        self.notebook.pack_configure(fill=tk.BOTH if automation_selected else tk.X, expand=automation_selected)
+        self.log_frame.pack_configure(fill=tk.X if automation_selected else tk.BOTH, expand=not automation_selected)
+        self.log_text.configure(height=6 if automation_selected else 12)
+
+    @staticmethod
+    def _load_relations_snapshot(path: Path):
+        from tools.sp_automation.presentation import load_relations_snapshot
+
+        return load_relations_snapshot(path)
+
+    def _automation_catalog_loaded(self, snapshot: RelationsSnapshot | None) -> None:
+        self.workflow_designer.set_catalog(snapshot.catalog if snapshot is not None else None)
 
     def _build_extract_tab(self, parent):
         grid = ttk.Frame(parent)
@@ -258,6 +298,8 @@ class DoraMigrationApp(tk.Tk):
         if subdirs:
             latest = subdirs[-1]
             self.report_in_var.set(latest)
+            if not self.relations_tab.path_var.get():
+                self.relations_tab.path_var.set(str(REPO_ROOT / latest))
             if "_" in latest:
                 suffix = latest.split("_")[-1]
                 self.report_out_var.set(f"out_{suffix}")
@@ -328,6 +370,8 @@ class DoraMigrationApp(tk.Tk):
             self.report_in_var.set(data["report_in"].strip())
         if isinstance(data.get("report_out"), str) and data["report_out"].strip():
             self.report_out_var.set(data["report_out"].strip())
+        if isinstance(data.get("relations_in"), str) and data["relations_in"].strip():
+            self.relations_tab.path_var.set(data["relations_in"].strip())
 
     def _collect_config(self) -> dict:
         """Zbiera biezacy stan GUI do slownika serializowanego jako JSON."""
@@ -355,6 +399,7 @@ class DoraMigrationApp(tk.Tk):
             "insecure_ssl": bool(self.insecure_ssl_var.get()),
             "report_in": self.report_in_var.get().strip(),
             "report_out": self.report_out_var.get().strip(),
+            "relations_in": self.relations_tab.path_var.get().strip(),
         }
 
     def _save_config(self) -> None:
@@ -370,6 +415,8 @@ class DoraMigrationApp(tk.Tk):
             logging.warning("Nie udało się zapisać konfiguracji GUI (%s): %s", self.config_path, exc)
 
     def _on_close(self) -> None:
+        if not self.workflow_designer.confirm_close():
+            return
         self._save_config()
         self.destroy()
 

@@ -7,7 +7,8 @@ Narzędzie wspierające migrację workflow Nintex ze środowiska SharePoint 2019
 3. **przygotowuje** materiały wdrożeniowe dla Oracle APEX: procedury PL/SQL `SHP_API`, pakiet dyspozytora ORDS oraz przewodnik APEX Workflow Designer,
 4. **buduje** interaktywny portal HTML do przeglądania przepływów i planowania migracji.
 
-Wszystkie funkcje są dostępne z wiersza poleceń oraz z graficznego interfejsu (GUI).
+Ekstrakcja i generowanie raportów są dostępne z wiersza poleceń oraz GUI.
+GUI zawiera również odczytową mapę relacji list SharePoint.
 
 Autor: REMBIASZ GRC Tech Solutions Tomasz Rembiasz, NIP: 8871550162
 Aplikacja powstała dla Credit-Agricole Bank Polska S.A.
@@ -41,6 +42,7 @@ Alternatywnie dwuklik na [run_gui.bat](run_gui.bat) — uruchamia GUI bez okna k
 - **Nagłówek** z tytułem aplikacji i przyciskiem **O aplikacji** (autor, przeznaczenie, wersja).
 - **Zakładka „1. Ekstrakcja z SharePoint”** — pobieranie danych z witryny.
 - **Zakładka „2. Generowanie raportów i portalu”** — generowanie raportów, pakietu PL/SQL i portalu HTML.
+- **Zakładka „3. Automatyzacje”** — mapa relacji offline i prototyp graficznego projektanta.
 - **Dziennik zdarzeń** — logi operacji w czasie rzeczywistym.
 - **Pasek stanu** — bieżący status i wskaźnik postępu.
 
@@ -67,6 +69,44 @@ Logowanie innym kontem (NTLM) jest dostępne tylko w [wierszu poleceń](#ekstrak
 5. **Otwórz katalog w Eksploratorze** — otwiera katalog wyjściowy z raportami.
 
 Przy starcie GUI automatycznie podpowiada najnowszy istniejący katalog `DaneZeSkryptu*` i odpowiadający mu katalog `out*`.
+
+### Krok 3 — mapa relacji offline
+
+1. Wskaż katalog eksportu zawierający `extraction_manifest.json` i pliki `10_lista_*.json`,
+   następnie wybierz **Wczytaj**. Pliki `20_dane_*.json` są potrzebne do statystyk i przykładów
+   elementów; ich brak jest wyświetlany osobno od pustej listy.
+2. Na liście po lewej wybierz listy do pokazania; Ctrl pozwala wybrać kilka. Kliknij węzeł
+   lub numer relacji na mapie, aby zobaczyć pola, statystyki i przykładowe powiązania.
+   Opcja **Pokaż listy docelowe poza wyborem** rozwija wychodzące relacje do innych list.
+3. Wybierz dwie listy i użyj **Pokaż ścieżki**, aby zobaczyć skierowane ścieżki Lookup
+   (maksymalnie sześć relacji). Wybierz **Problemy odczytu**, aby sprawdzić ostrzeżenia.
+4. Aby porównać bezpośrednią relację z drogą przez trzecią listę, wybierz co najmniej trzy
+   listy i kliknij **Porównaj ścieżki**. W oknie wybierz znalezioną parę ścieżek i kliknij
+   **Porównaj**. Wynik pokazuje liczniki i pierwsze 200 wierszy z identyfikatorami, w tym
+   puste wartości, różnice i brakujące dane. Przykład: cel kontroli R0011 bezpośrednio
+   oraz przez mechanizm S0015.
+
+Widoki SharePoint, w tym ich filtry CAML, są pokazane w szczegółach listy, ale **nie filtrują**
+mapy ani statystyk: analizowane są dane całych list dostępne w eksporcie. Eksport jest
+historyczny i jego kompletność nie jest potwierdzona. Brakująca definicja, dane lub
+docelowa lista nie są traktowane jako puste. Ta zakładka nie łączy się z SharePoint
+i nie wykonuje aktualizacji. Porównanie jest orientacyjne, nie stanowi propozycji zapisu
+ani zatwierdzonej reguły biznesowej; rozbieżności nie muszą oznaczać błędu.
+
+### Projektant algorytmów — prototyp offline
+
+Po wczytaniu eksportu przełącz się na **Projektant (prototyp offline)**. Przeciągaj bloki
+z palety na płótno, łącz porty, uzupełniaj właściwości w inspektorze i zapisuj definicję JSON.
+Katalog podpowiada listy i pola; dostępne są m.in. warunki, odczyt Lookup i przypisania.
+Projektant obsługuje cofanie zmian, kopiowanie węzła, przesuwanie i powiększanie mapy.
+
+To **prototyp**, nie wykonawca workflow: GUI nie udostępnia jeszcze symulacji ani zapisów
+do SharePoint. Nie obsługuje bloku iteracji po powiązanych elementach, a walidacja grafu
+nie potwierdza jeszcze poprawności typów i uprawnień wobec witryny. Można zapisać tylko
+kompletną, poprawną strukturalnie definicję; dla nowej definicji trzeba podać m.in. witrynę,
+listę źródłową, fingerprint schematu i limit. Fingerprint pojedynczej listy w jej szczegółach
+nie potwierdza kompletności schematu całego algorytmu. Nie umieszczaj poufnych danych
+w literałach definicji przeznaczonej do udostępnienia.
 
 ## Wiersz poleceń (CLI)
 

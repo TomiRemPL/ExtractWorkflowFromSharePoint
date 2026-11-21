@@ -15,5 +15,5 @@ dev = [
 
 [tool.pytest.ini_options]
 pythonpath = ["."]
-testpaths = ["tools/nwf_report/tests", "tools/sp_extractor/tests"]
+testpaths = ["tools/nwf_report/tests", "tools/sp_extractor/tests", "tools/sp_automation/tests"]
 
