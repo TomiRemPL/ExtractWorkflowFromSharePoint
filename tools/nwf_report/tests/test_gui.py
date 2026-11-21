@@ -9,6 +9,7 @@ from unittest.mock import Mock
 
 import pytest
 from tools.gui import DoraMigrationApp
+from tools.sp_automation.tests.test_snapshot_adapter import catalog as simulation_catalog, ready_graph
 
 
 def _create_app(config_path) -> DoraMigrationApp:
@@ -43,6 +44,29 @@ def test_gui_app_initialization(app):
     assert app.report_out_var.get() != ""
     assert app.about_button.cget("text") == "O aplikacji"
     app.update()
+
+
+def test_gui_writes_full_log_file(tmp_path):
+    root_logger = logging.getLogger()
+    original_level = root_logger.level
+    app = _create_app(tmp_path / "gui_config.json")
+    try:
+        log_path = app.log_file_path
+        assert log_path.parent == tmp_path / "logs"
+        assert log_path.name.startswith("dora_gui_") and log_path.suffix == ".log"
+        app.log("Komunikat konsoli GUI")
+        logging.getLogger("sp_extractor").warning("Ostrzeżenie ekstraktora")
+        from tools.gui import _LineWriter
+        writer = _LineWriter(app.log, prefix="[stderr] ")
+        writer.write("BLAD parsowania a.nwf\nniedokończona")
+        writer.flush()
+    finally:
+        _cleanup_app(app, original_level)
+    assert app.file_handler is None
+    content = log_path.read_text(encoding="utf-8")
+    assert "Komunikat konsoli GUI" in content
+    assert "[WARNING] sp_extractor: Ostrzeżenie ekstraktora" in content
+    assert "[stderr] BLAD parsowania a.nwf" in content and "[stderr] niedokończona" in content
 
 
 def test_about_button_shows_application_information(app, monkeypatch):
@@ -194,9 +218,30 @@ def test_gui_failed_reload_clears_designer_catalog(app, monkeypatch):
     assert app.workflow_designer.catalog is None
 
 
+def test_gui_requires_user_confirmation_before_offline_simulation(app, monkeypatch):
+    catalog = simulation_catalog()
+    app.workflow_designer.set_catalog(catalog)
+    prompts = []
+    monkeypatch.setattr("tools.gui.messagebox.askyesno", lambda *args, **kwargs: prompts.append(kwargs) or False)
+    app._simulate_automation(ready_graph(catalog))
+    assert prompts and prompts[0]["default"] == "no"
+    assert app.simulation_dialog is None
+
+
+def test_gui_requires_confirmation_before_online_get_preview(app, monkeypatch):
+    catalog = simulation_catalog()
+    prompts = []
+    monkeypatch.setattr("tools.gui.messagebox.askyesno", lambda *args, **kwargs: prompts.append((args, kwargs)) or False)
+    monkeypatch.setattr("tools.gui.OnlinePreviewDialog", Mock(side_effect=AssertionError("no read")))
+    app._preview_automation_online(ready_graph(catalog))
+    assert prompts and prompts[0][1]["default"] == "no"
+    assert "GET" in prompts[0][0][1] and "example.test" in prompts[0][0][1]
+    assert app.online_dialog is None
+
+
 @pytest.mark.skipif(os.environ.get("CHECK_SP_005") != "1", reason="local snapshot verification is opt-in")
 def test_gui_displays_real_005_relations(app):
-    root = Path("DaneZeSkryptu_005")
+    root = Path(os.environ.get("SP_EXPORT_DIR", "DaneZeSkryptu_005"))
     if not (root / "extraction_manifest.json").is_file():
         pytest.skip("local export 005 unavailable")
     snapshot = app._load_relations_snapshot(root)

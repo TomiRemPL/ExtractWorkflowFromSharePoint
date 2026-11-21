@@ -147,6 +147,19 @@ def test_scope_fingerprint_limit_and_completeness_are_checked():
         simulate(Graph.from_dict(definition), data)
 
 
+def test_incomplete_snapshot_requires_opt_in_and_is_marked_advisory():
+    definition = Graph.from_dict(graph())
+    data = snapshot()
+    data["lists"][TARGET]["complete"] = False
+    with pytest.raises(SimulationError, match="complete"):
+        simulate(definition, data)
+    result = simulate(definition, data, allow_incomplete=True)
+    assert not result.snapshot_complete
+    assert result.changes[0].new_value == 12
+    with pytest.raises(SimulationError, match="boolean"):
+        simulate(definition, data, allow_incomplete=1)
+
+
 def test_sequential_assignments_see_working_state_and_skip_discards_them():
     value = graph()
     value["nodes"].insert(4, {"id": "second", "type": "assign", "alias": "source", "field_id": GOAL,

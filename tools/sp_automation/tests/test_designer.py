@@ -8,6 +8,7 @@ from tools.sp_automation.designer import WorkflowDesigner, WorkflowDraft, _Condi
 from tools.sp_automation.engine import simulate
 from tools.sp_automation.models import GraphError
 from tools.sp_automation.tests.test_engine import GOAL, REL, RELATED_GOAL, SOURCE, TARGET, graph, snapshot
+from tools.sp_automation.tests.test_snapshot_adapter import catalog as simulation_catalog
 
 
 def test_draft_roundtrip_and_history():
@@ -190,6 +191,22 @@ def test_set_catalog_refreshes_clean_inspector_and_preserves_pending_edits(desig
     frame.set_catalog(catalog("Kolejne"))
     assert frame._form_text["condition"] is text
     assert text.get("1.0", "end-1c") == "{"
+
+
+def test_catalog_fingerprint_action_uses_site_and_related_schemas(designer):
+    frame = designer
+    frame.set_catalog(simulation_catalog())
+    frame.set_catalog_fingerprint()
+    value = frame.get_draft()
+    assert value["site"] == "https://example.test/sites/test/"
+    assert value["schema_fingerprint"]
+
+
+def test_simulation_callback_receives_only_a_validated_graph(designer):
+    calls = []
+    designer.on_simulate = calls.append
+    designer.simulate_offline()
+    assert calls == [designer.get_graph()]
 
 
 def test_inspector_applies_and_validation_rejects_bad_graph(designer, monkeypatch, local_path):

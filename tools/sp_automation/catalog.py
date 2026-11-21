@@ -2,6 +2,8 @@
 
 Legacy manifests identify filenames but do not certify completeness.  A data
 file is usable only when its manifest entry and list definition agree on GUID.
+Format v2 manifests (extractor with completeness checks) can certify a list as
+``complete`` once rows, item IDs and the ``21_etagi_*.json`` file agree.
 """
 
 from __future__ import annotations
@@ -11,9 +13,12 @@ from dataclasses import dataclass, field
 import hashlib
 import json
 from pathlib import Path
+import re
 from typing import Any, TypeGuard
 from uuid import UUID
 import xml.etree.ElementTree as ET
+
+_ETAG_RE = re.compile(r'(?:W/)?"[\x21\x23-\x7e\x80-\xff]+"')
 
 
 class CatalogError(ValueError):
@@ -36,7 +41,8 @@ class Issue:
 
     @property
     def severity(self) -> str:
-        return "warning" if self.code in {"missing_definition", "missing_data", "missing_views", "system_field_ref"} else "error"
+        return "warning" if self.code in {"missing_definition", "missing_data", "missing_views", "system_field_ref",
+                                          "incomplete_export", "incomplete_definition", "incomplete_data"} else "error"
 
 
 @dataclass(frozen=True)
@@ -78,6 +84,7 @@ class ListRecord:
     metadata: dict[str, Any] = field(default_factory=dict, repr=False)
     workflow_associations: list[dict[str, Any]] | None = field(default=None, repr=False)
     event_receivers: list[dict[str, Any]] | None = field(default=None, repr=False)
+    row_etags: dict[int, str] | None = field(default=None, repr=False)
 
     @property
     def row_count(self) -> int | None:
@@ -189,11 +196,13 @@ def _parse_definition(record: ListRecord, document: Any, issues: list[Issue]) ->
         record.fields[field_record.internal_name] = field_record
     field_ids = Counter(f.field_id for f in record.fields.values() if f.field_id)
     ids = {f.field_id: f for f in record.fields.values() if f.field_id and field_ids[f.field_id] == 1}
+    # Pola systemowe z nieguidowym FieldRef zbieramy w jeden wpis na listę/bibliotekę.
+    system_refs: list[str] = []
     for col in record.fields.values():
         if col.field_ref and col.type_as_string.lower().startswith("lookup"):
             parent_id = normalize_guid(col.field_ref)
             if not parent_id:
-                issues.append(Issue("system_field_ref", "Non-GUID FieldRef treated as a main Lookup; verify manually.", record.id, col.internal_name))
+                system_refs.append(col.internal_name)
                 continue
             parent = ids.get(parent_id)
             if not parent or parent is col or normalize_guid(parent.field_ref) or not parent.type_as_string.lower().startswith("lookup"):
@@ -201,6 +210,11 @@ def _parse_definition(record: ListRecord, document: Any, issues: list[Issue]) ->
             elif (col.lookup_list and parent.lookup_list
                   and col.lookup_list.strip("{}").lower() != parent.lookup_list.strip("{}").lower()):
                 issues.append(Issue("lookup_parent_mismatch", "Lookup projection and main field refer to different lists.", record.id, col.internal_name))
+    if system_refs:
+        issues.append(Issue(
+            "system_field_ref",
+            f"{len(system_refs)} non-GUID FieldRef lookup field(s) treated as main Lookups; verify manually.",
+            record.id, ", ".join(system_refs)))
     for raw in views:
         if not isinstance(raw, dict):
             issues.append(Issue("invalid_view", "Invalid view.", record.id))
@@ -229,8 +243,8 @@ def _parse_definition(record: ListRecord, document: Any, issues: list[Issue]) ->
 def load_catalog(path: str | Path) -> Catalog:
     """Load a legacy extraction. Missing/invalid manifest raises CatalogError.
 
-    Per-list statuses are ``unconfirmed``, ``missing``, ``not_exported``,
-    ``error`` or ``identity_error``; unconfirmed does not assert completeness.
+    Per-list statuses are ``complete`` (v2 only), ``unconfirmed``, ``missing``,
+    ``not_exported``, ``error`` or ``identity_error``; unconfirmed does not assert completeness.
     Row data is intentionally omitted from dataclass representations.
     """
     root = Path(path)
@@ -241,6 +255,9 @@ def load_catalog(path: str | Path) -> Catalog:
     if not isinstance(manifest, dict) or not isinstance(manifest.get("lists"), list):
         raise CatalogError("Invalid extraction manifest: lists must be an array.")
     catalog = Catalog(site_url=str(manifest.get("site_url") or ""), timestamp=str(manifest.get("timestamp") or ""))
+    v2 = manifest.get("format_version") == 2
+    if v2 and manifest.get("complete") is not True:
+        catalog.issues.append(Issue("incomplete_export", "Extractor marked the export as incomplete."))
     entries = manifest["lists"]
     id_counts = Counter(normalize_guid(e.get("id")) for e in entries if isinstance(e, dict))
     title_counts = Counter(e.get("safe_title", "").casefold() for e in entries
@@ -281,11 +298,28 @@ def load_catalog(path: str | Path) -> Catalog:
         if not _parse_definition(record, definition, catalog.issues):
             record.data_status = "identity_error"
             continue
+        if v2:
+            definition_info = entry.get("definition")
+            if isinstance(definition_info, dict) and definition_info.get("status") == "complete":
+                record.definition_status = "complete"
+                if record.views_status == "unconfirmed":
+                    record.views_status = "complete"
+            else:
+                catalog.issues.append(Issue("incomplete_definition", "Extractor reported definition errors.", list_id))
         if invalid_options:
             record.data_status = "error"
             continue
         if include_data is False:
             record.data_status = "not_exported"
+            continue
+        data_info = entry.get("data") if v2 else None
+        data_state = data_info.get("status") if isinstance(data_info, dict) else None
+        if v2 and data_state in {"not_exported", "not_applicable"}:
+            record.data_status = "not_exported"
+            continue
+        if v2 and data_state not in {"complete", "incomplete"}:
+            record.data_status = "error"
+            catalog.issues.append(Issue("incomplete_data", "Extractor could not read list data.", list_id))
             continue
         try:
             rows = _read_json(root / f"20_dane_{safe}.json", root)
@@ -302,4 +336,31 @@ def load_catalog(path: str | Path) -> Catalog:
             continue
         record.rows = rows
         record.data_status = "unconfirmed"
+        if data_state == "complete":
+            _confirm_data(record, root, safe, data_info, catalog.issues)
+        elif data_state == "incomplete":
+            catalog.issues.append(Issue("incomplete_data", "Extractor reported incomplete list data.", list_id))
     return catalog
+
+
+def _confirm_data(record: ListRecord, root: Path, safe: str, info: dict[str, Any], issues: list[Issue]) -> None:
+    """Mark v2 data complete only if rows, IDs and the ETag file agree with the manifest."""
+    ids = [row.get("ID") for row in record.rows or []]
+    try:
+        etags = _read_json(root / f"21_etagi_{safe}.json", root)
+    except (OSError, UnicodeError, json.JSONDecodeError):
+        etags = None
+    valid = (
+        isinstance(etags, dict)
+        and info.get("rows") == len(ids) == info.get("item_count_after")
+        and all(type(item_id) is int and item_id > 0 for item_id in ids)
+        and len(set(ids)) == len(ids)
+        and set(etags) == {str(item_id) for item_id in ids}
+        and all(isinstance(value, str) and _ETAG_RE.fullmatch(value) for value in etags.values())
+    )
+    if not valid:
+        record.data_status = "error"
+        issues.append(Issue("inconsistent_export", "Data, ETag file and manifest disagree.", record.id))
+        return
+    record.row_etags = {int(key): value for key, value in etags.items()}
+    record.data_status = "complete"

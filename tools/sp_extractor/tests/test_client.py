@@ -70,6 +70,45 @@ def test_get_all_pagination():
     assert items[1]["Title"] == "List 2"
 
 
+def _json_response(payload):
+    res = MagicMock()
+    res.ok = True
+    res.status_code = 200
+    res.headers = {"Content-Type": "application/json"}
+    res.json.return_value = payload
+    return res
+
+
+def test_get_all_pages_counts_verbose_pages():
+    mock_session = MagicMock()
+    mock_session.get.side_effect = [
+        _json_response({"d": {"results": [{"ID": 1}], "__next": "http://sp/sites/dora/_api/x?p=2"}}),
+        _json_response({"d": {"results": [{"ID": 2}]}}),
+    ]
+
+    items, pages = SharePointClient("http://sp/sites/dora", session=mock_session).get_all_pages("_api/x")
+
+    assert items == [{"ID": 1}, {"ID": 2}] and pages == 2
+
+
+@pytest.mark.parametrize(
+    "payloads",
+    [
+        [{"error": "unexpected"}],
+        [{"value": [1]}],
+        [{"value": [], "odata.nextLink": ""}],
+        [{"value": [{"ID": 1}], "odata.nextLink": "http://sp/sites/dora/_api/x"}],
+    ],
+    ids=["unknown-payload", "non-object-row", "empty-next-link", "pagination-loop"],
+)
+def test_get_all_pages_refuses_truncated_collections(payloads):
+    mock_session = MagicMock()
+    mock_session.get.side_effect = [_json_response(payload) for payload in payloads] * 2
+
+    with pytest.raises(SharePointClientError):
+        SharePointClient("http://sp/sites/dora", session=mock_session).get_all_pages("_api/x")
+
+
 def test_export_nintex_workflow_success():
     mock_session = MagicMock()
     mock_res = MagicMock()

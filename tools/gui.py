@@ -5,6 +5,8 @@
 """
 from __future__ import annotations
 
+import contextlib
+import io
 import json
 import logging
 import os
@@ -13,6 +15,7 @@ import subprocess
 import sys
 import threading
 import webbrowser
+from datetime import datetime
 from pathlib import Path
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
@@ -28,11 +31,48 @@ from tools.sp_extractor.client import SharePointClient
 from tools.sp_extractor.extractor import SharePointExtractor
 from tools.sp_extractor.naming import resolve_output_dir
 from tools.sp_automation.designer import WorkflowDesigner
+from tools.sp_automation.models import Graph
+from tools.sp_automation.online_dialog import OnlinePreviewDialog, default_journal_path
 from tools.sp_automation.relation_tab import RelationsSnapshot, RelationsTab
+from tools.sp_automation.simulation_dialog import SimulationDialog
 
 DEFAULT_CONFIG_PATH = REPO_ROOT / ".dora_gui_config.json"
 DEFAULT_SHAREPOINT_URL = "https://teams.sp.creditagricole/team/ITMM"
 MAX_URL_HISTORY = 20
+LOG_FILE_FORMAT = "%(asctime)s [%(levelname)s] %(name)s: %(message)s"
+
+
+def create_log_file_handler(log_dir: Path, now: datetime | None = None) -> logging.FileHandler:
+    """Tworzy plik logu `dora_gui_RRRRMMDD_GGMMSS.log` dla jednego uruchomienia GUI."""
+    log_dir.mkdir(parents=True, exist_ok=True)
+    stamp = (now or datetime.now()).strftime("%Y%m%d_%H%M%S")
+    handler = logging.FileHandler(log_dir / f"dora_gui_{stamp}.log", encoding="utf-8")
+    handler.setLevel(logging.INFO)
+    handler.setFormatter(logging.Formatter(LOG_FILE_FORMAT))
+    return handler
+
+
+class _LineWriter(io.TextIOBase):
+    """Strumień tekstowy przekazujący każdą pełną linię do funkcji logującej."""
+
+    def __init__(self, log_fn, prefix: str = ""):
+        super().__init__()
+        self._log_fn = log_fn
+        self._prefix = prefix
+        self._buffer = ""
+
+    def write(self, text: str) -> int:
+        self._buffer += text
+        while "\n" in self._buffer:
+            line, self._buffer = self._buffer.split("\n", 1)
+            if line.strip():
+                self._log_fn(self._prefix + line)
+        return len(text)
+
+    def flush(self) -> None:
+        if self._buffer.strip():
+            self._log_fn(self._prefix + self._buffer)
+        self._buffer = ""
 
 
 class QueueHandler(logging.Handler):
@@ -48,10 +88,12 @@ class QueueHandler(logging.Handler):
 
 
 class DoraMigrationApp(tk.Tk):
-    def __init__(self, config_path: Path | None = None):
+    def __init__(self, config_path: Path | None = None, log_dir: Path | None = None):
         super().__init__()
         self.title("Migracja Nintex Workflow -> Oracle APEX")
         self.config_path = Path(config_path) if config_path is not None else DEFAULT_CONFIG_PATH
+        # Domyślnie `logs\` obok pliku konfiguracji, czyli w katalogu głównym repozytorium.
+        self.log_dir = Path(log_dir) if log_dir is not None else self.config_path.parent / "logs"
         self._url_history: list[str] = [DEFAULT_SHAREPOINT_URL]
 
         # Domyslne centrowanie okna i wysuniecie na pierwszy plan
@@ -90,6 +132,38 @@ class DoraMigrationApp(tk.Tk):
         self.queue_handler.setFormatter(formatter)
         logging.getLogger().addHandler(self.queue_handler)
         logging.getLogger().setLevel(logging.INFO)
+
+        # Pełny log w pliku: rekordy `logging` (ekstraktor, klient, dialogi) oraz komunikaty `self.log`.
+        self.file_handler: logging.FileHandler | None = None
+        self.log_file_path: Path | None = None
+        self._console_logger = logging.getLogger("dora.gui.konsola")
+        self._console_logger.propagate = False
+        self._console_logger.setLevel(logging.INFO)
+        try:
+            self.file_handler = create_log_file_handler(self.log_dir)
+        except OSError as exc:
+            self.log(f"UWAGA: nie udało się utworzyć pliku logu w {self.log_dir}: {exc}")
+            return
+        logging.getLogger().addHandler(self.file_handler)
+        self._console_logger.addHandler(self.file_handler)
+        self.log_file_path = Path(self.file_handler.baseFilename)
+        self.log(f"DORA GUI {APP_VERSION}; log zapisywany do: {self.log_file_path}")
+
+    def _close_file_log(self) -> None:
+        if self.file_handler is None:
+            return
+        logging.getLogger().removeHandler(self.file_handler)
+        self._console_logger.removeHandler(self.file_handler)
+        self.file_handler.close()
+        self.file_handler = None
+
+    def destroy(self) -> None:
+        self._close_file_log()
+        super().destroy()
+
+    def report_callback_exception(self, exc, val, tb) -> None:
+        # Nieobsłużone wyjątki z callbacków Tk trafiają do okna i pliku logu.
+        logging.getLogger(__name__).error("Nieobsłużony wyjątek w GUI", exc_info=(exc, val, tb))
 
     def _build_ui(self):
         # Styl
@@ -147,9 +221,14 @@ class DoraMigrationApp(tk.Tk):
         designer_tab = ttk.Frame(self.automation_notebook)
         ttk.Label(
             designer_tab,
-            text="Prototyp offline: tworzy definicje, nie symuluje ani nie zmienia danych SharePoint.",
+            text="Symulacja jest orientacyjna i offline; nie wykonuje ani nie zatwierdza zmian SharePoint.",
         ).pack(anchor=tk.W, padx=4, pady=4)
-        self.workflow_designer = WorkflowDesigner(designer_tab)
+        self.simulation_dialog: SimulationDialog | None = None
+        self.online_dialog: OnlinePreviewDialog | None = None
+        self.workflow_designer = WorkflowDesigner(
+            designer_tab, on_simulate=self._simulate_automation,
+            on_online_preview=self._preview_automation_online,
+        )
         self.workflow_designer.pack(fill=tk.BOTH, expand=True)
         self.automation_notebook.add(designer_tab, text="Projektant (prototyp offline)")
         self.notebook.add(self.automation_tab, text=" 3. Automatyzacje ")
@@ -196,6 +275,45 @@ class DoraMigrationApp(tk.Tk):
 
     def _automation_catalog_loaded(self, snapshot: RelationsSnapshot | None) -> None:
         self.workflow_designer.set_catalog(snapshot.catalog if snapshot is not None else None)
+
+    def _simulate_automation(self, graph: Graph) -> None:
+        catalog = self.workflow_designer.catalog
+        if catalog is None:
+            messagebox.showerror("Brak eksportu", "Najpierw wczytaj lokalny eksport list.", parent=self)
+            return
+        accepted = messagebox.askyesno(
+            "Symulacja offline — dane historyczne",
+            "Symulacja użyje lokalnego eksportu, którego kompletność nie jest potwierdzona. "
+            "Nie zastosuje filtrów widoków, więc wynik może być niepełny lub nieaktualny. "
+            "Propozycje są wyłącznie diagnostyczne i nie można ich zapisać do SharePoint. "
+            "Czy mimo to uruchomić symulację?",
+            parent=self,
+            default=messagebox.NO,
+            icon=messagebox.WARNING,
+        )
+        if accepted:
+            if self.simulation_dialog is not None and self.simulation_dialog.winfo_exists():
+                self.simulation_dialog.close()
+            self.simulation_dialog = SimulationDialog(self, catalog, graph)
+
+    def _preview_automation_online(self, graph: Graph) -> None:
+        site = graph.to_dict()["site"]
+        journal = default_journal_path(REPO_ROOT)
+        accepted = messagebox.askyesno(
+            "Podgląd online — tylko odczyt GET",
+            f"Program wykona wyłącznie żądania GET do witryny:\n{site}\n"
+            "z uwierzytelnieniem Windows SSO, pobierając tylko listy i pola wymagane przez graf. "
+            "Nie zostanie wykonany żaden zapis do SharePoint.\n"
+            f"Wynik można zapisać w lokalnym dzienniku: {journal}\n"
+            "Czy uruchomić odczyt?",
+            parent=self,
+            default=messagebox.NO,
+            icon=messagebox.WARNING,
+        )
+        if accepted:
+            if self.online_dialog is not None and self.online_dialog.winfo_exists():
+                self.online_dialog.close()
+            self.online_dialog = OnlinePreviewDialog(self, graph, journal_path=journal)
 
     def _build_extract_tab(self, parent):
         grid = ttk.Frame(parent)
@@ -443,6 +561,7 @@ class DoraMigrationApp(tk.Tk):
 
     def log(self, msg: str):
         self.log_queue.put(msg)
+        self._console_logger.info(msg)
 
     def _start_extraction(self):
         url = self.url_var.get().strip()
@@ -479,8 +598,21 @@ class DoraMigrationApp(tk.Tk):
                 manifest = extractor.run()
                 wf_count = len(manifest.get("workflows", []))
                 list_count = len(manifest.get("lists", []))
-                self.log(f"SUKCES: Zakończono ekstrakcję. Pobrano {wf_count} workflow, {list_count} list.")
-                self.status_lbl.configure(text=f"Zakończono pobieranie do {out_dir.name}.")
+                if manifest.get("complete") is False:
+                    errors = manifest.get("errors", [])
+                    self.log(f"UWAGA: eksport NIEKOMPLETNY ({len(errors)} błędów). "
+                             f"Pobrano {wf_count} workflow, {list_count} list.")
+                    for error in errors[:20]:
+                        self.log(f"  - {error.get('resource')}: {error.get('message')}")
+                    self.status_lbl.configure(text=f"Eksport niekompletny: {out_dir.name}.")
+                    messagebox.showwarning(
+                        "Eksport niekompletny",
+                        f"Eksport zawiera {len(errors)} błędów i nie może być traktowany jako kompletny.\n"
+                        "Szczegóły: extraction_manifest.json (errors).",
+                    )
+                else:
+                    self.log(f"SUKCES: Zakończono ekstrakcję. Pobrano {wf_count} workflow, {list_count} list.")
+                    self.status_lbl.configure(text=f"Zakończono pobieranie do {out_dir.name}.")
 
                 # Zaktualizuj zakladke raportow
                 self.report_in_var.set(out_dir.name)
@@ -489,6 +621,7 @@ class DoraMigrationApp(tk.Tk):
                     self.report_out_var.set(f"out_{sfx}")
             except Exception as e:
                 self.log(f"BŁĄD ekstrakcji: {e}")
+                self._console_logger.exception("Szczegóły błędu ekstrakcji")
                 self.status_lbl.configure(text="Błąd podczas pobierania.")
                 messagebox.showerror("Błąd ekstrakcji", str(e))
             finally:
@@ -512,7 +645,15 @@ class DoraMigrationApp(tk.Tk):
         def task():
             try:
                 self.log(f"Uruchomienie generatora raportów: {in_dir} -> {out_dir}")
-                code = generate_report_main(["--input", in_dir, "--output", out_dir])
+                # Wyjście generatora (print na stdout/stderr) trafia do okna i pliku logu.
+                stdout_writer = _LineWriter(self.log)
+                stderr_writer = _LineWriter(self.log, prefix="[stderr] ")
+                try:
+                    with contextlib.redirect_stdout(stdout_writer), contextlib.redirect_stderr(stderr_writer):
+                        code = generate_report_main(["--input", in_dir, "--output", out_dir])
+                finally:
+                    stdout_writer.flush()
+                    stderr_writer.flush()
                 if code == 0:
                     self.log(f"SUKCES: Wygenerowano raporty, dyspozytor PL/SQL oraz portal HTML w {out_dir}/")
                     self.status_lbl.configure(text=f"Raporty gotowe w: {out_dir}")
@@ -521,6 +662,7 @@ class DoraMigrationApp(tk.Tk):
                     self.status_lbl.configure(text="Generowanie zakończone ostrzeżeniem.")
             except Exception as e:
                 self.log(f"BŁĄD generowania raportów: {e}")
+                self._console_logger.exception("Szczegóły błędu generowania raportów")
                 self.status_lbl.configure(text="Błąd generowania raportów.")
                 messagebox.showerror("Błąd", str(e))
             finally:

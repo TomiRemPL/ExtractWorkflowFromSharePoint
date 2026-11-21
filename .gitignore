@@ -16,10 +16,14 @@ venv/
 # Local GUI configuration (stores user URLs and local paths)
 .dora_gui_config.json
 
+# Pliki logu GUI (mogą zawierać adresy, ścieżki i komunikaty z danymi SharePoint)
+logs/
+
 # Local SharePoint extractions and generated reports must never be committed
 DaneZeSkryptu/
 DaneZeSkryptu_*/
 out/
 out_*/
 20_dane_*.json
+21_etagi_*.json
 

@@ -108,11 +108,27 @@ class SharePointClient:
         headers: dict | None = None,
     ) -> list[dict]:
         """Fetch all pages of a collection following odata pagination links."""
+        return self.get_all_pages(path_or_url, params=params, headers=headers)[0]
+
+    def get_all_pages(
+        self,
+        path_or_url: str,
+        params: dict | None = None,
+        headers: dict | None = None,
+        max_pages: int = 10_000,
+    ) -> tuple[list[dict], int]:
+        """Return ``(items, pages)``; raise instead of returning a truncated collection."""
         items: list[dict] = []
         next_url: str | None = self.resolve_url(path_or_url)
+        seen: set[str] = set()
+        pages = 0
 
         while next_url:
             full_url = self.resolve_url(next_url)
+            if full_url in seen or pages >= max_pages:
+                raise SharePointClientError(f"Pagination loop or page limit exceeded at {full_url}")
+            seen.add(full_url)
+            pages += 1
             req_headers = dict(self.session.headers)
             if headers:
                 req_headers.update(headers)
@@ -127,29 +143,32 @@ class SharePointClient:
                     f"HTTP {res.status_code} in get_all from {full_url}: {res.text[:400]}"
                 )
 
-            data = res.json()
-            if isinstance(data, dict):
-                # odata=nometadata structure: {"value": [...], "odata.nextLink": "..."}
-                if "value" in data and isinstance(data["value"], list):
-                    items.extend(data["value"])
-                    next_url = data.get("odata.nextLink")
-                # odata=verbose structure: {"d": {"results": [...], "__next": "..."}}
-                elif "d" in data and isinstance(data["d"], dict):
-                    results = data["d"].get("results", [])
-                    if isinstance(results, list):
-                        items.extend(results)
-                    next_url = data["d"].get("__next")
-                else:
-                    break
+            try:
+                data = res.json()
+            except ValueError as exc:
+                raise SharePointClientError(f"Invalid JSON in get_all from {full_url}") from exc
+            if isinstance(data, dict) and isinstance(data.get("value"), list):
+                # odata=nometadata/minimalmetadata: {"value": [...], "odata.nextLink": "..."}
+                page = data["value"]
+                next_url = next((data[key] for key in ("odata.nextLink", "@odata.nextLink") if key in data), None)
+            elif (isinstance(data, dict) and isinstance(data.get("d"), dict)
+                  and isinstance(data["d"].get("results"), list)):
+                # odata=verbose: {"d": {"results": [...], "__next": "..."}}
+                page = data["d"]["results"]
+                next_url = data["d"]["__next"] if "__next" in data["d"] else None
             elif isinstance(data, list):
-                items.extend(data)
-                break
+                page, next_url = data, None
             else:
-                break
+                raise SharePointClientError(f"Unexpected collection payload from {full_url}")
+            if any(not isinstance(row, dict) for row in page):
+                raise SharePointClientError(f"Collection from {full_url} contains non-object rows")
+            if next_url is not None and (not isinstance(next_url, str) or not next_url.strip()):
+                raise SharePointClientError(f"Invalid pagination link from {full_url}")
+            items.extend(page)
 
             params = None  # query parameters are already encoded in next_url
 
-        return items
+        return items, pages
 
     def export_nintex_workflow(
         self,

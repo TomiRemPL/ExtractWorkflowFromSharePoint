@@ -134,15 +134,20 @@ def main(args: list[str] | None = None) -> int:
             include_permissions=parsed.include_permissions,
         )
         manifest = extractor.run()
+        complete = manifest.get("complete") is not False
 
         print("-" * 65)
-        print("Ekstrakcja zakończona sukcesem!")
+        if complete:
+            print("Ekstrakcja zakończona sukcesem (eksport kompletny).")
+        else:
+            print(f"UWAGA: eksport NIEKOMPLETNY ({len(manifest.get('errors', []))} błędów) - "
+                  "szczegóły w extraction_manifest.json (errors).")
         print(f"Pobrano definicji list    : {manifest.get('lists_count', 0)}")
         print(f"Znaleziono workflow Nintex: {manifest.get('workflows_count', 0)}")
         print(f"Katalog z plikami         : {out_dir.resolve()}")
         print(f"Plik manifestu            : {out_dir / 'extraction_manifest.json'}")
         print("-" * 65)
-        return 0
+        return 0 if complete else 3
 
     except SharePointClientError as e:
         logger.error("Błąd połączenia z SharePoint: %s", e)

@@ -38,7 +38,7 @@ def test_snapshot_displays_relation_stats_and_sample_items(monkeypatch) -> None:
 
 @pytest.mark.skipif(os.environ.get("CHECK_SP_005") != "1", reason="local snapshot verification is opt-in")
 def test_optional_real_005_presentation():
-    root = Path("DaneZeSkryptu_005")
+    root = Path(os.environ.get("SP_EXPORT_DIR", "DaneZeSkryptu_005"))
     if not (root / "extraction_manifest.json").is_file():
         pytest.skip("local export 005 unavailable")
     snapshot = load_relations_snapshot(root)
@@ -50,7 +50,7 @@ def test_optional_real_005_presentation():
 
 @pytest.mark.skipif(os.environ.get("CHECK_SP_005") != "1", reason="local snapshot verification is opt-in")
 def test_optional_real_005_compares_control_goal_via_mechanism():
-    root = Path("DaneZeSkryptu_005")
+    root = Path(os.environ.get("SP_EXPORT_DIR", "DaneZeSkryptu_005"))
     if not (root / "extraction_manifest.json").is_file():
         pytest.skip("local export 005 unavailable")
     catalog = load_relations_snapshot(root).catalog

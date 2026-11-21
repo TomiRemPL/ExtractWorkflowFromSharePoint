@@ -23,6 +23,7 @@ _FOCUS_IDS = {
 _STATUS = {
     "missing": "brak w eksporcie",
     "not_exported": "nie eksportowano",
+    "complete": "kompletne (potwierdzone stronicowanie i ETag)",
     "unconfirmed": "dostępne, kompletność niepotwierdzona",
     "error": "błąd",
     "identity_error": "niezgodna lub niepotwierdzona tożsamość",
@@ -39,7 +40,7 @@ _ISSUE = {
     "invalid_resource": "Nieprawidłowy zasób listy",
     "invalid_field": "Pole bez nazwy wewnętrznej",
     "duplicate_field": "Powtórzona nazwa wewnętrzna pola",
-    "system_field_ref": "Nieguidowy FieldRef; główny Lookup wymaga ręcznej weryfikacji",
+    "system_field_ref": "Pola z nieguidowym FieldRef (zwykle systemowe) traktowane jako główne Lookup; zweryfikuj ręcznie, jeśli są używane",
     "missing_lookup_parent": "Brak głównego pola projekcji Lookup",
     "lookup_parent_mismatch": "Projekcja i główne pole Lookup wskazują różne listy",
     "invalid_view": "Nieprawidłowy widok",
@@ -50,6 +51,10 @@ _ISSUE = {
     "missing_definition": "Brak definicji listy",
     "missing_data": "Brak pliku danych listy",
     "invalid_data": "Nieprawidłowy lub nieczytelny plik danych listy",
+    "incomplete_export": "Ekstraktor oznaczył eksport jako niekompletny",
+    "incomplete_definition": "Ekstraktor zgłosił błędy odczytu definicji listy",
+    "incomplete_data": "Dane listy niekompletne lub nieodczytane przez ekstraktor",
+    "inconsistent_export": "Dane, plik ETag i manifest są niezgodne",
 }
 
 

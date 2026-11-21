@@ -45,6 +45,7 @@ class SimulationResult:
     decisions: tuple[BranchDecision, ...]
     graph_digest: str
     snapshot_digest: str
+    snapshot_complete: bool = True
 
 
 def _digest(value):
@@ -105,7 +106,7 @@ def _typed(value: Any, field_type: str) -> Any:
 
 
 class _Simulator:
-    def __init__(self, graph, snapshot):
+    def __init__(self, graph, snapshot, allow_incomplete=False):
         self.graph = graph
         self.snapshot = copy.deepcopy(snapshot)
         if not isinstance(self.snapshot, dict) or self.snapshot.get("site") != graph["site"] or self.snapshot.get("schema_fingerprint") != graph["schema_fingerprint"]:
@@ -119,7 +120,9 @@ class _Simulator:
                 _guid(list_id)
             except GraphError as exc:
                 raise SimulationError("Invalid list GUID") from exc
-            if not isinstance(data, dict) or data.get("complete") is not True or not isinstance(data.get("fields"), dict) or not isinstance(data.get("items"), list):
+            if (not isinstance(data, dict) or type(data.get("complete")) is not bool
+                    or (data["complete"] is not True and not allow_incomplete)
+                    or not isinstance(data.get("fields"), dict) or not isinstance(data.get("items"), list)):
                 raise SimulationError("Every supplied list must have complete schema and data")
             rows = {}
             for row in data["items"]:
@@ -434,6 +437,17 @@ class _Simulator:
             source_ids = sorted(self.graph["scope"]["ids"])
             if any(i not in self.lists[source_list][1] for i in source_ids):
                 raise SimulationError("Selected item missing")
+        elif self.graph["scope"]["type"] == "view":
+            # Views are resolved only by a fresh online read; never approximated offline.
+            resolved = self.snapshot.get("scope_resolution")
+            if (not isinstance(resolved, dict) or resolved.get("view_id") != self.graph["scope"]["view_id"]
+                    or not isinstance(resolved.get("ids"), list)
+                    or any(not _id(i) for i in resolved["ids"])
+                    or len(set(resolved["ids"])) != len(resolved["ids"])):
+                raise SimulationError("View scope requires a verified online view resolution")
+            source_ids = sorted(resolved["ids"])
+            if any(i not in self.lists[source_list][1] for i in source_ids):
+                raise SimulationError("View item missing from the source list")
         start = next(n["id"] for n in self.nodes.values() if n["type"] == "start")
         for source_id in source_ids:
             self.aliases = {"source": (source_list, source_id)}
@@ -478,11 +492,13 @@ class _Simulator:
         return tuple(changes)
 
 
-def simulate(graph: Graph, snapshot: dict) -> SimulationResult:
-    """Simulate a validated graph over a complete, caller-supplied JSON snapshot.
+def simulate(graph: Graph, snapshot: dict, *, allow_incomplete: bool = False) -> SimulationResult:
+    """Simulate a validated graph over a caller-supplied JSON snapshot.
 
     No network, file access or mutation of the supplied snapshot occurs. On any
     uncertainty or conflict raises SimulationError rather than returning a plan.
+    Incomplete snapshots are rejected unless explicitly allowed; such a result is
+    advisory only and must never be treated as a complete preview.
     Compare both digests before displaying/reusing an old preview.
     """
     if not isinstance(graph, Graph):
@@ -494,9 +510,13 @@ def simulate(graph: Graph, snapshot: dict) -> SimulationResult:
     graph_digest = hashlib.sha256(graph.to_json().encode("utf-8")).hexdigest()
     frozen_snapshot = copy.deepcopy(snapshot)
     snapshot_digest = _digest(frozen_snapshot)
-    engine = _Simulator(graph.to_dict(), frozen_snapshot)
+    if type(allow_incomplete) is not bool:
+        raise SimulationError("allow_incomplete must be a boolean")
+    engine = _Simulator(graph.to_dict(), frozen_snapshot, allow_incomplete)
     changes = engine.run()
-    return SimulationResult(changes, tuple(engine.decisions), graph_digest, snapshot_digest)
+    snapshot_complete = all(data.get("complete") is True
+                            for data in frozen_snapshot.get("lists", {}).values())
+    return SimulationResult(changes, tuple(engine.decisions), graph_digest, snapshot_digest, snapshot_complete)
 
 
 def preview_is_current(result: SimulationResult, graph: Graph, snapshot: dict) -> bool:

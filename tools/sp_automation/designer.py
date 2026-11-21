@@ -10,11 +10,12 @@ import os
 from pathlib import Path
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
-from typing import Any, cast
+from typing import Any, Callable, cast
 from uuid import uuid4
 
 from tools.sp_automation.catalog import normalize_guid
 from tools.sp_automation.models import Graph, GraphError
+from tools.sp_automation.snapshot_adapter import catalog_graph_fingerprint
 
 
 _TITLES = {
@@ -295,10 +296,13 @@ class WorkflowDesigner(ttk.Frame):
     """
 
     def __init__(self, parent: tk.Misc, graph: Graph | dict | None = None,
-                 catalog=None, on_change=None):
+                 catalog=None, on_change=None, on_simulate: Callable[[Graph], None] | None = None,
+                 on_online_preview: Callable[[Graph], None] | None = None):
         super().__init__(parent)
         self.catalog = catalog
         self.on_change = on_change
+        self.on_simulate: Callable[[Graph], None] | None = on_simulate
+        self.on_online_preview: Callable[[Graph], None] | None = on_online_preview
         self._draft = WorkflowDraft(graph if graph is not None else new_workflow())
         self._selected: tuple[str, str | int] | None = None
         self._connecting: tuple[str, str] | None = None
@@ -344,6 +348,40 @@ class WorkflowDesigner(ttk.Frame):
         if not self._form_changed():
             self._inspector()
 
+    def set_catalog_fingerprint(self) -> None:
+        if self.catalog is None or not self._resolve_form():
+            return
+        try:
+            data = self.get_draft()
+            data["site"] = self.catalog.site_url
+            data["schema_fingerprint"] = data.get("schema_fingerprint") or "pending"
+            graph = Graph.from_dict(data)
+            data["schema_fingerprint"] = catalog_graph_fingerprint(self.catalog, graph)
+        except (GraphError, ValueError) as exc:
+            messagebox.showerror("Nie można ustawić fingerprintu", str(exc), parent=self)
+            return
+        self._replace(data)
+
+    def simulate_offline(self) -> None:
+        if self.on_simulate is None or not self._resolve_form():
+            return
+        try:
+            graph = self.get_graph()
+        except GraphError as exc:
+            messagebox.showerror("Graf jest niepoprawny", str(exc), parent=self)
+            return
+        self.on_simulate(graph)
+
+    def preview_online(self) -> None:
+        if self.on_online_preview is None or not self._resolve_form():
+            return
+        try:
+            graph = self.get_graph()
+        except GraphError as exc:
+            messagebox.showerror("Graf jest niepoprawny", str(exc), parent=self)
+            return
+        self.on_online_preview(graph)
+
     def _notify(self) -> None:
         if self.on_change:
             self.on_change(self)
@@ -359,7 +397,8 @@ class WorkflowDesigner(ttk.Frame):
             ("Kopiuj", self.copy), ("Wklej", self.paste),
             ("Usuń", self.delete_selection), ("Układ", self.auto_layout),
             ("−", lambda: self.zoom(1 / 1.2)), ("+", lambda: self.zoom(1.2)),
-            ("Właściwości", self.select_document),
+            ("Właściwości", self.select_document), ("Fingerprint", self.set_catalog_fingerprint),
+            ("Symuluj offline", self.simulate_offline), ("Podgląd online (GET)", self.preview_online),
         )
         for index, (label, command) in enumerate(commands):
             ttk.Button(toolbar, text=label, command=command).grid(row=index // 6, column=index % 6, sticky="ew")
@@ -795,7 +834,7 @@ class WorkflowDesigner(ttk.Frame):
             self._choice("source_list_id", "Lista źródłowa", data.get("source_list_id", ""), self._catalog_lists())
             self._entry("schema_fingerprint", "Fingerprint schematu", data.get("schema_fingerprint", ""))
             self._entry("max_updates", "Limit zmian", str(data.get("max_updates", 0)))
-            self._json_entry("scope", "Zakres JSON (all / ids)", data.get("scope", {"type": "all"}))
+            self._json_entry("scope", "Zakres JSON (all / ids / view)", data.get("scope", {"type": "all"}))
         if self._form_vars or self._form_text:
             ttk.Button(self.inspector, text="Zastosuj", command=self.apply_inspector).pack(fill="x", pady=4)
             ttk.Button(self.inspector, text="Anuluj zmiany", command=self._inspector).pack(fill="x")

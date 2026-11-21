@@ -37,6 +37,7 @@ uv run python tools\gui.py
 
 Alternatywnie dwuklik na [run_gui.bat](run_gui.bat) — uruchamia GUI bez okna konsoli, korzystając z `.venv\Scripts\pythonw.exe` (jeśli `.venv` nie istnieje, używa systemowego `pythonw`). Przed pierwszym użyciem wykonaj `uv sync`.
 
+Każde uruchomienie GUI zapisuje pełny log do `logs\dora_gui_RRRRMMDD_GGMMSS.log`. Plik zawiera komunikaty okna, rekordy `logging` ekstraktora i dialogów, wyjście generatora raportów (stdout/stderr) oraz tracebacki błędów. Katalog `logs/` jest wyłączony z gita, bo log może zawierać adresy i dane z SharePoint.
 ### Budowa okna
 
 - **Nagłówek** z tytułem aplikacji i przyciskiem **O aplikacji** (autor, przeznaczenie, wersja).
@@ -93,22 +94,81 @@ docelowa lista nie są traktowane jako puste. Ta zakładka nie łączy się z Sh
 i nie wykonuje aktualizacji. Porównanie jest orientacyjne, nie stanowi propozycji zapisu
 ani zatwierdzonej reguły biznesowej; rozbieżności nie muszą oznaczać błędu.
 
-### Projektant algorytmów — prototyp offline
+### Projektant i symulacja — prototyp offline
 
 Po wczytaniu eksportu przełącz się na **Projektant (prototyp offline)**. Przeciągaj bloki
 z palety na płótno, łącz porty, uzupełniaj właściwości w inspektorze i zapisuj definicję JSON.
 Katalog podpowiada listy i pola; dostępne są m.in. warunki, odczyt Lookup i przypisania.
-Projektant obsługuje cofanie zmian, kopiowanie węzła, przesuwanie i powiększanie mapy.
+Przycisk **Fingerprint** ustawia witrynę i skrót schematów list użytych w grafie. Projektant
+obsługuje cofanie zmian, kopiowanie węzła, przesuwanie i powiększanie mapy.
 
-To **prototyp**, nie wykonawca workflow: GUI nie udostępnia jeszcze symulacji ani zapisów
-do SharePoint. Nie obsługuje bloku iteracji po powiązanych elementach, a walidacja grafu
-nie potwierdza jeszcze poprawności typów i uprawnień wobec witryny. Można zapisać tylko
-kompletną, poprawną strukturalnie definicję; dla nowej definicji trzeba podać m.in. witrynę,
-listę źródłową, fingerprint schematu i limit. Fingerprint pojedynczej listy w jej szczegółach
-nie potwierdza kompletności schematu całego algorytmu. Nie umieszczaj poufnych danych
-w literałach definicji przeznaczonej do udostępnienia.
+Przycisk **Symuluj offline** wymaga potwierdzenia ostrzeżenia i pokazuje propozycje
+na podstawie wyeksportowanych wierszy. Eksport historyczny ma jawny status niekompletności;
+symulacja oznacza wynik jako orientacyjny i nie jest podstawą zapisu. Brak zmian w eksporcie
+nie dowodzi, że nie ma ich na witrynie. Widoki i filtry CAML nie są stosowane.
+
+GUI to nadal **prototyp**, nie wykonawca workflow: oferuje osobny podgląd online GET
+i lokalne zatwierdzenie, ale nie ma zapisów do SharePoint. Nie obsługuje bloku iteracji po powiązanych elementach, a walidacja
+grafu nie potwierdza pełnej zgodności typów i uprawnień witryny. Można zapisać tylko
+strukturalnie poprawną definicję. Fingerprint list użytych w grafie wykrywa zmianę
+eksportowanego schematu, ale nie potwierdza jego kompletności ani aktualności. Nie umieszczaj
+poufnych danych w literałach definicji przeznaczonej do udostępnienia.
 
 ## Wiersz poleceń (CLI)
+
+### Automatyzacje — świeży podgląd online, tylko GET
+
+Odczyt online jest dostępny osobno od GUI przez
+[`tools/sp_automation/preview_cli.py`](tools/sp_automation/preview_cli.py).
+Uruchamiaj go dopiero po uzgodnieniu witryny i zakresu odczytu. Używa bieżącego
+konta Windows SSO, proxy `http://127.0.0.1:3001` i sprawdzania certyfikatu TLS.
+Nie obsługuje wyłączania TLS, przekierowań ani zapisów do SharePoint.
+
+Zapisz graf z projektanta w lokalnym katalogu poza Git. Przykład (polecenia łączą się
+z witryną wskazaną w grafie; nie są testem offline):
+
+```powershell
+New-Item -ItemType Directory -Path out_automation -Force
+# Najpierw zapisz definicję z projektanta jako out_automation\regula.json.
+uv run python -m tools.sp_automation.preview_cli refresh-schema --graph out_automation\regula.json --output out_automation\regula_online.json
+uv run python -m tools.sp_automation.preview_cli preview --graph out_automation\regula_online.json --output out_automation\podglad.json --journal out_automation\journal.sqlite
+# Jawne zatwierdzenie: ponowny odczyt GET, porównanie z podglądem i wpisanie frazy "ZATWIERDZAM <run_id>".
+uv run python -m tools.sp_automation.preview_cli approve --graph out_automation\regula_online.json --journal out_automation\journal.sqlite --run-id <run_id>
+```
+
+Odświeżenie schematu tworzy **nową definicję**, nie akceptuje zmian. Podgląd ponownie
+odczytuje schemat i blokuje się przy zmianie fingerprintu. Pobiera tylko listy użyte
+przez graf, zależności przypisywanego Lookup i wymagane kolumny danych. Odczytuje całe
+te listy, również przy zakresie źródłowym `ids`, aby zachować relacje odwrotne i do tej
+samej listy; zakres wykonania symulacji nadal wynika z grafu. Obsługiwane zakresy to
+`all`, `ids` oraz `{"type": "view", "view_id": "<GUID>"}`. Zakres widoku jest
+pobierany świeżo z serwera, a jego filtr `<Where>` oceniany lokalnie wyłącznie dla
+zweryfikowanego podzbioru CAML (`And/Or`, `Eq/Neq/Lt/Leq/Gt/Geq`, `In`, `IsNull/IsNotNull`
+na polach Text/Choice/Number/Currency/Boolean/ID i Lookup z `LookupId="TRUE"`). Daty,
+`<Today/>`, `<UserID/>`, `Contains`, porównanie tekstu Lookup, widoki niestronicowane,
+listy z folderami, wynik zależny od wielkości liter lub niejednoznaczny NULL blokują
+odczyt. Symulacja offline odrzuca zakres widoku.
+
+Dziennik SQLite (`--journal`) jest tylko do dopisywania (UPDATE/DELETE i zastępowanie
+istniejących wpisów przez REPLACE blokowane wyzwalaczami). Nowe wpisy zachowują diagnostykę
+zasobów, w tym liczbę stron i zakończenie stronicowania, razem z dokładnymi ETag.
+`approve` wymaga odczytu rozpoczętego po utworzeniu podglądu, z poprawnymi czasami i strefą
+czasową; nie przyjmuje ponownie pierwotnej migawki. Zapisuje zgodę jedynie dla podglądu, który po świeżym odczycie
+ma identyczny graf, dane, zakres i ETag; **nie wykonuje zapisu do SharePoint**
+(`write_available=False`). To samo jest dostępne w GUI: przycisk projektanta
+„Podgląd online (GET)” → „Zapisz w dzienniku” → „Zatwierdź (ponowny odczyt GET)...”,
+z dziennikiem w `out_automation\journal.sqlite`.
+
+Wynik zawiera identyfikatory witryny/web, czasy odczytu, statusy zasobów, zakończenie
+stronicowania, dokładne ETag, definicję i niezmienny podgląd propozycji z hashami.
+Błąd strony, limit odczytu, brak ETag/pola, duplikat ID lub niezgodny `ItemCount`
+blokują cały wynik; CLI usuwa swój niedokończony plik. Nie nadpisuje istniejących plików.
+Kompletność stronicowania **nie oznacza transakcyjnej spójności** ani potwierdzenia
+uprawnień do zapisu. Wynik zawiera dane biznesowe: trzymaj go poza Git, np. w ignorowanym
+`out_automation`, i usuń zgodnie z uzgodnioną retencją. Nie publikuj podglądu.
+
+Zapisy są niedostępne. Test na serwerze, osobny podgląd, jawna akceptacja oraz bezpieczna
+witryna testowa są wymagane przed etapem wykonawczym.
 
 ### Ekstrakcja z SharePoint
 
@@ -126,10 +186,12 @@ uv run python tools\sp_extractor\cli.py --url https://sp.domena.local/sites/dora
 | `-o`, `--output` | katalog docelowy; domyślnie kolejny `DaneZeSkryptu_nnn` |
 | `--base-dir` | katalog, w którym szukane są istniejące `DaneZeSkryptu_nnn` (domyślnie `.`) |
 | `-u`, `-p`, `-d` | login, hasło i domena NTLM; bez nich używane jest Windows SSO/SSPI |
-| `--include-data` | eksport wierszy list (`20_dane_*.json`) |
-| `--include-permissions` | zarezerwowane — obecnie tylko odnotowywane w manifeście, eksport uprawnień `30_*` nie jest jeszcze zaimplementowany |
+| `--include-data` | eksport wierszy list (`20_dane_*.json`) z ETagami (`21_etagi_*.json`) i kontrolą kompletności |
+| `--include-permissions` | zarezerwowane — eksport uprawnień `30_*` nie jest zaimplementowany, więc manifest oznacza eksport jako niekompletny |
 | `--insecure` | wyłączenie weryfikacji certyfikatu SSL |
 | `-v`, `--verbose` | szczegółowe logi |
+
+`extraction_manifest.json` (wersja 2) zawiera pola `complete` i `errors[]` oraz status definicji i danych każdej listy (strony, `ItemCount` przed i po odczycie, plik ETag). Gdy eksport jest niekompletny, CLI zwraca kod 3, a GUI wyświetla ostrzeżenie zamiast komunikatu o sukcesie. Nieaktywne powiązania „(poprzednia wersja: …)” mają status `superseded` (Nintex nie eksportuje starych wersji) i nie wpływają na kompletność. Kolumna, której serwer nie potrafi zwrócić w odczycie zbiorczym, jest izolowana i czytana awaryjnie (`$expand` lub element po elemencie); ewentualne nieczytelne elementy są wymienione z ID w `errors[]`.
 
 Hasła nie należy przekazywać w skryptach ani zapisywać w repozytorium.
 
@@ -148,6 +210,7 @@ uv run python tools\nwf_report\generate_report.py --input DaneZeSkryptu_002 --ou
 | `00_wlasciwosci.json`, `00_kolumny_witryny.json` | właściwości i kolumny witryny |
 | `10_00_wszystkie_listy.json`, `10_lista_*.json` | lista list oraz definicje i schematy pól |
 | `20_dane_*.json` | wiersze list (tylko z opcją danych) |
+| `21_etagi_*.json` | ETag każdego elementu `{ID: etag}` (tylko z opcją danych) |
 | `*.nwf` | definicje workflow Nintex |
 | `Workflow-Inventory.csv` | inwentaryzacja workflow |
 | `extraction_manifest.json` | podsumowanie ekstrakcji |

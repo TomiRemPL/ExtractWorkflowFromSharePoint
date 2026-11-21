@@ -294,6 +294,14 @@ def test_system_field_ref_is_main_lookup_and_valid_projection_parent(snapshot, f
     assert any(i.code == "system_field_ref" and i.severity == "warning" for i in catalog.issues)
 
 
+def test_system_field_refs_are_grouped_per_list(snapshot):
+    fields = [lookup("FileRef", IDS[1], field_ref="ID"), lookup("FileDirRef", IDS[1], field_ref="ID")]
+    manifest(snapshot, [make_list(snapshot, 0, fields, []), make_list(snapshot, 1, rows=[])])
+    issues = [i for i in load_catalog(snapshot).issues if i.code == "system_field_ref"]
+    assert len(issues) == 1
+    assert issues[0].field_name == "FileRef, FileDirRef"
+
+
 def test_self_lookup_and_xml_only_multivalue_type(snapshot):
     col = {
         "InternalName": "SelfRef",
@@ -344,7 +352,7 @@ def test_views_and_fingerprint_are_schema_based(snapshot):
 @pytest.mark.skipif(os.environ.get("CHECK_SP_005") != "1", reason="local snapshot verification is opt-in")
 def test_optional_real_005_aggregate_only():
     # This never writes the snapshot, logs rows, or contacts SharePoint.
-    root = Path("DaneZeSkryptu_005")
+    root = Path(os.environ.get("SP_EXPORT_DIR", "DaneZeSkryptu_005"))
     if not (root / "extraction_manifest.json").is_file():
         pytest.skip("local export 005 unavailable")
     expected = {

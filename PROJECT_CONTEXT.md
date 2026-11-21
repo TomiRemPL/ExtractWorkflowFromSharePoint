@@ -488,8 +488,9 @@ dedykowany handler.
   - `URL` / `--url`: Adres URL witryny SharePoint (np. `https://sp.bank.local/sites/dora`).
   - `-o` / `--output`: Katalog docelowy. W przypadku pominięcia narzędzie automatycznie skanuje katalog roboczy i tworzy kolejny folder z auto-inkrementacją: `DaneZeSkryptu_nnn` (`DaneZeSkryptu_001`, `DaneZeSkryptu_002`, ...).
   - `-u` / `--username`, `-p` / `--password`, `-d` / `--domain`: Opcjonalne poświadczenia NTLM. W przypadku pominięcia narzędzie wykorzystuje bieżący kontekst użytkownika Windows (Single Sign-On / SSPI via `requests-negotiate-sspi`).
-  - `--include-data`: Opcjonalny zrzut wierszy danych list (`20_dane_*.json`).
-  - `--include-permissions`: Opcjonalny zrzut uprawnień (`30_*`).
+  - `--include-data`: Opcjonalny zrzut wierszy danych list (`20_dane_*.json`) wraz z ETagami (`21_etagi_*.json`) i kontrolą kompletności (manifest v2, sekcja 26).
+  - `--include-permissions`: Eksport uprawnień nie jest zaimplementowany; opcja oznacza eksport jako niekompletny.
+- **Kody wyjścia CLI**: 0 — eksport kompletny, 1 — błąd połączenia, 2 — błąd nieoczekiwany, 3 — eksport zapisany, ale niekompletny (`complete: false`, szczegóły w `errors[]`).
 - **Protokoły**:
   - SharePoint REST API (`application/json;odata=nometadata` z fallbackiem do `verbose`): pobieranie `00_kolumny_witryny.json`, `10_00_wszystkie_listy.json`, `10_lista_<Nazwa>.json` ze schematami `schemaXml`, kolumnami, typami zawartości i widokami.
   - Nintex Workflow SOAP Web Service (`/_vti_bin/NintexWorkflow/Workflow.asmx` - `ExportWorkflow`): eksport czystych definicji procesów do plików `.nwf`.
@@ -915,14 +916,260 @@ Wszystkie wyjścia generatora (raporty Markdown, portal HTML, `pkg_shp_dispatche
   test eksportu 005 potwierdza trzy puste wartości bezpośrednie i sześć rozbieżności.
   Kompletność i aktualność danych nie są potwierdzone, a filtry widoków nie są stosowane.
 - Prototyp `designer.py` zawiera Canvas drag-and-drop, porty, warunki, inspektor i zapis
-  wyłącznie poprawnych strukturalnie definicji JSON. Korzysta z katalogu wczytanego w zakładce
-  relacji. `models.py` i `engine.py` zawierają częściowy kontrakt grafu oraz silnik symulacji
-  na syntetycznej, jawnie kompletnej migawce; nie mają jeszcze adaptera eksportu ani integracji
-  podglądu w GUI. Brak iteracji po powiązanych elementach, filtrów widoków i weryfikacji
-  gotowości pól w samym projektancie.
-- GUI nie oferuje jeszcze symulacji ani aktualizacji SharePoint. Wykonanie wymaga dalszych prac,
-  potwierdzenia kompletności aktualnych danych i osobnych testów bezpiecznego zapisu na SP2019.
-- Regresja z `CHECK_SP_005=1`: 430 testów przeszło przy wyłączeniu znanego testu
-  `test_gui_persists_and_restores_state_on_close`. Test ten nie przechodził także przed
-  zmianami automatyzacji w tym środowisku: oczekuje geometrii `1024x768`, a Tk zwraca
-  `1536x889`. W teście 005 sprawdzono również wynik porównania w oknie GUI.
+  wyłącznie poprawnych strukturalnie definicji JSON. Przycisk `Fingerprint` ustawia witrynę
+  i skrót schematów list faktycznie użytych przez graf; nie jest to dowód kompletności.
+- `snapshot_adapter.py` mapuje listy, pola i wartości Lookup z katalogu na wejście silnika.
+  Stare eksporty pozostają jawnie niekompletne; API symulacji odrzuca je domyślnie, a tryb
+  `allow_incomplete` pozostawia `SimulationResult.snapshot_complete=False`. GUI uruchamia ten
+  tryb dopiero po osobnym ostrzeżeniu i pokazuje podgląd offline; nie wykonuje sieci ani zapisów.
+  Odczyt eksportu bez wymaganych pól/list, zmiana witryny lub fingerprintu blokują symulację.
+- Prototyp nadal nie stosuje filtrów widoków CAML ani nie obsługuje bloku iteracji po
+  powiązanych elementach. Metadane do zapisów są dopuszczane tylko dla wąskiego zestawu typów
+  i jawnych ograniczeń; to nadal nie jest walidacja aktualnych uprawnień lub gotowości SP2019.
+- Po etapie offline pozostawały: świeży selektywny odczyt online i ETag, zakresy widoków, unieważniany
+  podgląd online, jawne zatwierdzenie, trwały dziennik SQLite, wykonanie MERGE z dokładnym
+  `IF-MATCH`, zatrzymanie po konflikcie i testy na osobnej witrynie. Nie ma jeszcze żadnej
+  ścieżki zapisu do SharePoint. Postęp warstwy odczytowej opisuje sekcja 26.
+- Regresja po dodaniu adaptera i GUI: `uv run --no-sync pytest -q --tb=short -k "not test_gui_persists_and_restores_state_on_close"` → 438 passed, 5 skipped,
+  1 deselected. Pominięty test geometrii jest znanym problemem środowiska Tk (oczekuje
+  `1024x768`, otrzymuje `1536x889`). Dodatkowy test symulacji na lokalnym `DaneZeSkryptu_005`
+  pozostaje opt-in przez `CHECK_SP_005=1`; w tej rundzie uruchomiono testy syntetyczne,
+  a nie ten opcjonalny test adaptera na rzeczywistym eksporcie.
+
+## 26. Handoff wdrożenia automatyzacji jednorazowych
+
+- Gotowe offline: katalog i mapa relacji; porównanie ścieżek bezpośredniej i przez trzecią
+  listę; projektant JSON; deterministyczny silnik; adapter katalogu do symulacji z wyraźnym
+  statusem niekompletności; przycisk fingerprintu i potwierdzany, tylko odczytowy podgląd
+  propozycji w GUI. Weryfikacja obejmuje testy syntetyczne, bez uruchamiania zapisów.
+- Etap odczytowy (2026-11-21): `tools/sp_automation/sharepoint.py` udostępnia
+  `SharePointReader.refresh_schema`, `read_snapshot` oraz `build_online_preview`.
+  Wspólny resolver zależności w `snapshot_adapter.py` obsługuje graf offline/online,
+  Lookup w przód i odwrotny, alias `item` w warunkach kolekcji oraz listy docelowe
+  przypisywanego Lookup, nawet bez osobnego węzła przejścia.
+- Odczyt pobiera świeże schematy tylko wymaganych list, a dane tylko wymaganych pól
+  po `EntityPropertyName` (Lookup przez właściwość `...Id`). Pobierane są całe wymagane
+  listy, również dla zakresu źródłowego `ids`, aby zachować relacje odwrotne/self i walidację
+  ID przypisywanego Lookup. Nie pobiera katalogu użytkowników ani definicji Nintex.
+- Transport wykorzystuje sesję istniejącego klienta (SSO/NTLM), ale nie jego liberalne
+  `get_all`: używa wyłącznie GET, wymaga HTTPS i weryfikacji TLS, jawnie ustawia lokalny proxy
+  i odrzuca przekierowania. Obsługuje kolekcje verbose oraz nometadata, zachowuje dokładne
+  ETag elementów, wykrywa pętle i odrzuca nextLink do innego zasobu/witryny lub błędny JSON.
+  Limity bezpieczeństwa per zasób: 1000 stron / 100000 rekordów; `$top=500` to rozmiar strony,
+  nie dowód obejścia progu list SharePoint. HTTP 429/503 i przekroczenie limitu kończą odczyt
+  błędem; nie ma retry ani cichego obcinania danych.
+- `ResourceRead` zawiera czas, status success/partial/failed, liczbę stron i rekordów,
+  zakończenie stronicowania i błąd. `OnlineReadError.resources` zachowuje diagnostykę;
+  nie zwraca używalnej migawki po błędzie. Brak wymaganej wartości/ETag, sprzeczne ETag,
+  duplikat ID, niezgodny `ItemCount` oraz zmiana schematu/liczby elementów przy ponownym
+  odczycie metadanych blokują wynik. Kompletność dotyczy stronicowania i wymaganych
+  kolumn, nie transakcyjnej spójności; równoległa zmiana wartości bez zmiany liczby
+  elementów nadal jest możliwa.
+- `OnlineSnapshot` i `OnlinePreview` przechowują dane jako niezmienne ciągi JSON.
+  Podgląd zawiera run_id, czasy, GUID witryny/web, zakres, graf, propozycje i hashe wejść.
+  Kopie zwracane przez `to_dict` nie zmieniają podglądu; `is_current` sprawdza dokładny graf
+  i migawkę, w tym ETag i zakres. Podgląd pozostaje tylko odczytowy (`write_available=False`);
+  nie jest zatwierdzeniem, certyfikacją kodeków SP2019 ani uprawnień do zapisu.
+- `tools/sp_automation/preview_cli.py`: jawne polecenia `refresh-schema` i `preview`,
+  tylko GET, Windows SSO. Pierwsze zapisuje nową definicję z fingerprintem online,
+  drugie ponownie sprawdza schemat i zapisuje lokalny podgląd wraz z diagnostyką.
+  Wymagane są wskazane przez użytkownika pliki wejścia/wyjścia; istniejące wyniki nie są
+  nadpisywane, własny niedokończony plik jest usuwany po błędzie. Dane wynikowe należy
+  przechowywać poza Git (np. ignorowany `out_automation`), z uzgodnioną retencją.
+- W tej rundzie nie połączono się z rzeczywistym SharePoint: nie uzgodniono adresu,
+  grafu/list/pól ani uwierzytelnienia do odczytu. Weryfikacja używa wyłącznie atrap REST.
+  Historyczny eksport nadal nie dowodzi aktualności.
+- Uzupełnienie 2026-11-21 (druga część rundy, nadal bez zapisów do SharePoint):
+  - Poprawka: skrót migawki do `is_current`/symulacji online pomija `started_at`/`finished_at`
+    (`sharepoint._content`). Wcześniej każdy ponowny odczyt bez zmian był „nieaktualny”,
+    co uniemożliwiało zatwierdzenie po świeżym odczycie. Test mutacyjny to potwierdza.
+  - Zakres widoku: `scope = {"type": "view", "view_id": GUID}` (`models.py`). Online
+    (`SharePointReader._view`) pobiera `Id,Title,ViewQuery,Paged,RowLimit,Scope,ViewType`,
+    dociąga pola filtra listy źródłowej oraz `FileSystemObjectType`, ocenia `<Where>`
+    lokalnie (`views.py`, parser `defusedxml`) i ponownie czyta widok po danych (zmiana →
+    blokada). Wynik `scope_resolution` (view_id, tytuł, sha256 ViewQuery, ids) wchodzi do
+    skrótu migawki; silnik używa tych ID. Podzbiór CAML: And/Or, Eq/Neq/Lt/Leq/Gt/Geq, In,
+    IsNull/IsNotNull na Text/Choice/Number/Currency/Boolean/ID oraz Lookup z `LookupId="TRUE"`.
+    Fail-closed: daty, `Today`/`UserID`, `Contains`/`BeginsWith`, tekst Lookup, porządek
+    tekstu, wynik zależny od wielkości liter (kolacja SQL CI), Neq/Lt/... na NULL, `""` vs NULL,
+    widok `Paged=false` (RowLimit ogranicza członkostwo), typ inny niż HTML/GRID, foldery.
+    Adapter offline odrzuca zakres widoku. Semantyka NULL/kolacji wymaga potwierdzenia na SP2019.
+  - Dziennik `journal.py` (SQLite, WAL, `synchronous=FULL`, wyzwalacze blokują UPDATE/DELETE):
+    tabele `previews`, `approvals`, `events`. `approve` wymaga frazy `ZATWIERDZAM <run_id>`,
+    tożsamości, niepustej listy zmian, braku wcześniejszej akceptacji oraz świeżej, kompletnej
+    migawki o identycznych skrótach grafu i danych (ETag, zakres). Odrzucenia są logowane.
+    Akceptacja nie wykonuje zapisu (`write_available=False`).
+  - CLI: `preview --journal`, `approve --journal --run-id [--approver]` (ponowny GET + `input`).
+  - GUI: przycisk projektanta „Podgląd online (GET)” po potwierdzeniu (domyślnie NIE) otwiera
+    `online_dialog.OnlinePreviewDialog`: odczyt w wątku roboczym, Tk i SQLite w głównym wątku,
+    „Zapisz w dzienniku” (`out_automation/journal.sqlite`, ignorowane przez Git), „Zatwierdź”
+    po ponownym odczycie GET; nieaktualny podgląd nie dopuszcza do wpisania frazy.
+  - Zależność: `defusedxml` dodana przez `uv add`.
+  - Historyczny handoff wymieniał kopię `tools/sp_automation/preview_cli_new.py`.
+    Kontynuacja zweryfikowała, że nie występuje ona w aktualnym module ani stanie Git;
+    nie usuwano ręcznie żadnych plików.
+  - Regresja: `uv run --no-sync pytest -q -k "not test_gui_persists_and_restores_state_on_close"`
+    → 510 passed, 5 skipped, 1 deselected (cały zestaw; znany test geometrii Tk wykluczony).
+    Nowe testy: `test_views.py`, `test_journal.py`, `test_online_dialog.py`, rozszerzone
+    `test_sharepoint.py`, `test_preview_cli.py`, `test_gui.py`. Pylance bez diagnostyk
+    w nowych/zmienionych modułach; `git diff --check` bez błędów. Wszystko na atrapach REST.
+- Regresja tej rundy: `uv run --no-sync pytest -q tools\sp_automation\tests tools\sp_extractor\tests tools\nwf_report\tests\test_gui.py -k "not test_gui_persists_and_restores_state_on_close" --tb=short`
+  → 155 passed, 5 skipped, 1 deselected. Wykluczono znany test geometrii Tk opisany
+  w sekcji 25; pominięcia obejmują testy opt-in/środowiskowe, nie potwierdzają działania
+  na rzeczywistym SP2019. Nowe testy obejmują oba formaty OData, błędne strony/nextLink,
+  limity, ETag, selekcję zależności/pól, unieważnienie podglądu i lokalną trwałość CLI.
+  Pylance nie zgłasza diagnostyk w nowych modułach ani adapterze; sprawdzenie składni
+  nowych modułów i `git diff --check` zakończyły się bez błędów.
+- Kontynuacja 2026-11-21 — weryfikacja lokalnego stanu, bez połączenia online:
+  - Przeczytano `AGENTS.md`, sekcje 25–26, `journal.py`, aktualny diff i powiązane
+    moduły/testy. Warstwa GET, selekcja zależności, kontrola stron/ETag, podzbiór CAML,
+    CLI oraz podgląd GUI już istnieją; nie implementowano ich ponownie.
+    Zestaw powiązanych testów przed poprawkami: 184 passed, 5 skipped, 1 deselected.
+  - Reprodukcje na syntetycznych danych potwierdziły, że `INSERT OR REPLACE` omijał
+    dotychczasowe wyzwalacze UPDATE/DELETE wszystkich trzech tabel. Dodano wyzwalacze
+    BEFORE INSERT blokujące zastępowanie istniejącego klucza, także przez inne połączenie
+    SQLite bez `recursive_triggers`. Są instalowane przy otwarciu również istniejących
+    dzienników; nie przepisują starych wpisów. To ochrona przed modyfikacją przez DML,
+    nie zabezpieczenie przed administratorem mogącym usunąć wyzwalacze lub zmienić plik.
+  - `OnlinePreview.to_dict` zachowuje teraz `resources`; nowe wpisy dziennika przechowują
+    czasy/statusy, liczby stron/rekordów i `pagination_complete`, razem z migawką i dokładnymi
+    ETag. CLI używa tej samej serializacji bez zmiany dotychczasowego formatu wyniku.
+    Stare wpisy bez diagnostyki nie są uzupełniane ani nadpisywane.
+  - `approve` nie przyjmuje ponownie pierwotnej migawki: odczyt musi rozpocząć się ściśle
+    po utworzeniu podglądu, zakończyć przed zatwierdzeniem i mieć poprawne czasy ze strefą.
+    Odrzucane są stare, równe, odwrócone, przyszłe i niepoprawne czasy; odrzucenie trafia
+    do events. To kontrola chronologii zaufanego readera, nie dowód autentyczności serwera
+    ani transakcyjnej spójności. Dotychczasowe sprawdzenie hashów/ETag pozostaje wymagane.
+  - Błąd otwarcia SQLite jest zgłaszany jako `JournalError`; nieudane BEGIN nie jest
+    maskowane przez ROLLBACK bez aktywnej transakcji. Test blokady potwierdza zachowanie
+    transakcji drugiego połączenia i możliwość ponowienia lokalnego wpisu po zwolnieniu.
+  - Nie odczytywano eksportów biznesowych ani nie wykonywano żądań do SharePoint.
+    Testy REST i GUI podglądu używają atrap; pięć testów lokalnego eksportu pozostaje
+    opt-in i pominiętych. `defusedxml` jest już w manifestach i działa w testach;
+    nie instalowano ponownie zależności.
+  - Dodano 14 przypadków regresyjnych w `test_journal.py`; początkowe reprodukcje
+    potwierdziły błędy przed poprawkami. Pierwsza walidacja journala, readera, CLI i GUI
+    podglądu po poprawkach: 66 passed. Końcowa regresja:
+    `uv run --no-sync pytest -q -k "not test_gui_persists_and_restores_state_on_close" --tb=short -rs`
+    → 524 passed, 5 skipped, 1 deselected. Próba bez wykluczenia potwierdziła znany błąd
+    geometrii Tk: oczekiwano `1024x768`, otrzymano `1920x1009`; nie naprawiano go w tej rundzie.
+    Pylance: brak diagnostyk i błędów składni w trzech zmienionych modułach Python
+    i `test_journal.py`. `git diff --check` bez błędów (tylko ostrzeżenia LF/CRLF).
+  - Etap online jest zablokowany: zapytano o dokładny URL web, zatwierdzony graf/listy/pola
+    i scope, dostęp Windows SSO przez proxy oraz lokalną lokalizację wyników i retencję.
+    Nie uzyskano uzgodnienia; nie użyto domyślnego URL GUI ani historycznych danych.
+    Odczyt całych wymaganych list (również dla ids/view) wymaga jawnego uzgodnienia.
+    Walidacja SP2019, w tym progi list i semantyka CAML, nadal nie jest wykonana.
+  - Ponowna weryfikacja 2026-11-21: `uv run pytest -q` (bez wykluczeń) → 524 passed,
+    5 skipped, 1 failed; jedynym błędem jest ten sam test geometrii Tk (`1920x1009`).
+    Diff nie zmienia tego testu ani logiki geometrii w `tools/gui.py`. `git diff --check`
+    zwraca kod 0 (tylko ostrzeżenia LF/CRLF). W `tools/sp_automation` nie ma wywołań HTTP
+    POST/PUT/PATCH/DELETE/MERGE. Użytkownik nie podał parametrów online, więc połączenia
+    nie wykonano.
+  - Import offline `DaneZeSkryptu_008` (manifest 2026-11-21T17:50Z, ta sama witryna co 005,
+    88 list, 110 workflow, `include_data=true`). Audyt tylko na agregatach przez
+    `load_catalog`: 88 definicji `unconfirmed`; dane 85 `unconfirmed`, 3 `missing_data`
+    (listy systemowe/historii bez pliku `20_dane_*`); dla 85 list liczba wierszy = `ItemCount`
+    (12 780 wierszy). Wiersze nie zawierają ETag, a manifest legacy nie potwierdza
+    stronicowania — 008 nie zastępuje świeżego odczytu GET z kontrolą ETag. Względem 005:
+    te same GUID list, 6 list priorytetowych bez zmian liczby wierszy i fingerprintu schematu,
+    7 relacji bez wiszących lookupów; fingerprint schematu zmienił się w 8 listach spoza
+    grafu priorytetowego (m.in. R0001, R0003, R0006, Zadania).
+  - Testy opt-in lokalnego eksportu przyjmują `SP_EXPORT_DIR` (domyślnie `DaneZeSkryptu_005`),
+    np. `CHECK_SP_005=1 SP_EXPORT_DIR=DaneZeSkryptu_008 uv run pytest -k "optional_real or real_005"`
+    → 5 passed (005 również 5 passed). Naprawiono nieaktualny test opt-in symulacji R0011:
+    pusty `schema_fingerprint` był odrzucany przez walidację grafu, a graf czytał pole pustego
+    lookupu bez strażnika `exists` (silnik celowo to blokuje). Wynik: 3 propozycje advisory,
+    snapshot oznaczony jako niekompletny.
+  - Ekstraktor w wersji z kontrolą kompletności (manifest `format_version: 2`, 2026-11-21,
+    zweryfikowany wyłącznie testami na atrapach, bez połączenia z serwerem): błędy nie są już
+    połykane. Każdy błąd odczytu trafia do `errors[]`, a `complete` przyjmuje wartość `true`
+    tylko wtedy, gdy wszystkie definicje i dane list oraz eksport `.nwf` są poprawne. Każda
+    pozycja `lists[]` ma `definition.status` (`complete|error`) i `data.status`
+    (`complete|incomplete|error|not_exported|not_applicable`) oraz pola `rows`, `pages`,
+    `item_count_before/after`, `read_mode` (`select_all|chunked`), `data_file` i `etag_file`.
+    Dane są czytane z `odata=minimalmetadata`, co daje ETag dla każdego elementu.
+    `20_dane_*.json` zachowuje układ nometadata, a ETagi są zapisywane w
+    `21_etagi_*.json` jako `{ID: etag}`. Status `complete` wymaga wszystkich poniższych:
+    pełnego stronicowania, przy czym `get_all_pages` przerywa pracę z błędem przy nieznanym
+    payloadzie, pustym lub zapętlonym `nextLink` oraz wierszu, który nie jest obiektem;
+    unikalnych dodatnich ID; poprawnego ETag dla każdego wiersza; liczby wierszy równej
+    `ItemCount` oraz identycznego `ItemCount` przed odczytem i po nim. Jeżeli `$select=*`
+    zawiedzie (np. próg 12 kolumn lookup — prawdopodobna przyczyna braku danych
+    „Rejestr wymagań” w 008), następuje odczyt grupami kolumn: lookupy po 10 jako
+    `{Pole}Id`, a URL ma maksymalnie 1500 znaków. Grupy są scalane po ID i wymagają
+    identycznego zbioru ID i ETag. Listy historii nie są już pomijane. Listy zewnętrzne
+    (`BaseTemplate 600`) mają status `not_applicable`, a `--include-permissions` jest
+    raportowane jako błąd, bo eksport uprawnień nie jest zaimplementowany. Eksport
+    niekompletny jest zapisywany, ale CLI zwraca kod 3, a GUI pokazuje ostrzeżenie zamiast
+    komunikatu „SUKCES”. `load_catalog` dla v2 nadaje `complete` definicji/widokom i danym
+    tylko przy zgodności manifestu, wierszy i pliku ETag (`row_etags`). W przeciwnym razie
+    dane dostają status `error` z kodem `inconsistent_export`, a kody ostrzeżeń to
+    `incomplete_export`, `incomplete_definition` i `incomplete_data`. Manifesty legacy
+    ładują się bez zmian (opt-in 008: 5 passed).
+  - Analiza eksportu `DaneZeSkryptu_009` (manifest v2, 2026-11-21, `complete: false`, 84 błędy;
+    87 z 88 list kompletnych, w tym lista historii z 8051 elementami) i poprawki ekstraktora
+    (zweryfikowane atrapami oraz offline na metadanych 009, bez nowego połączenia):
+    - 80 błędów `nintex_workflow_export` („Workflow not found”) dotyczyło powiązań
+      `… (poprzednia wersja: <data>)`. Wszystkie mają `Enabled=False`; SharePoint zostawia je
+      po ponownej publikacji, a Nintex `ExportWorkflow` eksportuje tylko wersje opublikowane.
+      Takie powiązania (nieaktywne + wzorzec `(Previous Version:` / `(poprzednia wersja:`)
+      dostają status `superseded` z `reason`, nie są eksportowane i nie psują `complete`.
+    - 3 błędy to duplikaty z biblioteki NintexWorkflows, w których `Title` zawierał nazwę
+      pliku (`<nazwa>.xoml.wfconfig.xml`). Nazwy są teraz normalizowane (usuwane sufiksy
+      `.xoml.wfconfig.xml`, `.xoml.rules`, `.xoml`, `.nwf`), więc scalają się z już
+      eksportowanym workflow. Odtworzenie offline na 009: 0 z 83 błędów workflow pozostaje.
+    - „Rejestr wymagań” (25 elementów): projekcja `Obszar_x0020_ryzyka_x0020_ICTId` (lookup,
+      `ColName=int1`) zwraca `HTTP 500 System.FormatException`; prawdopodobnie uszkodzona lub
+      niezgodna wartość w bazie (np. po zmianie typu kolumny). Odczyt grupami dzieli teraz
+      grupę, która zawiodła, aż do izolacji kolumny. Dla `{Pole}Id` próbuje
+      `$select=ID,{Pole}/Id&$expand={Pole}`, a następnie (≤ 2000 elementów) odczytu
+      `items({id})?$select=ID,{kolumna}` element po elemencie (z kontrolą ETag). Pozostałe
+      kolumny są zapisywane. Jeżeli wartości części elementów nadal nie da się odczytać, lista
+      ma status `incomplete`, a błąd wskazuje kolumnę i ID elementów do naprawy w SharePoint.
+      Czy fallback zadziała na serwerze, okaże się dopiero przy kolejnym eksporcie z GUI.
+  - Eksport `DaneZeSkryptu_010` (GUI, po poprawkach, 2026-11-21) potwierdził poprawki na serwerze
+    SP2019: 0 błędów workflow (80 `superseded`, 27 `exported`), 87/88 list `complete`
+    (23 585 wierszy z ETagami, w tym lista historii >5000 elementów), `complete: false` tylko
+    z powodu 1 błędu. „Rejestr wymagań” ma 25/25 elementów i wszystkie kolumny poza
+    `Obszar ryzyka ICT`, która zawodzi w każdej formie GET (zbiorczo, `$expand` → `UnknownError`,
+    element po elemencie). Przyczyna (z metadanych 010): lookup wskazuje `ShowField`
+    `Obszar_x0020__x002d__x0020_W_x01`, którego nie ma już na liście docelowej
+    „(S0003) Obszary ryzyk ICT” (jest tylko kolumna obliczana `Obszar_x0020__x0028_W_x0142_a_x0`).
+    To defekt konfiguracji SharePoint; naprawa wymaga zmiany kolumny przez właściciela witryny
+    (poza zakresem narzędzia, które nie zapisuje). Żaden `.nwf` nie używa tej kolumny. Ekstraktor
+    dodaje teraz do takiego błędu diagnozę (`Diagnosis: lookup display field … no longer exists`)
+    na podstawie GET `fields/getbyinternalnameortitle` na liście docelowej (HTTP 404).
+    Opt-in na 010: 5 passed (test R0011 oczekuje teraz kompletności wyliczonej z katalogu,
+    a nie stałego `False`). Przykładowy graf R0013 odtworzony na 010:
+    `out_010/automatyzacje/przyklad_R0013_Ustawienie_pola_Jednostka_System.json`, snapshot
+    kompletny, 3171 decyzji, 301 proponowanych zmian, `max_updates = 301` (nieuruchamiany).
+  - Przykładowy graf edytora wizualnego (nieuruchamiany, poza Git):
+    `out_008/automatyzacje/przyklad_R0013_Ustawienie_pola_Jednostka_System.json`, odpowiednik
+    workflow Nintex „Ustawienie pola Jednostka (System)” (R0013). Nintex pobiera R0005 przez
+    `Pytanie`, potem S0006 po tytule jednostki i ustawia lookup `Jednostka_x0020_IT_x0020__x0028_`.
+    Graf: `lookup wymaganie` (R0013.`Pytanie` → R0005) → `condition` (`exists wymaganie`
+    AND źródło.`Jednostka IT (System)` ≠ wymaganie.`Jednostka_x0020_IT`) → `assign`
+    (lookup→lookup; oba pola wskazują S0006, więc dopasowanie po tytule zastąpiono ID) →
+    `merge` → `end`. Fingerprint obliczono przez `catalog_graph_fingerprint` na katalogu 008.
+    Lokalna symulacja na niekompletnym snapshocie 008: 3171 decyzji, 301 proponowanych zmian,
+    `max_updates = 301`. Edytor otwiera plik bez strat (round-trip identyczny). Przed użyciem
+    trzeba wykonać świeży eksport v2 i ponownie obliczyć fingerprint w edytorze.
+- Następne kroki: naprawić w SharePoint kolumnę lookup `Obszar ryzyka ICT` w „Rejestr wymagań”
+  (właściciel witryny), a następnie ponowić eksport z GUI, aby uzyskać `complete: true`. Do tego czasu
+  eksport 010 jest kompletny dla wszystkich list poza tą jedną kolumną. Dawny opis: wykonać z GUI nowy eksport (z danymi) witryny docelowej i sprawdzić
+  `complete: true` w manifeście v2 (po poprawkach z 009 oczekiwane: workflow `superseded`
+  zamiast błędów; dla „Rejestr wymagań” notatka o fallbacku lub lista ID elementów z
+  nieczytelną wartością `Obszar ryzyka ICT`). Jeżeli eksport jest niekompletny, przeanalizować `errors[]`
+  (szczególnie listy powyżej 5000 elementów i progi lookup). Następnie uzgodnić konkretny graf i zakres GET, wykonać osobny podgląd
+  online i zweryfikować zachowanie SP2019 (progi list, null, stronicowanie, `FileSystemObjectType`
+  w `$select`, semantykę Neq/NULL i kolacji porównując `scope_resolution` z widokiem na serwerze).
+  Następnie ewentualne poszerzenie podzbioru CAML wyłącznie po testach na serwerze.
+  Dopiero po uzgodnieniu bezpiecznej witryny testowej i wyraźnej akceptacji można
+  wdrażać/testować zapis: digest, dokładne `IF-MATCH`, ponowna kontrola źródeł/celu,
+  zatrzymanie po konflikcie, trwały intent, obsługa nieustalonego wyniku i odczyt weryfikacyjny.
+  Żadna ścieżka zapisu do SharePoint nie jest obecnie implementowana ani wykonywana.
+- Ostatni opublikowany commit przed tym etapem: `90c2bbd` (`feat: add offline SharePoint automation workspace`).
+  Zmiany adaptera i podglądu opisane w sekcjach 25–26 są lokalne
+  i nie zostały jeszcze commitowane ani wypchnięte. Lokalne eksporty i pliki robocze pozostają
+  poza zakresem Git.

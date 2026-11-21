@@ -53,3 +53,16 @@ def test_main_success(mock_extractor_cls, mock_client_cls, tmp_path: Path):
     assert exit_code == 0
     mock_extractor.run.assert_called_once()
 
+
+@patch("tools.sp_extractor.cli.SharePointClient")
+@patch("tools.sp_extractor.cli.SharePointExtractor")
+def test_main_incomplete_export_returns_3(mock_extractor_cls, mock_client_cls, tmp_path: Path, capsys):
+    mock_extractor_cls.return_value.run.return_value = {
+        "complete": False, "errors": [{"resource": "list_data", "message": "x"}],
+    }
+
+    exit_code = main(["https://sp.corp.local/sites/dora", "--output", str(tmp_path / "Out")])
+
+    assert exit_code == 3
+    assert "NIEKOMPLETNY (1 błędów)" in capsys.readouterr().out
+

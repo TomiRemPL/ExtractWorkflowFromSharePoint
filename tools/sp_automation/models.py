@@ -108,6 +108,9 @@ def _validate(data):
         ids = scope["ids"]
         if not isinstance(ids, list) or any(type(i) is not int or i <= 0 for i in ids) or len(set(ids)) != len(ids):
             raise GraphError("Invalid selected IDs")
+    elif scope.get("type") == "view":
+        _object(scope, ("type", "view_id"))
+        _guid(scope["view_id"])
     else:
         raise GraphError("Unsupported scope")
     nodes = data["nodes"]
