@@ -1173,3 +1173,128 @@ Wszystkie wyjścia generatora (raporty Markdown, portal HTML, `pkg_shp_dispatche
   Zmiany adaptera i podglądu opisane w sekcjach 25–26 są lokalne
   i nie zostały jeszcze commitowane ani wypchnięte. Lokalne eksporty i pliki robocze pozostają
   poza zakresem Git.
+
+## 27. Nowe Web GUI (NiceGUI) — stan wdrożenia
+
+Stan zweryfikowany lokalnie 2026-11-22. Nowy interfejs działa obok Tkintera;
+nie zmieniono `tools/gui.py`, `tools/sp_automation/`, `tools/sp_extractor/`
+ani `tools/nwf_report/`. Nie tworzono commitów.
+
+### Architektura i uruchomienie
+
+- [`core/`](core/) udostępnia usługi bez importów Tkinter/PyQt/wx:
+  konfigurację i historię URL, wykrywanie katalogów, sesję logowania do pliku
+  i bufor UI, ekstrakcję, generowanie raportów oraz adaptery automatyzacji.
+  Operacje długotrwałe są wywoływane z UI przez `run.io_bound`.
+- [`ui/`](ui/) zawiera układ kart i zakładek, ekstrakcję, raporty, relacje offline
+  (Mermaid, zoom i porównywanie ścieżek), projektanta oraz płótno HTML/SVG.
+  [`ui/state.py`](ui/state.py) przekazuje katalog przez `set_catalog` /
+  `on_catalog_change`, niezależnie od kolejności otwierania zakładek.
+- [`main_web.py`](main_web.py) uruchamia NiceGUI, obsługuje `--port` i `--show`,
+  serwuje pliki portalu pod `/portal/{out_dir}/{file_path:path}` oraz rejestruje
+  zapis konfiguracji i zamknięcie logowania przy shutdown.
+  Ustawiono `language="pl"` dla kontrolek Quasar.
+  [`run_web_gui.bat`](run_web_gui.bat) uruchamia aplikację w Windows przez `uv`.
+
+```powershell
+uv run python main_web.py --port 8089
+# lub uruchom run_web_gui.bat
+uv run pytest -q
+```
+
+### Projektant
+
+- Wybór listy źródłowej synchronizuje się dwukierunkowo z GUID.
+  Zakres `all` / `ids` / `view` obsługuje zarówno widoki danej listy, jak i
+  ręcznie wpisywaną listę dodatnich ID (`ids` z walidacją duplikatów), a zmiana
+  listy czyści poprzedni widok. `max_updates` jest nieujemną liczbą całkowitą;
+  `0` = bez limitu.
+- Lookup ma wybór pola z katalogu, ręczny identyfikator oraz parametry
+  zaawansowane: `direction` (`forward`/`reverse`), `many` (`Kolekcja`) i
+  `target_list_id` (lista z katalogu lub GUID). Odświeżenie katalogu nie kasuje
+  identyfikatorów nieobecnych w bieżącym eksporcie.
+- Warunek (`condition`) ma wybór węzła scalenia `merge` z listy węzłów `merge`
+  w grafie (z zachowaniem wartości ręcznych).
+- [`ui/expression_editor.py`](ui/expression_editor.py) współdzieli konstruktor
+  `literal`, `field`, `count` między przypisaniami i stronami warunku.
+  Literal jest parsowany jako JSON ze ścisłym odrzucaniem duplikatów i NaN/Infinity.
+- Konstruktor warunku otwiera kopię AST w dialogu z drzewem, zastępowaniem,
+  dodawaniem dzieci AND/OR, usuwaniem dzieci oraz zastosowaniem/anulowaniem.
+  Obsługuje `and`, `or`, `not`, `any`, `all`, `exists`, `empty`, `not_empty`
+  i sześć operatorów porównania. Sam edytor nie wykonuje warunków.
+- Kopia `saved_graph` powstaje przy inicjalizacji, nowym grafie, wczytaniu
+  i udanym zapisie. Wskaźnik obejmuje również oczekujące zmiany inspektora
+  i niepoprawny JSON. Zapis uwzględnia zmienione wartości inspektora;
+  „Anuluj zmiany” przywraca kopię, także dla niestandardowego ID węzła startowego.
+- Pozostaje to prototyp, nie pełny parytet wszystkich funkcji starego edytora:
+  dodatkowe parametry poza formularzem (np. `schema_fingerprint`, `id`) są
+  dostępne przez surowy JSON. Nie dodano undo/redo, kopiowania/wklejania ani
+  automatycznego układu.
+  Symulacja offline nadal nie stosuje filtrów widoków; podgląd online to tylko GET,
+  a zatwierdzenie zapisuje zgodę wyłącznie w lokalnym dzienniku SQLite.
+
+### Weryfikacja i pozostałe blokady
+
+- [`core/tests/test_core_services.py`](core/tests/test_core_services.py):
+  25 przypadków dla konfiguracji, logowania, ścieżek i walidacji raportów,
+  wyszukiwania ścieżek, szkiców grafu, parsera i opcji katalogu.
+  [`ui/tests/test_web_designer.py`](ui/tests/test_web_designer.py):
+  23 przypadki dla wyrażeń/AST, odświeżania katalogu, zakresu, zapisu
+  oczekujących zmian i przywracania grafu. Oba katalogi dodano do `testpaths`.
+  `uv run pytest core\tests ui\tests -q` → **48 passed**.
+- Końcowe `uv run pytest -q` → **592 passed, 5 skipped, 3 failed**.
+  Uruchomienie samych dotychczasowych testów → **544 passed, 5 skipped, 3 failed**,
+  z identycznymi błędami Tkintera:
+  `test_gui_persists_and_restores_state_on_close` (1920x1009 zamiast 1024x768),
+  `test_drag_from_palette_connect_branches_and_reconnect`,
+  `test_create_definition_from_empty_designer_and_reopen` (upuszczanie z palety).
+  Kod `tools/` jest niezmieniony (`git diff -- tools` pusty). Osobno:
+  `tools/sp_automation/tests/test_designer.py` → 19 passed; błędy projektanta
+  pojawiają się dopiero po `test_gui.py` w tym samym procesie (wspólny stan Tk),
+  a sam `test_gui` zawodzi, bo menedżer okien nadaje oknu geometrię ekranu
+  (1920x1009) mimo tymczasowego configu — zależność od środowiska desktopowego.
+  Nie naprawiano tych błędów w chronionym starym kodzie.
+- Playwright MCP na porcie 8089: otwarto wszystkie zakładki, dodano lookup,
+  condition i assign, skonstruowano AND/eq z polem i literałem, zweryfikowano
+  zapis oraz identyczne przywrócenie JSON. Syntetyczny eksport bez wierszy danych
+  potwierdził przekazanie katalogu z relacji do projektanta, wybór listy/widoku,
+  limit 7 oraz synchronizację lookupu i wyrażenia `field`.
+  Konsola: **0 błędów i 0 ostrzeżeń**. Obejrzano zrzuty dialogu i projektanta.
+  Nie wykonano żadnego połączenia z SharePoint ani generowania raportów.
+- Pylance: brak błędów składni i diagnostyk w zmienionych plikach Python.
+  Context7 nie był dostępny; API sprawdzono w lokalnym kodzie zainstalowanego NiceGUI.
+- Sprzątanie częściowo zablokowane przez politykę narzędzi: anulowanie zadania
+  lean-ctx nie zamknęło potomnego procesu serwera, a `Stop-Process` i `Remove-Item`
+  są niedozwolone. Pozostają ręczne zakończenie serwera i usunięcie dwóch
+  testowych PNG w `.playwright-mcp/`. Syntetyczne JSON-y i snapshoty nawigacji
+  usunięto; przywrócono poprzednią ścieżkę eksportu w konfiguracji na dysku.
+- Ponowna weryfikacja po poprawkach (2026-11-22, świeży serwer na porcie 8090,
+  eksport `DaneZeSkryptu_012`): katalog z *Relacji offline* zasila projektanta
+  (33 listy, widoki listy, 39 pól Lookup), GUID/listy i lookup są
+  zsynchronizowane, konstruktor warunku zbudował `and → eq(field "Status",
+  literal "Tak")` (w tym komunikat „Wybierz warunek AND albo OR.”, usuwanie
+  dziecka, Zastosuj), konstruktor wartości zapisał `{"kind":"field",...}` w
+  `assign`, „Zapisz JSON” czyści wskaźnik „Niezapisane zmiany”, a „Anuluj zmiany”
+  przywraca zapisany graf (5 → 4 węzły). Zakładki 1–3 otwierają się poprawnie;
+  konsola: **0 błędów**. Zatrzymanie sesji `uv` nie zakończyło potomnego
+  procesu `python` na porcie 8090, a `Stop-Process` pozostaje zablokowany —
+  procesy serwerów testowych (porty 8089 i 8090) oraz pliki w `.playwright-mcp/`
+  trzeba zamknąć/usunąć ręcznie.
+
+## Stan na koniec sesji 2026-11-23 — usprawnienia Web GUI (Projektant offline)
+
+- **Kierunek rozwoju**: prace skupiają się wyłącznie na **Web GUI (NiceGUI)** (`main_web.py`, `ui/`, `core/`); nie rozwijamy ani nie testujemy starego desktopowego GUI Tkinter (`tools/gui.py`, `tools/sp_automation/designer.py`).
+- **Instrukcja użytkownika**: dodano [`INSTRUKCJA_PROJEKTANT_OFFLINE.md`](INSTRUKCJA_PROJEKTANT_OFFLINE.md) opisującą obsługę zakładki **Projektant (prototyp offline)** w Web GUI.
+- **Zawężanie list pól do wybranej listy źródłowej i aliasów `lookup`**:
+  - [`core/automation_service.py`](core/automation_service.py): dodano `resolve_alias_list_id(graph, catalog, alias)` wyznaczającą `list_id` dla aliasu `source` oraz aliasów z węzłów `lookup` (`forward`, `reverse`, `Self`, łańcuchowe).
+  - [`ui/expression_editor.py`](ui/expression_editor.py): `ExpressionEditor` i `ConditionEditor` przyjmują `alias_resolver` i dynamicznie filtrują `Pole z katalogu` przy zmianie aliasu lub katalogu.
+  - [`ui/tab_designer.py`](ui/tab_designer.py): `Pole Lookup z katalogu` filtruje wg listy aliasu `from` (lub `target_list_id` dla `reverse`); w węźle `assign` dodano `Pole docelowe z katalogu` filtrowane wg `Alias docelowy`.
+- **Konstruktor warunku (drzewo) — zapis zmian, podgląd i komunikaty błędów**:
+  - [`ui/expression_editor.py`](ui/expression_editor.py): kliknięcie **Zastosuj** (`_accept`) automatycznie aplikuje bieżące zmiany formularza (`_apply_selected`) bez konieczności wcześniejszego klikania „Zastąp zaznaczony warunek”; dodano podgląd na żywo **Podgląd warunku (JSON)** (`self.preview`), baner błędów (`self.error_label`) oraz czytelne polskie komunikaty dla błędnego pola **Literał JSON** (np. brak cudzysłowów wokół tekstu).
+  - [`ui/tab_designer.py`](ui/tab_designer.py): `_accept_condition` wywołuje `_on_apply_node()`, więc zaakceptowany warunek od razu aktualizuje węzeł, płótno i JSON grafu.
+- **Walidacja grafu i port `"next"` na płótnie**:
+  - [`tools/sp_automation/models.py`](tools/sp_automation/models.py): `Graph.from_dict()` zachowuje konkretny wyjątek `GraphError` zamiast nadpisywać go ogólnym `"Invalid graph data"`.
+  - [`core/automation_service.py`](core/automation_service.py): naprawiono błąd w `validate_graph()` (przekazywał `source_id` zamiast obiektu grafu do `catalog_graph_fingerprint`, co zawsze zwracało `"Definicja grafu jest niepoprawna."`), dodano normalizację brakującego `"port": "next"` dla krawędzi z węzłów nie-warunkowych oraz polskie podpowiedzi błędów (`_GRAPH_ERROR_HINTS`).
+  - [`ui/flow_canvas.py`](ui/flow_canvas.py) i [`ui/tab_designer.py`](ui/tab_designer.py): porty wyjściowe węzłów innych niż `condition` zapisują jawnie `"port": "next"`.
+- **Weryfikacja**: `uv run pytest core/tests/test_core_services.py ui/tests/test_web_designer.py -q` → **54 passed**.
+- **Stan roboczy**: brak commitów (zgodnie z regułą repozytorium); wszystkie zmiany zapisane na dysku.

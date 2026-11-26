@@ -348,3 +348,31 @@ def test_forward_multilookup_requires_quantifier_and_valid_ids():
     value["nodes"][1]["many"] = False
     with pytest.raises(SimulationError, match="cardinality"):
         simulate(Graph.from_dict(value), data)
+
+
+def test_simulate_records_step_trace_only_when_enabled():
+    data = snapshot()
+    definition = Graph.from_dict(graph())
+
+    plain = simulate(definition, data)
+    assert plain.trace == ()
+
+    traced = simulate(definition, data, record_trace=True)
+    assert traced.changes == plain.changes
+    assert traced.decisions == plain.decisions
+
+    item1_steps = [s for s in traced.trace if s.source_id == 1]
+    assert [s.node_id for s in item1_steps] == ["start", "read", "if", "set", "merge", "end"]
+    assert [s.step_no for s in item1_steps] == [1, 2, 3, 4, 5, 6]
+    assert item1_steps[1].outcome["bound_ids"] == [10]
+    assert item1_steps[2].outcome == {"matched": True}
+    assert item1_steps[2].next_port == "true"
+    assert [v.value for v in item1_steps[2].values] == [True, None, 12]
+    assert item1_steps[3].outcome["old"] is None
+    assert item1_steps[3].outcome["new"] == 12
+    assert item1_steps[3].outcome["changed"] is True
+
+    item2_steps = [s for s in traced.trace if s.source_id == 2]
+    assert [s.node_id for s in item2_steps] == ["start", "read", "if", "merge", "end"]
+    assert item2_steps[2].outcome == {"matched": False}
+    assert item2_steps[2].next_port == "false"

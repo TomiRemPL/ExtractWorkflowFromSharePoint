@@ -40,12 +40,34 @@ class BranchDecision:
 
 
 @dataclass(frozen=True)
+class TraceValue:
+    label: str
+    alias: str = ""
+    list_id: str = ""
+    field_id: str = ""
+    internal_name: str = ""
+    value: Any = None
+
+
+@dataclass(frozen=True)
+class StepTrace:
+    source_id: int
+    step_no: int
+    node_id: str
+    node_type: str
+    values: tuple[TraceValue, ...]
+    outcome: dict[str, Any]
+    next_port: str
+
+
+@dataclass(frozen=True)
 class SimulationResult:
     changes: tuple[Change, ...]
     decisions: tuple[BranchDecision, ...]
     graph_digest: str
     snapshot_digest: str
     snapshot_complete: bool = True
+    trace: tuple[StepTrace, ...] = ()
 
 
 def _digest(value):
@@ -106,8 +128,12 @@ def _typed(value: Any, field_type: str) -> Any:
 
 
 class _Simulator:
-    def __init__(self, graph, snapshot, allow_incomplete=False):
+    def __init__(self, graph, snapshot, allow_incomplete=False, record_trace=False):
         self.graph = graph
+        self.record_trace = record_trace
+        self.trace: list[StepTrace] = []
+        self._step_values: list[TraceValue] = []
+        self._last_outcome: dict[str, Any] = {}
         self.snapshot = copy.deepcopy(snapshot)
         if not isinstance(self.snapshot, dict) or self.snapshot.get("site") != graph["site"] or self.snapshot.get("schema_fingerprint") != graph["schema_fingerprint"]:
             raise SimulationError("Site or schema fingerprint mismatch")
@@ -298,13 +324,30 @@ class _Simulator:
     def expr(self, expression):
         kind = expression["kind"]
         if kind == "literal":
-            return expression["value"], None
+            value = expression["value"]
+            if self.record_trace:
+                self._step_values.append(TraceValue(label="literal", value=copy.deepcopy(value)))
+            return value, None
         if kind == "count":
             binding = self.binding(expression["alias"])
             if not isinstance(binding, list):
                 raise SimulationError("COUNT requires a collection")
-            return len(binding), None
-        return self.read(self.binding(expression["alias"]), expression["field_id"])
+            count = len(binding)
+            if self.record_trace:
+                self._step_values.append(TraceValue(label="count", alias=expression["alias"], value=count))
+            return count, None
+        binding = self.binding(expression["alias"])
+        value, field = self.read(binding, expression["field_id"])
+        if self.record_trace and isinstance(binding, tuple):
+            self._step_values.append(TraceValue(
+                label="field",
+                alias=expression["alias"],
+                list_id=binding[0],
+                field_id=expression["field_id"],
+                internal_name=field["internal_name"],
+                value=copy.deepcopy(value),
+            ))
+        return value, field
 
     def condition(self, condition):
         op = condition["op"]
@@ -315,11 +358,16 @@ class _Simulator:
         if op == "not":
             return not self.condition(condition["condition"])
         if op == "exists":
-            return self.binding(condition["alias"]) is not None
+            matched = self.binding(condition["alias"]) is not None
+            if self.record_trace:
+                self._step_values.append(TraceValue(label="exists", alias=condition["alias"], value=matched))
+            return matched
         if op in ("any", "all"):
             collection = self.binding(condition["alias"])
             if not isinstance(collection, list):
                 raise SimulationError("ANY/ALL requires a collection")
+            if self.record_trace:
+                self._step_values.append(TraceValue(label="collection", alias=condition["alias"], value=len(collection)))
             had_previous = "item" in self.aliases
             previous = self.aliases.get("item")
             try:
@@ -381,6 +429,21 @@ class _Simulator:
             for item_id in ids:
                 self.row(target, item_id)
             self.aliases[node["as"]] = [(target, i) for i in sorted(ids)] if many else ((target, ids[0]) if ids else None)
+            if self.record_trace:
+                self._step_values.append(TraceValue(
+                    label="field",
+                    alias=node["from"],
+                    list_id=source_list,
+                    field_id=node["field_id"],
+                    internal_name=meta["internal_name"],
+                    value=copy.deepcopy(value),
+                ))
+                self._last_outcome = {
+                    "alias": node["as"],
+                    "target_list_id": target,
+                    "many": many,
+                    "bound_ids": sorted(ids) if many else list(ids),
+                }
         else:
             target = node["target_list_id"]
             meta = self.field(target, node["field_id"])
@@ -392,6 +455,19 @@ class _Simulator:
                 if value == source_id or (isinstance(value, list) and source_id in value):
                     result.append((target, item_id))
             self.aliases[node["as"]] = result
+            if self.record_trace:
+                self._step_values.append(TraceValue(
+                    label="source",
+                    alias=node["from"],
+                    list_id=source_list,
+                    value=source_id,
+                ))
+                self._last_outcome = {
+                    "alias": node["as"],
+                    "target_list_id": target,
+                    "many": True,
+                    "bound_ids": [item_id for _, item_id in result],
+                }
 
     def assign(self, node):
         binding = self.binding(node["alias"])
@@ -400,6 +476,15 @@ class _Simulator:
         old, field = self.read(binding, node["field_id"])
         self._check_writable(field)
         field_type = field["type"]
+        if self.record_trace:
+            self._step_values.append(TraceValue(
+                label="przed",
+                alias=node["alias"],
+                list_id=binding[0],
+                field_id=node["field_id"],
+                internal_name=field["internal_name"],
+                value=copy.deepcopy(old),
+            ))
         value, from_field = self.expr(node["value"])
         if from_field is not None and from_field["type"] != field_type and {from_field["type"], field_type} != {"Number", "Currency"}:
             raise SimulationError("Incompatible assignment types")
@@ -422,6 +507,16 @@ class _Simulator:
                 raise SimulationError("Lookup assignment target mismatch")
             self.row(target, value)
         self.working[binding][field["internal_name"]] = value
+        if self.record_trace:
+            self._last_outcome = {
+                "alias": node["alias"],
+                "list_id": binding[0],
+                "field_id": node["field_id"],
+                "internal_name": field["internal_name"],
+                "old": copy.deepcopy(old),
+                "new": copy.deepcopy(value),
+                "changed": not _same_value(old, value, field_type),
+            }
         key = (*binding, node["field_id"])
         proposal = self.local.get(key)
         if proposal is None:
@@ -454,22 +549,46 @@ class _Simulator:
             self.working = {}
             self.local = {}
             node_id = start
+            step_no = 0
             while True:
+                step_no += 1
+                self._step_values = []
+                self._last_outcome = {}
                 node = self.nodes[node_id]
                 kind = node["type"]
                 if kind in ("end", "skip"):
                     if kind == "skip":
+                        dropped = len(self.local)
                         self.local.clear()
+                        if self.record_trace:
+                            self.trace.append(StepTrace(source_id, step_no, node_id, kind, (), {"dropped": dropped}, ""))
+                    elif self.record_trace:
+                        self.trace.append(StepTrace(source_id, step_no, node_id, kind, (), {"proposals": len(self.local)}, ""))
                     break
                 port = "next"
-                if kind == "lookup":
+                if kind == "start" and self.record_trace:
+                    self._step_values.append(TraceValue(label="source", alias="source", list_id=source_list, value=source_id))
+                    self._last_outcome = {"list_id": source_list, "item_id": source_id}
+                elif kind == "lookup":
                     self.lookup(node)
                 elif kind == "condition":
                     matched = self.condition(node["condition"])
                     self.decisions.append(BranchDecision(source_id, node_id, matched))
                     port = "true" if matched else "false"
+                    if self.record_trace:
+                        self._last_outcome = {"matched": matched}
                 elif kind == "assign":
                     self.assign(node)
+                if self.record_trace:
+                    self.trace.append(StepTrace(
+                        source_id,
+                        step_no,
+                        node_id,
+                        kind,
+                        tuple(self._step_values),
+                        self._last_outcome,
+                        port,
+                    ))
                 node_id = self.edges[(node_id, port)]
             for key, proposal in self.local.items():
                 if key in self.proposals:
@@ -492,7 +611,13 @@ class _Simulator:
         return tuple(changes)
 
 
-def simulate(graph: Graph, snapshot: dict, *, allow_incomplete: bool = False) -> SimulationResult:
+def simulate(
+    graph: Graph,
+    snapshot: dict,
+    *,
+    allow_incomplete: bool = False,
+    record_trace: bool = False,
+) -> SimulationResult:
     """Simulate a validated graph over a caller-supplied JSON snapshot.
 
     No network, file access or mutation of the supplied snapshot occurs. On any
@@ -512,11 +637,13 @@ def simulate(graph: Graph, snapshot: dict, *, allow_incomplete: bool = False) ->
     snapshot_digest = _digest(frozen_snapshot)
     if type(allow_incomplete) is not bool:
         raise SimulationError("allow_incomplete must be a boolean")
-    engine = _Simulator(graph.to_dict(), frozen_snapshot, allow_incomplete)
+    if type(record_trace) is not bool:
+        raise SimulationError("record_trace must be a boolean")
+    engine = _Simulator(graph.to_dict(), frozen_snapshot, allow_incomplete, record_trace=record_trace)
     changes = engine.run()
     snapshot_complete = all(data.get("complete") is True
                             for data in frozen_snapshot.get("lists", {}).values())
-    return SimulationResult(changes, tuple(engine.decisions), graph_digest, snapshot_digest, snapshot_complete)
+    return SimulationResult(changes, tuple(engine.decisions), graph_digest, snapshot_digest, snapshot_complete, tuple(engine.trace))
 
 
 def preview_is_current(result: SimulationResult, graph: Graph, snapshot: dict) -> bool:

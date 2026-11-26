@@ -15,7 +15,7 @@ from uuid import uuid4
 
 from tools.sp_automation.catalog import normalize_guid
 from tools.sp_automation.models import Graph, GraphError
-from tools.sp_automation.snapshot_adapter import catalog_graph_fingerprint
+from tools.sp_automation.snapshot_adapter import _SYSTEM_FIELDS, _field_metadata, catalog_graph_fingerprint
 
 
 _TITLES = {
@@ -760,22 +760,73 @@ class WorkflowDesigner(ttk.Frame):
         fields = [field for field in record.fields.values() if field.field_id == node.get("field_id")]
         return normalize_guid(fields[0].lookup_list) if len(fields) == 1 else ""
 
-    def _catalog_fields(self, list_id: str = "") -> dict[str, str]:
-        choices = {}
+    @staticmethod
+    def _unique_choice_map(items: list[tuple[str, str]]) -> dict[str, str]:
+        counts: dict[str, int] = {}
+        for label, _ in items:
+            counts[label] = counts.get(label, 0) + 1
+        seen: dict[str, int] = {}
+        choices: dict[str, str] = {}
+        for label, ident in items:
+            if counts[label] > 1:
+                seen[label] = seen.get(label, 0) + 1
+                unique_label = f"{label} (#{seen[label]})" if seen[label] > 1 else label
+            else:
+                unique_label = label
+            choices[unique_label] = ident
+        return choices
+
+    def _field_matches_mode(self, field, mode: str) -> bool:
+        if mode == "all":
+            return True
+        raw = field.metadata
+        if field.schema_error or field.field_ref or raw.get("IsDependentLookup") is True:
+            return False
+        if raw.get("Hidden") is True:
+            return False
+        if mode == "lookup":
+            if field.type_as_string not in ("Lookup", "LookupMulti"):
+                return False
+            return bool(field.lookup_list) if raw else True
+        if mode == "writable":
+            if field.type_as_string not in ("Text", "Note", "Number", "Currency", "Boolean", "Choice", "DateTime", "Lookup"):
+                return False
+            if field.internal_name.casefold() in _SYSTEM_FIELDS or raw.get("ReadOnlyField") is True:
+                return False
+            if "ReadOnlyField" in raw and "Required" in raw and self.catalog is not None:
+                return _field_metadata(field, self.catalog)["writable"] is True
+            if raw.get("ValidationFormula") not in (None, "") or raw.get("ValidationMessage") not in (None, ""):
+                return False
+            if field.type_as_string == "Choice" and raw.get("AllowMultipleValues") is True:
+                return False
+            if field.type_as_string == "Note" and (raw.get("RichText") is True or raw.get("AppendOnly") is True):
+                return False
+            if field.type_as_string == "Lookup" and raw.get("AllowMultipleValues") is True:
+                return False
+            return True
+        if mode == "readable":
+            return field.type_as_string in (
+                "Text", "Note", "Choice", "Number", "Currency", "Boolean", "Lookup", "LookupMulti", "DateTime",
+            )
+        return True
+
+    def _catalog_fields(self, list_id: str = "", mode: str = "all") -> dict[str, str]:
+        items: list[tuple[str, str]] = []
         for record in getattr(self.catalog, "lists", {}).values():
             if list_id and record.id != list_id:
                 continue
             for field in record.fields.values():
-                if field.field_id:
+                if field.field_id and self._field_matches_mode(field, mode):
                     label = (f"{record.title} / {field.title} | {field.internal_name} | "
                              f"REST: {field.entity_property_name or 'nieznane'} | "
-                             f"{field.type_as_string} | {field.field_id}")
-                    choices[label] = field.field_id
-        return choices
+                             f"{field.type_as_string}")
+                    items.append((label, field.field_id))
+        return self._unique_choice_map(items)
 
     def _catalog_lists(self) -> dict[str, str]:
-        return {f"{record.title} | {record.id}": record.id
-                for record in getattr(self.catalog, "lists", {}).values()}
+        items = [(record.title or "Lista bez nazwy", record.id)
+                 for record in getattr(self.catalog, "lists", {}).values()]
+        return self._unique_choice_map(items)
 
     def _inspector(self) -> None:
         for child in self.inspector.winfo_children():
@@ -804,7 +855,7 @@ class WorkflowDesigner(ttk.Frame):
                 source_alias = node.get("from", "")
                 source_list = (node.get("target_list_id", "") if node.get("direction") == "reverse"
                                else self._alias_list(source_alias))
-                self._choice("field_id", "Pole relacji", node.get("field_id", ""), self._catalog_fields(source_list))
+                self._choice("field_id", "Pole relacji", node.get("field_id", ""), self._catalog_fields(source_list, mode="lookup"))
                 self._entry("as", "Alias wyniku", node.get("as", ""))
                 self._choice("direction", "Kierunek", node.get("direction", "forward"),
                              {"forward": "forward", "reverse": "reverse"})
@@ -821,7 +872,7 @@ class WorkflowDesigner(ttk.Frame):
             elif kind == "assign":
                 self._entry("alias", "Alias celu", node.get("alias", ""))
                 self._choice("field_id", "Pole celu", node.get("field_id", ""),
-                             self._catalog_fields(self._alias_list(node.get("alias", ""))))
+                             self._catalog_fields(self._alias_list(node.get("alias", "")), mode="writable"))
                 self._json_entry("value", "Wartość (wyrażenie JSON)", node.get("value", {}))
                 ttk.Button(self.inspector, text="Konstruktor wartości", command=self._expression_builder).pack(fill="x")
             else:
@@ -895,7 +946,7 @@ class WorkflowDesigner(ttk.Frame):
             value = _parse_json(widget.get("1.0", "end-1c"))
             if not isinstance(value, dict):
                 raise ValueError("Warunek musi być obiektem")
-            _ConditionEditor(self, value, self._catalog_fields(), lambda result: self._set_json(widget, result))
+            _ConditionEditor(self, value, self._catalog_fields(mode="readable"), lambda result: self._set_json(widget, result))
         except (ValueError, TypeError, RecursionError) as exc:
             messagebox.showerror("Niepoprawny warunek", str(exc), parent=self)
 
@@ -911,7 +962,7 @@ class WorkflowDesigner(ttk.Frame):
         dialog = tk.Toplevel(self)
         dialog.title("Konstruktor wartości")
         dialog.transient(self.winfo_toplevel())
-        editor = _ExpressionEditor(dialog, "Wartość", self._catalog_fields())
+        editor = _ExpressionEditor(dialog, "Wartość", self._catalog_fields(mode="readable"))
         editor.pack(fill="both", expand=True)
         editor.set_value(value)
 

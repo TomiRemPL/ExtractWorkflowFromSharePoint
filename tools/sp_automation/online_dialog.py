@@ -71,7 +71,7 @@ class OnlinePreviewDialog(tk.Toplevel):
             frame, columns=("list", "item", "field", "old", "new", "sources"), show="headings", height=12,
         )
         for column, title, width in (
-            ("list", "Lista GUID", 250), ("item", "Element", 70), ("field", "Pole", 200),
+            ("list", "Lista", 250), ("item", "Element", 70), ("field", "Pole", 200),
             ("old", "Wartość przed", 170), ("new", "Proponowana wartość", 190),
             ("sources", "Elementy źródłowe", 150),
         ):
@@ -133,10 +133,12 @@ class OnlinePreviewDialog(tk.Toplevel):
         self.preview = preview
         data = preview.to_dict()
         changes = data["result"]["changes"]
+        source_list_id = str(self.graph.to_dict().get("source_list_id") or "")
         for index, change in enumerate(changes[:1000]):
+            list_label = "Lista źródłowa" if source_list_id and change["list_id"] == source_list_id else "Powiązana lista"
             self.rows.insert("", "end", iid=str(index), values=(
-                change["list_id"], change["item_id"],
-                f"{change['internal_name']} ({change['field_id']})",
+                list_label, change["item_id"],
+                change["internal_name"],
                 _display(change["old_value"]), _display(change["new_value"]),
                 ", ".join(map(str, change["source_ids"])),
             ))
@@ -144,7 +146,7 @@ class OnlinePreviewDialog(tk.Toplevel):
         scope = snapshot.get("scope_resolution")
         self.status.set(f"Podgląd {preview.run_id}: {len(changes)} proponowanych zmian "
                         f"(tylko odczyt; zapis niedostępny).")
-        lines = [f"Witryna: {snapshot['site']} (site {snapshot['site_id']}, web {snapshot['web_id']})"]
+        lines = [f"Witryna: {snapshot['site']}"]
         if scope:
             lines.append(f"Zakres widoku „{scope['title']}”: {len(scope['ids'])} elementów "
                          "(filtr CAML oceniony lokalnie; potwierdź na serwerze).")

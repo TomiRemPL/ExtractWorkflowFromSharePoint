@@ -250,6 +250,8 @@ class Graph:
         try:
             return cls.from_json(json.dumps(data, ensure_ascii=False, allow_nan=False))
         except (TypeError, ValueError, RecursionError) as exc:
+            if isinstance(exc, GraphError):
+                raise
             raise GraphError("Invalid graph data") from exc
 
     def to_json(self) -> str:

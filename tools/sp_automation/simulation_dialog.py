@@ -38,6 +38,7 @@ class SimulationDialog(tk.Toplevel):
         super().__init__(parent)
         self.title("Symulacja offline — tylko podgląd")
         self.geometry("1120x650")
+        self._catalog = catalog
         self._results: queue.Queue[_Success | _Failure] = queue.Queue()
         self._pending: str | None = None
         self.protocol("WM_DELETE_WINDOW", self.close)
@@ -59,7 +60,7 @@ class SimulationDialog(tk.Toplevel):
             show="headings", height=12,
         )
         for column, title, width in (
-            ("list", "Lista GUID", 250), ("item", "Element", 70), ("field", "Pole", 180),
+            ("list", "Lista", 250), ("item", "Element", 70), ("field", "Pole", 180),
             ("old", "Wartość przed", 150), ("new", "Proponowana wartość", 180),
             ("sources", "Elementy źródłowe", 150), ("steps", "Kroki", 120),
         ):
@@ -103,8 +104,23 @@ class SimulationDialog(tk.Toplevel):
 
         changes = result.result.changes
         for index, change in enumerate(changes[:1000]):
+            list_record = self._catalog.lists.get(change.list_id)
+            list_label = list_record.title if list_record is not None else "Lista (spoza katalogu)"
+            field_label = change.internal_name
+            if list_record is not None:
+                fld = next(
+                    (f for f in list_record.fields.values()
+                     if f.field_id == change.field_id or f.internal_name == change.internal_name),
+                    None,
+                )
+                if fld is not None and fld.title:
+                    field_label = (
+                        f"{fld.title} [{fld.internal_name}]"
+                        if fld.internal_name and fld.title != fld.internal_name
+                        else fld.title
+                    )
             self.rows.insert("", "end", iid=str(index), values=(
-                change.list_id, change.item_id, f"{change.internal_name} ({change.field_id})",
+                list_label, change.item_id, field_label,
                 _display(change.old_value), _display(change.new_value),
                 ", ".join(map(str, change.source_ids)), ", ".join(change.steps),
             ))
