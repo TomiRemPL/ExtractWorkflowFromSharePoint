@@ -1298,3 +1298,90 @@ uv run pytest -q
   - [`ui/flow_canvas.py`](ui/flow_canvas.py) i [`ui/tab_designer.py`](ui/tab_designer.py): porty wyjściowe węzłów innych niż `condition` zapisują jawnie `"port": "next"`.
 - **Weryfikacja**: `uv run pytest core/tests/test_core_services.py ui/tests/test_web_designer.py -q` → **54 passed**.
 - **Stan roboczy**: brak commitów (zgodnie z regułą repozytorium); wszystkie zmiany zapisane na dysku.
+
+## 28. Web GUI — sąsiedzi i listy systemowe w Relacjach offline
+
+- [`core/automation_service.py`](core/automation_service.py): `ListItemView` ma
+  kompatybilne oznaczenia `is_system` i `is_external`. `load_relations` klasyfikuje
+  listy na podstawie `ListRecord.metadata` i dodaje przyczynę do szczegółów,
+  bez zmiany katalogu lub formatu eksportu.
+- Systemowość wynika z jawnych flag bool `Hidden=True`, `IsCatalog=True` lub
+  `BaseTemplate`: `112` (User Information), `140` (Workflow History),
+  `5001` (NintexWorkflows). Zwykłe biblioteki dokumentów i samo `IsApplicationList`
+  nie stanowią dowodu systemowości. Brak metadanych nie powoduje ukrycia.
+- `build_relations_view` wylicza jeden poziom sąsiadów ręcznie wybranych list,
+  w obu kierunkach, zachowując rzeczywiste kierunki i osobne pola Lookup.
+  Nie rozszerza rekurencyjnie ani nie zmienia zbioru ręcznych zaznaczeń.
+  Filtrowanie systemowych usuwa również wszystkie ich krawędzie.
+- [`ui/tab_relations.py`](ui/tab_relations.py): dodano domyślnie włączone checkboxy
+  **Automatycznie dodawaj powiązane listy** i **Pokaż listy systemowe**.
+  Dotychczasowy checkbox celów poza wyborem zachowuje wartość i jest dostępny
+  po wyłączeniu automatycznego trybu. Ustawienia są lokalne dla widoku.
+- Ukrywanie obejmuje panel list, tabelę relacji i obie mapy. Ręczne zaznaczenia
+  systemowych list są pamiętane i przywracane po ponownym pokazaniu.
+  Wczytanie nowego eksportu resetuje wybór z poprzedniego katalogu.
+  Obsługa wyboru używa `Table.on_select`, po aktualizacji selekcji przez NiceGUI.
+- Mermaid: niebieskie listy użytkownika / nieoznaczone, bursztynowe systemowe
+  (również podpis tekstowy), neutralne cele poza katalogiem / nierozpoznane;
+  obie mapy mają legendę. Usunięto ciche ograniczenie do 40 krawędzi.
+  Dostępne tytuły list z katalogu są używane także dla automatycznych sąsiadów
+  i celów w tabeli relacji.
+- Porównanie ścieżek nadal korzysta tylko z ręcznego wyboru; wyszukiwanie
+  skierowanych ścieżek i katalog przekazywany Projektantowi pozostają niezmienione.
+  Nie rozwijano Tkintera, ekstraktora, generatora raportów ani zapisów do SharePoint.
+- Weryfikacja: test jednopoziomowych sąsiadów najpierw zawiódł z braku helpera,
+  następnie przeszedł. Dodano syntetyczne testy klasyfikacji i adaptera,
+  filtrów, odznaczania/przywracania wyboru, starego trybu, przeładowania eksportu,
+  porównań oraz obu map i 46 krawędzi Mermaid.
+  `uv run pytest core\tests ui\tests -q` → **79 passed**.
+  Sprawdzenie składni przez `compileall` i `git diff --check` również przeszło.
+- Za zgodą użytkownika dodano `playwright` do grupy zależności developerskich.
+  Test przeglądarkowy wykonano przez jego Python API w zainstalowanym Edge
+  (`chromium.launch(channel="msedge")`), ponieważ pobieranie Chromium zatrzymał
+  certyfikat proxy. Nie wyłączano weryfikacji TLS.
+- Playwright na rzeczywistym `DaneZeSkryptu_016` potwierdził **35 list, 9 systemowych**;
+  wybór listy z relacjami w obu kierunkach dał **39 węzłów i 47 krawędzi SVG**,
+  w tym cele poza katalogiem. Sprawdzono rzeczywiste kolory węzłów, brak
+  dodatkowych ręcznych zaznaczeń, filtr systemowych, mapę powiększoną i stary tryb.
+  **0 błędów JavaScript i 0 komunikatów błędów konsoli**.
+  Użytkownik dopuścił bezpośrednie połączenia z localhost wyłącznie podczas testu;
+  ruch zewnętrzny pozostał przez proxy. Nie zmieniono eksportu, raportów `out_016`,
+  konfiguracji użytkownika ani istniejących plików roboczych.
+- Nie wykonano diagnostyki Pylance: interfejs narzędzia nie był dostępny.
+  Walidację składni i zachowania oparto na `compileall`, pytest i Playwright.
+
+## 29. Pomijanie pól systemowych w relacjach — `config/relations_ignored_fields.json`
+
+- Problem: w `DaneZeSkryptu_016` **1277 z 1298** relacji pochodziło z wbudowanych
+  kolumn SharePoint typu Lookup (`FromBaseType=true`, `CanBeDeleted=false`, zwykle
+  `Hidden=true`), których `LookupList` to wewnętrzna tabela, a nie GUID listy:
+  `Docs` (FileRef, FileDirRef, UniqueId, ProgId, ScopeId, `_Compliance*`, `_Virus*`,
+  `SM*`, `CheckedOut*` …) lub `AppPrincipals` (AppAuthor, AppEditor). Dawały węzły
+  „Nieznana lista docelowa” (`target_status="invalid_reference"`). Po filtrze zostaje
+  **21 relacji biznesowych** i żaden węzeł zastępczy.
+- [`config/relations_ignored_fields.json`](config/relations_ignored_fields.json)
+  (wersjonowany): `ignored_fields` — grupy opisowe z listami nazw wewnętrznych
+  (InternalName, bez rozróżniania wielkości liter); `ignore_base_type_non_list_targets`
+  (domyślnie `true`) — dodatkowo pomija każde pole Lookup z `FromBaseType=true`,
+  którego `LookupList` nie jest GUID-em ani `Self`. Domyślnie pomijane są też
+  `TaxCatchAll`, `TaxCatchAllLabel` i `Predecessors`. Źródło atrybutów:
+  dokumentacja Field element (List, SourceID, FromBaseType).
+- [`tools/sp_automation/ignored_fields.py`](tools/sp_automation/ignored_fields.py):
+  `IgnoredFieldsPolicy.reason(field)`, `load_ignored_fields(path)`,
+  `default_ignored_fields()` (ponowne wczytanie po zmianie `mtime`). Brak pliku lub
+  błędny JSON → ostrzeżenie w „Problemy odczytu” i działa tylko reguła FromBaseType.
+- Relacje nie są usuwane z katalogu ani z `build_relations` (Tkinter bez zmian).
+  `load_relations` oznacza `RelationEdgeView.ignored_reason`, dopisuje powód do
+  szczegółów, liczy `RelationsData.ignored_count`. `build_relations_view(...,
+  show_ignored_fields=False)` filtruje je przed auto-sąsiadami.
+- Zakres: graf, mapa powiększona, tabela relacji, auto-sąsiedzi, wyszukiwanie ścieżek
+  (na widocznych krawędziach), `list_comparison_options` →
+  `comparison_paths(..., is_ignored)` oraz `is_field_eligible(mode="lookup")`
+  w Projektancie. Checkbox **Pokaż pola systemowe** (domyślnie wyłączony) dotyczy
+  tylko zakładki Relacje; Projektant i porównania zawsze stosują konfigurację.
+- Testy: polityka (plik, case-insensitive, reguła Docs/AppPrincipals vs GUID/Self,
+  wyłączenie reguły, brak/błędny plik), widok, adapter, Projektant, porównania,
+  przełącznik UI. `uv run pytest -q` → **631 passed, 5 skipped, 1 failed** —
+  niepowiązany `tools/nwf_report/tests/test_gui.py::test_gui_persists_and_restores_state_on_close`
+  (Tk zwraca geometrię zmaksymalizowanego okna 1920x1009 zamiast 1024x768;
+  plik i test nie były zmieniane).

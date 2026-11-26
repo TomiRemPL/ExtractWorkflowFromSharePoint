@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
-from tools.sp_automation.catalog import Catalog, FieldRecord, normalize_guid
+from tools.sp_automation.catalog import Catalog, FieldRecord, ListRecord, normalize_guid
 from tools.sp_automation.comparison import (
     ComparisonPath,
     ComparisonRow,
@@ -18,6 +18,7 @@ from tools.sp_automation.comparison import (
     comparison_paths,
 )
 from tools.sp_automation.engine import SimulationResult, StepTrace, TraceValue, simulate
+from tools.sp_automation.ignored_fields import IgnoredFieldsPolicy, default_ignored_fields
 from tools.sp_automation.journal import Approval, JournalError, PreviewJournal, confirmation_phrase
 from tools.sp_automation.models import Graph, GraphError
 from tools.sp_automation.presentation import load_relations_snapshot
@@ -65,6 +66,8 @@ class ListItemView:
     title: str
     details: str
     priority: bool = False
+    is_system: bool = False
+    is_external: bool = False
 
 
 @dataclass(frozen=True)
@@ -75,6 +78,7 @@ class RelationEdgeView:
     label: str
     details: str
     target_title: str = ""
+    ignored_reason: str = ""
 
 
 @dataclass(frozen=True)
@@ -84,6 +88,7 @@ class RelationsData:
     summary: str
     diagnostics: str
     catalog: Catalog | None = field(default=None, repr=False, compare=False)
+    ignored_count: int = 0
 
 
 @dataclass(frozen=True)
@@ -160,31 +165,116 @@ def find_paths(
     return found, False
 
 
-def load_relations(export_dir: str | Path) -> RelationsData:
+def system_list_reason(record: ListRecord) -> str:
+    metadata = record.metadata
+    reasons = []
+    if metadata.get("Hidden") is True:
+        reasons.append("Hidden")
+    if metadata.get("IsCatalog") is True:
+        reasons.append("IsCatalog")
+    template = str(metadata.get("BaseTemplate", ""))
+    technical_templates = {
+        "112": "User Information",
+        "140": "Workflow History",
+        "5001": "NintexWorkflows",
+    }
+    if template in technical_templates:
+        reasons.append(f"{technical_templates[template]} (BaseTemplate={template})")
+    return ", ".join(reasons)
+
+
+def build_relations_view(
+    lists: list[ListItemView],
+    relations: list[RelationEdgeView],
+    selected_keys: set[str],
+    *,
+    auto_related: bool = True,
+    show_system: bool = True,
+    include_external: bool = False,
+    show_ignored_fields: bool = False,
+) -> tuple[list[ListItemView], list[RelationEdgeView]]:
+    """Wylicza widok z ręcznego wyboru, bez rekurencyjnego dodawania sąsiadów."""
+    if not show_ignored_fields:
+        relations = [edge for edge in relations if not edge.ignored_reason]
+    by_key = {item.key: item for item in lists}
+    hidden = {item.key for item in lists if item.is_system and not show_system}
+    selected = (selected_keys & by_key.keys()) - hidden
+    visible_keys = set(selected)
+    if auto_related:
+        for edge in relations:
+            if edge.source in selected or edge.target in selected:
+                visible_keys.update((edge.source, edge.target))
+    elif include_external:
+        visible_keys.update(edge.target for edge in relations if edge.source in selected)
+    visible_keys -= hidden
+    edges = [
+        edge for edge in relations
+        if edge.source in visible_keys and edge.target in visible_keys
+        and (auto_related or edge.source in selected)
+    ]
+    for edge in edges:
+        for key, title in ((edge.source, edge.source), (edge.target, edge.target_title or edge.target)):
+            if key not in by_key:
+                by_key[key] = ListItemView(
+                    key, title, "Lista poza katalogiem lub nierozpoznana referencja; typ niepotwierdzony.",
+                    is_external=True,
+                )
+    nodes = sorted(
+        (by_key[key] for key in visible_keys if key in by_key),
+        key=lambda item: (item.title.casefold(), item.key),
+    )
+    return nodes, edges
+
+
+def load_relations(export_dir: str | Path, policy: IgnoredFieldsPolicy | None = None) -> RelationsData:
     """Wczytuje migawkę relacji z lokalnego eksportu SharePoint; przystosowana do `run.io_bound`."""
     path = Path(str(export_dir).strip())
     if not str(path) or str(path) == ".":
         raise ValueError("Wybierz katalog eksportu.")
+    policy = policy if policy is not None else default_ignored_fields()
     snapshot = load_relations_snapshot(path)
+    fields_by_key = {
+        f"{record.id}:{fld.internal_name}": fld
+        for record in (snapshot.catalog.lists.values() if snapshot.catalog else ())
+        for fld in record.fields.values()
+    }
+    lists = []
+    for item in snapshot.lists:
+        record = snapshot.catalog.lists.get(item.key) if snapshot.catalog else None
+        reason = system_list_reason(record) if record else ""
+        classification = (
+            f"Lista systemowa: {reason}."
+            if reason else "Brak oznaczenia systemowości w dostępnych metadanych."
+        )
+        lists.append(ListItemView(
+            key=item.key, title=item.title, details=f"{item.details}\n\n{classification}",
+            priority=item.priority, is_system=bool(reason),
+        ))
+    relations = []
+    for item in snapshot.relations:
+        fld = fields_by_key.get(item.key)
+        ignored = policy.reason(fld) if fld is not None else ""
+        details = f"{item.details}\n\nPominięte domyślnie: {ignored}." if ignored else item.details
+        relations.append(RelationEdgeView(
+            key=item.key,
+            source=item.source,
+            target=item.target,
+            label=item.label,
+            details=details,
+            target_title=item.target_title,
+            ignored_reason=ignored,
+        ))
+    ignored_count = sum(1 for edge in relations if edge.ignored_reason)
+    diagnostics = "\n".join(
+        part for part in (snapshot.diagnostics, *policy.warnings) if part
+    )
     return RelationsData(
-        lists=[
-            ListItemView(key=item.key, title=item.title, details=item.details, priority=item.priority)
-            for item in snapshot.lists
-        ],
-        relations=[
-            RelationEdgeView(
-                key=item.key,
-                source=item.source,
-                target=item.target,
-                label=item.label,
-                details=item.details,
-                target_title=item.target_title,
-            )
-            for item in snapshot.relations
-        ],
-        summary=snapshot.summary,
-        diagnostics=snapshot.diagnostics or "Brak zgłoszonych problemów odczytu.",
+        lists=lists,
+        relations=relations,
+        summary=f"{snapshot.summary} Pominięte relacje pól systemowych: {ignored_count}.",
+        diagnostics=diagnostics or "Brak zgłoszonych problemów odczytu.",
         catalog=snapshot.catalog,
+        ignored_count=ignored_count,
     )
 
 
@@ -201,9 +291,12 @@ def format_comparison_path_label(catalog: Catalog, path: ComparisonPath) -> str:
     )
 
 
-def list_comparison_options(catalog: Catalog, selected: set[str]) -> list[ComparisonOption]:
+def list_comparison_options(
+    catalog: Catalog, selected: set[str], policy: IgnoredFieldsPolicy | None = None,
+) -> list[ComparisonOption]:
     """Wyszukuje dostępne pary ścieżek bezpośrednich i pośrednich do porównania."""
-    paths = comparison_paths(catalog, set(selected))
+    policy = policy if policy is not None else default_ignored_fields()
+    paths = comparison_paths(catalog, set(selected), policy.is_ignored)
     return [
         ComparisonOption(index=idx, label=format_comparison_path_label(catalog, path), path=path)
         for idx, path in enumerate(paths)
@@ -829,6 +922,8 @@ def is_field_eligible(
 
     if mode == "lookup":
         if field.type_as_string not in _LOOKUP_FIELD_TYPES or not field.lookup_list:
+            return False
+        if default_ignored_fields().is_ignored(field):
             return False
         if lookup_target_list_id:
             want = normalize_guid(lookup_target_list_id) or lookup_target_list_id.strip()

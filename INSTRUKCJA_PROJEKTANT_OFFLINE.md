@@ -14,6 +14,30 @@
    - Wczytanie eksportu zasila listy rozwijane w Projektancie (listy, widoki, pola Lookup) oraz jest **wymagane** do uruchomienia **Symulacji offline**.
 3. Przełącz się na podzakładkę **Projektant (prototyp offline)**.
 
+### Mapa w zakładce Relacje offline
+
+- **Automatycznie dodawaj powiązane listy** (domyślnie włączone) dodaje na mapę
+  bezpośrednio powiązane listy w obu kierunkach. Nie dodaje kolejnych poziomów
+  sąsiadów ani nie zmienia ręcznych zaznaczeń używanych do porównywania ścieżek.
+- **Pokaż listy systemowe** (domyślnie włączone) steruje ich widocznością w panelu
+  list, tabeli relacji i na obu mapach. Ukryte ręczne zaznaczenia wracają po
+  ponownym pokazaniu; nie są kasowane.
+- **Kolory i legenda**: niebieski — listy użytkownika / nieoznaczone jako systemowe;
+  bursztynowy — systemowe; neutralny — cele poza katalogiem lub nierozpoznane.
+  Listy systemowe mają również opis tekstowy. Oznaczenie wynika z metadanych
+  `Hidden`, `IsCatalog` lub technicznego szablonu; brak metadanych nie ukrywa listy.
+- Po wyłączeniu automatycznego dodawania można używać dotychczasowej opcji
+  **Pokaż listy docelowe poza wyborem**, obejmującej tylko relacje wychodzące.
+- **Pokaż pola systemowe** (domyślnie wyłączone): relacje z wbudowanych kolumn
+  SharePoint (np. `FileRef`, `UniqueId`, `AppAuthor`) są pomijane na mapach,
+  w tabeli i przy wyszukiwaniu ścieżek; pod paskiem stanu widać ich liczbę.
+  Listę pól edytuje się w pliku `config/relations_ignored_fields.json`
+  (nazwy wewnętrzne, wielkość liter bez znaczenia; grupy są tylko opisowe).
+  Opcja `ignore_base_type_non_list_targets` pomija dodatkowo każde wbudowane pole
+  Lookup wskazujące tabelę zamiast listy. Zmiany pliku działają po ponownym
+  **Wczytaj**. Ta sama konfiguracja ogranicza pola Lookup w Projektancie
+  i ścieżki w **Porównaj ścieżki**.
+
 ---
 
 ## 2. Górny pasek narzędzi i pliki JSON

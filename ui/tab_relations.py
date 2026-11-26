@@ -11,6 +11,7 @@ from core.automation_service import (
     ListItemView,
     RelationEdgeView,
     RelationsData,
+    build_relations_view,
     find_paths,
     list_comparison_options,
     load_relations,
@@ -31,25 +32,39 @@ def _build_mermaid(
 ) -> str:
     if not selected_lists:
         return "flowchart LR\n  empty[\"Wybierz listy po lewej stronie\"]"
-    lines = ["flowchart LR"]
+    lines = [
+        "flowchart LR",
+        "  classDef userList fill:#dbeafe,stroke:#2563eb,color:#1e3a8a",
+        "  classDef systemList fill:#fef3c7,stroke:#d97706,color:#78350f",
+        "  classDef externalList fill:#f1f5f9,stroke:#64748b,color:#334155",
+    ]
     node_ids: dict[str, str] = {}
     for idx, item in enumerate(selected_lists):
         nid = f"L{idx}"
         node_ids[item.key] = nid
-        lines.append(f'  {nid}["{_mermaid_safe(item.title)}"]')
-    for edge in edges[:40]:
+        kind = "externalList" if item.is_external else "systemList" if item.is_system else "userList"
+        title = item.title + (" (systemowa)" if item.is_system else "")
+        lines.append(f'  {nid}["{_mermaid_safe(title)}"]:::{kind}')
+    for edge in edges:
         src = node_ids.get(edge.source)
         dst = node_ids.get(edge.target)
         if not src:
-            src = f"EXT_{abs(hash(edge.source)) % 10000}"
+            src = f"L{len(node_ids)}"
             node_ids[edge.source] = src
-            lines.append(f'  {src}["{_mermaid_safe(edge.source)}"]')
+            lines.append(f'  {src}["{_mermaid_safe(edge.source)}"]:::externalList')
         if not dst:
-            dst = f"EXT_{abs(hash(edge.target)) % 10000}"
+            dst = f"L{len(node_ids)}"
             node_ids[edge.target] = dst
-            lines.append(f'  {dst}["{_mermaid_safe(edge.target_title or edge.target)}"]')
+            lines.append(f'  {dst}["{_mermaid_safe(edge.target_title or edge.target)}"]:::externalList')
         lines.append(f'  {src} -->|"{_mermaid_safe(edge.label)}"| {dst}')
     return "\n".join(lines)
+
+
+def _relations_legend() -> None:
+    with ui.row().classes("items-center gap-3 text-xs"):
+        ui.label("Użytkownika / nieoznaczone").classes("bg-blue-100 text-blue-900 rounded px-2 py-1")
+        ui.label("Systemowe").classes("bg-amber-100 text-amber-900 rounded px-2 py-1")
+        ui.label("Poza katalogiem / nierozpoznane").classes("bg-slate-100 text-slate-700 rounded px-2 py-1")
 
 
 def build_relations_tab(
@@ -97,6 +112,7 @@ def build_relations_tab(
                 )
 
         with ui.scroll_area().classes("w-full flex-1 bg-white rounded-xl border border-slate-200 p-6"):
+            _relations_legend()
             with ui.column().style("width: 100%; min-width: 1100px;") as mermaid_modal_wrap:
                 mermaid_modal_view = ui.mermaid(local_state["mermaid_code"]).classes("w-full")
 
@@ -217,9 +233,18 @@ def build_relations_tab(
         status_lbl = ui.label("Eksport offline — brak połączenia i możliwości zapisu.").classes(
             "text-sm text-slate-600"
         )
+        ignored_lbl = ui.label("").classes("text-xs text-slate-500")
 
         with ui.row().classes("w-full items-center gap-4 flex-wrap"):
+            auto_related_chk = ui.checkbox("Automatycznie dodawaj powiązane listy", value=True).tooltip(
+                "Bezpośredni sąsiedzi w obu kierunkach; bez zmiany ręcznego zaznaczenia."
+            )
+            show_system_chk = ui.checkbox("Pokaż listy systemowe", value=True)
+            show_ignored_chk = ui.checkbox("Pokaż pola systemowe", value=False).tooltip(
+                "Relacje z pól wbudowanych SharePoint i pól z config/relations_ignored_fields.json."
+            )
             include_ext_chk = ui.checkbox("Pokaż listy docelowe poza wyborem", value=False)
+            include_ext_chk.disable()
             ui.button(
                 "Problemy odczytu",
                 icon="info",
@@ -246,6 +271,7 @@ def build_relations_tab(
                 list_table = ui.table(
                     columns=[
                         {"name": "title", "label": "Nazwa listy", "field": "title", "align": "left", "sortable": True},
+                        {"name": "kind", "label": "Typ", "field": "kind", "align": "left"},
                     ],
                     rows=[],
                     row_key="key",
@@ -270,6 +296,7 @@ def build_relations_tab(
                             on_click=_open_map_dialog,
                         ).props("outline color=primary size=sm")
                     mermaid_view = ui.mermaid("flowchart LR\n  empty[\"Wczytaj eksport, aby zobaczyć relacje\"]").classes("w-full overflow-x-auto")
+                    _relations_legend()
 
                 edge_table = ui.table(
                     columns=[
@@ -292,46 +319,82 @@ def build_relations_tab(
         data: RelationsData | None = local_state["data"]
         if data is None:
             return
-        selected = {row["key"] for row in list_table.selected}
-        local_state["selected_keys"] = selected
-        include_ext = bool(include_ext_chk.value)
-
         lists_by_key: dict[str, ListItemView] = local_state["lists_by_key"]
-        selected_lists = [lists_by_key[k] for k in selected if k in lists_by_key]
-
-        visible_edges = [
-            edge
-            for edge in data.relations
-            if edge.source in selected and (include_ext or edge.target in selected)
-        ]
+        selected_lists, visible_edges = build_relations_view(
+            data.lists, data.relations, local_state["selected_keys"],
+            auto_related=bool(auto_related_chk.value),
+            show_system=bool(show_system_chk.value),
+            include_external=bool(include_ext_chk.value),
+            show_ignored_fields=bool(show_ignored_chk.value),
+        )
         local_state["visible_edges"] = visible_edges
+        ignored_lbl.text = (
+            f"Pominięte relacje pól systemowych: {data.ignored_count}"
+            + (" (obecnie pokazane)." if show_ignored_chk.value else ".")
+            if data.ignored_count else ""
+        )
 
+        selected_edge_keys = {row["key"] for row in edge_table.selected}
         edge_table.rows = [
             {
                 "key": edge.key,
                 "source_title": lists_by_key[edge.source].title if edge.source in lists_by_key else edge.source,
                 "label": edge.label,
-                "target_title": edge.target_title or (
-                    lists_by_key[edge.target].title if edge.target in lists_by_key else edge.target
+                "target_title": (
+                    lists_by_key[edge.target].title if edge.target in lists_by_key
+                    else edge.target_title or edge.target
                 ),
                 "details": edge.details,
             }
             for edge in visible_edges
         ]
+        edge_table.selected = [row for row in edge_table.rows if row["key"] in selected_edge_keys]
         edge_table.update()
 
         mermaid_code = _build_mermaid(selected_lists, visible_edges)
+        if not selected_lists and local_state["selected_keys"] and not show_system_chk.value:
+            mermaid_code = 'flowchart LR\n  empty["Brak widocznych list. Pokaż listy systemowe lub zmień wybór."]'
         local_state["mermaid_code"] = mermaid_code
         mermaid_view.set_content(mermaid_code)
         mermaid_modal_view.set_content(mermaid_code)
 
-        if selected_lists:
-            details_box.value = "\n\n".join(item.details for item in selected_lists[:3])
+        manual_lists = [
+            item for item in data.lists
+            if item.key in local_state["selected_keys"] and (show_system_chk.value or not item.is_system)
+        ]
+        if manual_lists:
+            details_box.value = "\n\n".join(item.details for item in manual_lists[:3])
         else:
             details_box.value = "Zaznacz jedną lub więcej list po lewej stronie."
 
-    list_table.on("selection", lambda _e: _refresh_view())
+    def _on_selection(_e) -> None:
+        visible_keys = {row["key"] for row in list_table.rows}
+        hidden_selection = local_state["selected_keys"] - visible_keys
+        local_state["selected_keys"] = hidden_selection | {row["key"] for row in list_table.selected}
+        _refresh_view()
+
+    def _refresh_list_table() -> None:
+        data: RelationsData | None = local_state["data"]
+        if data is None:
+            return
+        rows = [
+            {"key": item.key, "title": item.title, "kind": "Systemowa" if item.is_system else "Użytkownika / nieoznaczona"}
+            for item in data.lists if show_system_chk.value or not item.is_system
+        ]
+        list_table.rows = rows
+        list_table.selected = [row for row in rows if row["key"] in local_state["selected_keys"]]
+        list_table.update()
+        _refresh_view()
+
+    def _on_auto_related(_e) -> None:
+        include_ext_chk.set_enabled(not auto_related_chk.value)
+        _refresh_view()
+
+    list_table.on_select(_on_selection)
+    auto_related_chk.on_value_change(_on_auto_related)
+    show_system_chk.on_value_change(lambda _e: _refresh_list_table())
     include_ext_chk.on_value_change(lambda _e: _refresh_view())
+    show_ignored_chk.on_value_change(lambda _e: _refresh_view())
     edge_table.on(
         "selection",
         lambda _e: setattr(
@@ -354,7 +417,10 @@ def build_relations_tab(
         if src == dst:
             details_box.value = "Lista początkowa i końcowa są takie same."
             return
-        found, truncated = find_paths(data.relations, src, dst)
+        path_relations = [
+            edge for edge in data.relations if show_ignored_chk.value or not edge.ignored_reason
+        ]
+        found, truncated = find_paths(path_relations, src, dst)
         if not found:
             details_box.value = "Brak skierowanej ścieżki lookup między wybranymi listami."
             return
@@ -394,13 +460,9 @@ def build_relations_tab(
             if on_catalog_loaded:
                 on_catalog_loaded(data.catalog)
 
-            rows = [{"key": item.key, "title": item.title} for item in data.lists]
-            list_table.rows = rows
-            default_sel = [r for r in rows if local_state["lists_by_key"][r["key"]].priority]
-            if not default_sel:
-                default_sel = rows[:6]
-            list_table.selected = default_sel
-            list_table.update()
+            default_sel = [item.key for item in data.lists if item.priority]
+            local_state["selected_keys"] = set(default_sel or [item.key for item in data.lists[:6]])
+            _refresh_list_table()
 
             choices = {item.key: item.title for item in data.lists}
             path_start.options = choices

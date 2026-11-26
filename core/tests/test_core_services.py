@@ -153,6 +153,183 @@ def test_find_paths_cycles_depth_and_truncation():
     assert find_paths(relations, "c", "a") == ([], False)
 
 
+def test_relations_view_adds_incoming_and_outgoing_neighbors_only_once():
+    from core.automation_service import ListItemView, build_relations_view
+
+    lists = [ListItemView(key, key.upper(), "") for key in "abcd"]
+    edges = [
+        RelationEdgeView("ab", "a", "b", "AB", ""),
+        RelationEdgeView("ca", "c", "a", "CA", ""),
+        RelationEdgeView("bd", "b", "d", "BD", ""),
+        RelationEdgeView("ba", "b", "a", "BA", ""),
+        RelationEdgeView("ab2", "a", "b", "Another lookup", ""),
+    ]
+    selected = {"a"}
+    nodes, visible = build_relations_view(lists, edges, selected)
+    assert [item.key for item in nodes] == ["a", "b", "c"]
+    assert [edge.key for edge in visible] == ["ab", "ca", "ba", "ab2"]
+    assert selected == {"a"}
+    nodes, visible = build_relations_view(lists, edges, {"a", "b"})
+    assert [item.key for item in nodes] == ["a", "b", "c", "d"]
+    assert visible == edges
+    assert build_relations_view(lists, edges, set()) == ([], [])
+
+
+@pytest.mark.parametrize("metadata,reason", [
+    ({"Hidden": True}, "Hidden"),
+    ({"IsCatalog": True}, "IsCatalog"),
+    ({"BaseTemplate": 112}, "User Information"),
+    ({"BaseTemplate": "140"}, "Workflow History"),
+    ({"BaseTemplate": 5001}, "NintexWorkflows"),
+    ({"BaseTemplate": 101, "Hidden": False}, ""),
+    ({"BaseTemplate": 100, "IsApplicationList": True}, ""),
+    ({"Hidden": "false", "IsCatalog": False}, ""),
+    ({}, ""),
+])
+def test_system_list_classification_uses_explicit_metadata(metadata, reason):
+    from core.automation_service import system_list_reason
+
+    actual = system_list_reason(ListRecord("a", "Business", metadata=metadata))
+    assert reason in actual if reason else actual == ""
+
+
+def test_relations_view_filters_system_nodes_and_preserves_unknown_targets():
+    from core.automation_service import ListItemView, build_relations_view
+
+    lists = [
+        ListItemView("a", "A", ""),
+        ListItemView("b", "B", "", is_system=True),
+        ListItemView("c", "C", ""),
+    ]
+    edges = [
+        RelationEdgeView("ab", "a", "b", "AB", ""),
+        RelationEdgeView("ca", "c", "a", "CA", ""),
+        RelationEdgeView("ax", "a", "unknown", "AX", "", "External"),
+    ]
+    nodes, visible = build_relations_view(lists, edges, {"a", "b"}, show_system=False)
+    assert [node.key for node in nodes] == ["a", "c", "unknown"]
+    assert [edge.key for edge in visible] == ["ca", "ax"]
+    assert nodes[-1].is_external and not nodes[-1].is_system
+    assert build_relations_view(lists, edges, {"b"}, show_system=False) == ([], [])
+    nodes, visible = build_relations_view(lists, edges, {"a"}, auto_related=False)
+    assert [node.key for node in nodes] == ["a"]
+    assert visible == []
+    nodes, visible = build_relations_view(
+        lists, edges, {"a"}, auto_related=False, include_external=True,
+    )
+    assert [node.key for node in nodes] == ["a", "b", "unknown"]
+    assert [edge.key for edge in visible] == ["ab", "ax"]
+
+
+def test_load_relations_exposes_system_classification_without_changing_catalog(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+    from core.automation_service import ListItemView, load_relations
+
+    catalog = Catalog(lists={"a": ListRecord("a", "History", metadata={"BaseTemplate": 140})})
+    snapshot = SimpleNamespace(
+        lists=[ListItemView("a", "History", "Original details", priority=True)],
+        relations=[], summary="Summary", diagnostics="", catalog=catalog,
+    )
+    monkeypatch.setattr("core.automation_service.load_relations_snapshot", lambda _path: snapshot)
+    data = load_relations(tmp_path)
+    assert data.catalog is catalog
+    assert data.lists[0].is_system and data.lists[0].priority
+    assert data.lists[0].details.startswith("Original details")
+    assert "Workflow History (BaseTemplate=140)" in data.lists[0].details
+    assert catalog.lists["a"].metadata == {"BaseTemplate": 140}
+
+
+def test_ignored_fields_policy_config_rule_and_fallbacks(tmp_path):
+    from tools.sp_automation.ignored_fields import load_ignored_fields
+
+    guid = "22222222-2222-4222-8222-222222222222"
+    lookup = lambda name, target, base=False: FieldRecord(
+        name, name, "Lookup", "", lookup_list=target, metadata={"FromBaseType": base},
+    )
+    path = tmp_path / "ignored.json"
+    path.write_text(json.dumps({"ignored_fields": {"Grupa": ["predecessors", 7]}}), encoding="utf-8")
+    policy = load_ignored_fields(path)
+    assert policy.is_ignored(lookup("Predecessors", guid))
+    assert policy.is_ignored(lookup("FileRef", "Docs", base=True))
+    assert policy.is_ignored(lookup("AppAuthor", "AppPrincipals", base=True))
+    assert not policy.is_ignored(lookup("Builtin", guid, base=True))
+    assert not policy.is_ignored(lookup("Parent", "Self", base=True))
+    assert not policy.is_ignored(lookup("FileRef", "Docs"))
+    assert len(policy.warnings) == 1
+
+    path.write_text(json.dumps({"ignore_base_type_non_list_targets": False}), encoding="utf-8")
+    assert not load_ignored_fields(path).is_ignored(lookup("FileRef", "Docs", base=True))
+
+    path.write_text("{", encoding="utf-8")
+    broken = load_ignored_fields(path)
+    missing = load_ignored_fields(tmp_path / "missing.json")
+    for fallback in (broken, missing):
+        assert fallback.warnings and fallback.is_ignored(lookup("FileRef", "Docs", base=True))
+        assert not fallback.is_ignored(lookup("Predecessors", guid))
+
+
+def test_relations_view_hides_ignored_fields_unless_requested():
+    from core.automation_service import ListItemView, build_relations_view
+
+    lists = [ListItemView("a", "A", ""), ListItemView("b", "B", "")]
+    edges = [
+        RelationEdgeView("ab", "a", "b", "AB", ""),
+        RelationEdgeView("a:FileRef", "a", "invalid:a:FileRef", "Ścieżka", "", "Nieznana", "systemowe"),
+    ]
+    nodes, visible = build_relations_view(lists, edges, {"a"})
+    assert [node.key for node in nodes] == ["a", "b"] and [edge.key for edge in visible] == ["ab"]
+    nodes, visible = build_relations_view(lists, edges, {"a"}, show_ignored_fields=True)
+    assert [edge.key for edge in visible] == ["ab", "a:FileRef"]
+    assert nodes[-1].is_external
+
+
+def test_load_relations_marks_ignored_fields_and_reports_policy_warnings(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+    from core.automation_service import ListItemView, load_relations
+    from tools.sp_automation.ignored_fields import IgnoredFieldsPolicy
+
+    fields = {
+        "FileRef": FieldRecord("FileRef", "Ścieżka", "Lookup", "", lookup_list="Docs", metadata={"FromBaseType": True}),
+        "Link": FieldRecord("Link", "Link", "Lookup", "", lookup_list="b"),
+    }
+    catalog = Catalog(lists={"a": ListRecord("a", "A", fields=fields)})
+    snapshot = SimpleNamespace(
+        lists=[ListItemView("a", "A", "")],
+        relations=[
+            RelationEdgeView("a:FileRef", "a", "invalid:a:FileRef", "Ścieżka", "Szczegóły"),
+            RelationEdgeView("a:Link", "a", "b", "Link", "Szczegóły"),
+        ],
+        summary="Summary.", diagnostics="", catalog=catalog,
+    )
+    monkeypatch.setattr("core.automation_service.load_relations_snapshot", lambda _path: snapshot)
+    data = load_relations(tmp_path, IgnoredFieldsPolicy(warnings=("Brak pliku.",)))
+    assert [bool(edge.ignored_reason) for edge in data.relations] == [True, False]
+    assert "Pominięte domyślnie" in data.relations[0].details
+    assert data.ignored_count == 1 and "pól systemowych: 1" in data.summary
+    assert data.diagnostics == "Brak pliku."
+
+
+def test_designer_lookup_options_and_comparisons_skip_ignored_fields():
+    from tools.sp_automation.comparison import comparison_paths
+    from tools.sp_automation.ignored_fields import IgnoredFieldsPolicy
+
+    a, b, c = (f"{n}{n}{n}{n}{n}{n}{n}{n}-0000-4000-8000-000000000000" for n in (1, 2, 3))
+    lookup = lambda name, target, **meta: FieldRecord(name, name, "Lookup", name, lookup_list=target, metadata=meta)
+    catalog = Catalog(lists={
+        a: ListRecord(a, "A", fields={
+            "ToC": lookup("ToC", c), "ToB": lookup("ToB", b),
+            "AppAuthor": lookup("AppAuthor", "AppPrincipals", FromBaseType=True),
+            "Predecessors": lookup("Predecessors", a),
+        }),
+        b: ListRecord(b, "B", fields={"BToC": lookup("BToC", c)}),
+        c: ListRecord(c, "C"),
+    })
+    assert set(catalog_field_options(catalog, a, mode="lookup")) == {"ToC", "ToB"}
+    assert len(comparison_paths(catalog, {a, b, c})) == 1
+    skip_b = IgnoredFieldsPolicy(frozenset({"tob"}))
+    assert comparison_paths(catalog, {a, b, c}, skip_b.is_ignored) == []
+
+
 def test_workflow_drafts_are_independent_and_can_be_parsed():
     first, second = new_workflow(), new_workflow()
     first["nodes"].append(create_node_dict("assign", "assign_1"))

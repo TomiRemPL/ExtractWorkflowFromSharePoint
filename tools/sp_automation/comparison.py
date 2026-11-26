@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 from collections import defaultdict
+from collections.abc import Callable
 from dataclasses import dataclass
 
-from .catalog import Catalog, ListRecord
+from .catalog import Catalog, FieldRecord, ListRecord
 from .relations import Relation, _id, _row_lookup, build_relations
 
 
@@ -29,10 +30,16 @@ class ComparisonRow:
     status: str
 
 
-def comparison_paths(catalog: Catalog, selected: set[str]) -> list[ComparisonPath]:
+def comparison_paths(
+    catalog: Catalog,
+    selected: set[str],
+    is_ignored: Callable[[FieldRecord], bool] | None = None,
+) -> list[ComparisonPath]:
     """Find direct and two-hop paths within the explicitly selected lists."""
     outgoing: dict[str, list[Relation]] = defaultdict(list)
     for relation in build_relations(catalog):
+        if is_ignored is not None and is_ignored(relation.field):
+            continue
         if (relation.kind == "lookup" and relation.source_list_id in selected
                 and relation.target_list_id in selected
                 and relation.source_list_id != relation.target_list_id):

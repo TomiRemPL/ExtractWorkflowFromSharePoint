@@ -1,0 +1,79 @@
+{
+  "_opis": "Pola Lookup pomijane przy relacjach offline (graf, tabela, ścieżki, porównania, opcje Lookup w projektancie). Dopasowanie po nazwie wewnętrznej (InternalName), bez rozróżniania wielkości liter. Grupy służą tylko do opisu; liczy się suma nazw. Aby przywrócić pole, usuń je z listy.",
+  "_zrodlo": "Wbudowane kolumny SharePoint Server 2019 obserwowane w eksporcie DaneZeSkryptu_016 (FromBaseType=true, CanBeDeleted=false). Atrybuty List/SourceID/FromBaseType: https://learn.microsoft.com/en-us/sharepoint/dev/schema/field-element-field",
+  "_regula": "ignore_base_type_non_list_targets=true pomija także każde pole Lookup z FromBaseType=true, którego LookupList nie jest GUID-em listy ani wartością Self (np. Docs, AppPrincipals).",
+  "ignore_base_type_non_list_targets": true,
+  "ignored_fields": {
+    "Plik/folder i elementy (List=Docs)": [
+      "FileRef",
+      "FileDirRef",
+      "Last_x0020_Modified",
+      "Created_x0020_Date",
+      "FSObjType",
+      "SortBehavior",
+      "UniqueId",
+      "SyncClientId",
+      "ProgId",
+      "ScopeId",
+      "MetaInfo",
+      "ItemChildCount",
+      "FolderChildCount",
+      "Restricted",
+      "OriginatorId",
+      "NoExecute",
+      "ContentVersion",
+      "AccessPolicy",
+      "File_x0020_Size",
+      "BSN",
+      "StreamHash",
+      "DocConcurrencyNumber",
+      "ParentUniqueId",
+      "ParentVersionString",
+      "ParentLeafName",
+      "_ListSchemaVersion",
+      "_Dirty",
+      "_Parsable",
+      "_StubFile"
+    ],
+    "Wyewidencjonowanie (List=Docs)": [
+      "CheckedOutUserId",
+      "CheckedOutTitle",
+      "IsCheckedoutToLocal",
+      "_CheckinComment"
+    ],
+    "Etykiety zgodności (List=Docs)": [
+      "_ComplianceFlags",
+      "_ComplianceTag",
+      "_ComplianceTagWrittenTime",
+      "_ComplianceTagUserId"
+    ],
+    "Skanowanie antywirusowe (List=Docs)": [
+      "VirusStatus",
+      "_VirusStatus",
+      "_VirusVendorID",
+      "_VirusInfo"
+    ],
+    "Komentarze i polubienia (List=Docs)": [
+      "_CommentFlags",
+      "_CommentCount",
+      "_LikeCount"
+    ],
+    "Metryki magazynu (List=Docs, StorageMetrics)": [
+      "SMTotalSize",
+      "SMLastModifiedDate",
+      "SMTotalFileStreamSize",
+      "SMTotalFileCount"
+    ],
+    "Aplikacje (List=AppPrincipals)": [
+      "AppAuthor",
+      "AppEditor"
+    ],
+    "Taksonomia (ukryta lista TaxonomyHiddenList)": [
+      "TaxCatchAll",
+      "TaxCatchAllLabel"
+    ],
+    "Zadania (relacja listy zadań do samej siebie)": [
+      "Predecessors"
+    ]
+  }
+}
